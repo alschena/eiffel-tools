@@ -1,3 +1,5 @@
 mod lib {
-    mod eiffel;
+    mod code_entities;
+    mod file_processor;
+    mod workspace;
 }
