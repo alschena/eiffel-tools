@@ -1,19 +1,19 @@
 use std::path::PathBuf;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(super) enum FeatureVisibility<'a> {
     None,
     Some(&'a Class<'a>),
     All,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(super) struct Feature<'a> {
     name: String,
     visibility: FeatureVisibility<'a>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(super) struct Class<'a> {
     name: String,
     path: PathBuf,
