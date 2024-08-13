@@ -37,9 +37,54 @@ impl FileProcessor {
             }
         }
     }
-    fn features(&mut self) -> Vec<Feature> {
-        todo!()
+    pub(crate) fn process<'a>(&mut self) -> ProcessedFile<'a> {
+        let mut cursor = self.tree.walk();
+        let mut next_child = true;
+        let mut class: Option<Class<'a>> = None;
+        let mut features: Vec<Feature<'a>> = Vec::new();
+
+        while next_child {
+            let mut next_sibling = true;
+
+            while next_sibling {
+                let node = cursor.node();
+                let name = node.kind();
+
+                match name {
+                    "class_name" => {
+                        let name = match String::from_utf8(self.src[node.byte_range()].to_vec()) {
+                            Ok(v) => v.to_uppercase(),
+                            Err(e) => panic!("invalid UTF-8 sequence {}", e),
+                        };
+                        let source_file = self.path.clone();
+                        class = Some(Class::from_name_and_path(name, source_file))
+                    }
+                    "extended_feature_name" => {
+                        let name = match String::from_utf8(self.src[node.byte_range()].to_vec()) {
+                            Ok(v) => v,
+                            Err(e) => panic!("invalid UTF-8 sequence {}", e),
+                        };
+                        let source_file = self.path.clone();
+                        features.push(todo!());
+                    }
+                    _ => next_sibling = cursor.goto_next_sibling(),
+                }
+            }
+            next_child = cursor.goto_first_child()
+        }
+        let class = class.expect(format!("No class found in file {:?}", self.path).as_str());
+        ProcessedFile {
+            path: self.path.clone(),
+            class,
+            features,
+        }
     }
+}
+
+pub(crate) struct ProcessedFile<'a> {
+    path: PathBuf,
+    class: Class<'a>,
+    features: Vec<Feature<'a>>,
 }
 
 #[cfg(test)]
