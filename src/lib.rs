@@ -1,5 +1,5 @@
 mod lib {
     mod code_entities;
-    mod file_processor;
+    mod processed_file;
     mod workspace;
 }
