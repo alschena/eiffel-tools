@@ -1,20 +1,14 @@
-use std::ops::{Deref, DerefMut};
 use tree_sitter::{Node, Tree, TreeCursor};
 
-struct WidthFirstTraversal<'a> {
+pub(crate) struct WidthFirstTraversal<'a> {
     cursor: TreeCursor<'a>,
     stack: Vec<Node<'a>>,
 }
 
-impl<'a> Deref for WidthFirstTraversal<'a> {
-    type Target = TreeCursor<'a>;
-    fn deref(&self) -> &Self::Target {
-        return &self.cursor;
-    }
-}
-impl<'a> DerefMut for WidthFirstTraversal<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        return &mut self.cursor;
+impl WidthFirstTraversal<'_> {
+    pub(crate) fn new(cursor: TreeCursor<'_>) -> WidthFirstTraversal<'_> {
+        let stack = Vec::new();
+        WidthFirstTraversal { cursor, stack }
     }
 }
 
@@ -22,12 +16,12 @@ impl<'a> Iterator for WidthFirstTraversal<'a> {
     type Item = Node<'a>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.stack.is_empty() {
-            let node = self.node();
+            let node = self.cursor.node();
             self.stack.push(node);
             return Some(node);
         }
-        if self.goto_next_sibling() {
-            let node = self.node();
+        if self.cursor.goto_next_sibling() {
+            let node = self.cursor.node();
             self.stack.push(node);
             return Some(node);
         } else {
@@ -35,7 +29,7 @@ impl<'a> Iterator for WidthFirstTraversal<'a> {
                 let cursor = &mut self.cursor;
                 cursor.reset(self.stack.pop().expect("One node in the stack here"));
                 if cursor.goto_first_child() {
-                    let node = self.node();
+                    let node = self.cursor.node();
                     self.stack.push(node);
                     return Some(node);
                 }
@@ -44,5 +38,57 @@ impl<'a> Iterator for WidthFirstTraversal<'a> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lib::processed_file::ProcessedFile;
+    use std::fs::File;
+    use std::io::prelude::*;
+    use std::path::PathBuf;
+
+    const PROCEDURE_PATH: &str = "/tmp/class_with_feature_path.e";
+    const PROCEDURE: &str = "
+class A feature
+  f(x, y: INTEGER; z: BOOLEAN)
+    do
+    end
+end
+";
+
+    #[test]
+    fn process_procedure() -> std::io::Result<()> {
+        let procedure_path: PathBuf = PathBuf::from(PROCEDURE_PATH);
+        let mut file = File::create(&procedure_path)?;
+        file.write_all(PROCEDURE.as_bytes())?;
+
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_eiffel::language())
+            .expect("Error loading Eiffel grammar");
+
+        let file = ProcessedFile::new(&mut parser, procedure_path.clone());
+
+        let cursor = file.tree.walk();
+        let mut width_first = WidthFirstTraversal::new(cursor);
+
+        assert_eq!(
+            width_first.next().expect("source file node").kind(),
+            "source_file"
+        );
+        assert_eq!(
+            width_first.next().expect("class declaration node").kind(),
+            "class_declaration"
+        );
+        assert_eq!(width_first.next().expect("class").kind(), "class");
+        assert_eq!(width_first.next().expect("class_name").kind(), "class_name");
+        assert_eq!(
+            width_first.next().expect("feature clause").kind(),
+            "feature_clause"
+        );
+
+        Ok(())
     }
 }
