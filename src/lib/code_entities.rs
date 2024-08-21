@@ -1,6 +1,4 @@
-use super::processed_file::ProcessedFile;
 use super::tree_sitter::WidthFirstTraversal;
-use std::path::PathBuf;
 use tree_sitter::Tree;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -82,8 +80,6 @@ impl CodeEntities<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
-    use std::io::prelude::*;
 
     #[test]
     fn process_base_class() -> std::io::Result<()> {

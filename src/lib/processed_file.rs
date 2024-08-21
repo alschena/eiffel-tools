@@ -1,4 +1,3 @@
-use super::code_entities::{Class, Feature};
 use std::path::PathBuf;
 use tree_sitter::{Parser, Tree, TreeCursor};
 
