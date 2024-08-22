@@ -76,6 +76,9 @@ async fn main() {
             .request::<request::GotoDefinition, _>(|_, _| async move {
                 unimplemented!("Not yet implemented!")
             })
+            .request::<request::DocumentSymbolRequest, _>(|_, _| async move {
+                unimplemented!("Not yet implemented!")
+            })
             .notification::<notification::Initialized>(|_, _| ControlFlow::Continue(()))
             .notification::<notification::DidChangeConfiguration>(|_, _| ControlFlow::Continue(()))
             .notification::<notification::DidOpenTextDocument>(|_, _| ControlFlow::Continue(()))
