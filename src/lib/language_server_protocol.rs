@@ -22,3 +22,27 @@ impl From<DocumentSymbol> for Class<'_> {
         Class::from_name(name)
     }
 }
+
+impl From<async_lsp::lsp_types::Position> for Point {
+    fn from(value: async_lsp::lsp_types::Position) -> Self {
+        Self {
+            row: value
+                .line
+                .try_into()
+                .expect("Failed conversion of row from u32 to usize or viceversa"),
+            column: value
+                .character
+                .try_into()
+                .expect("Failed conversion of row from u32 to usize or viceversa"),
+        }
+    }
+}
+
+impl From<async_lsp::lsp_types::Range> for Range {
+    fn from(value: async_lsp::lsp_types::Range) -> Self {
+        Self {
+            start: value.start.into(),
+            end: value.end.into(),
+        }
+    }
+}

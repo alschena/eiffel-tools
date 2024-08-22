@@ -1,3 +1,6 @@
+use crate::lib::code_entities::{Point, Range};
+use std::ops::{Deref, DerefMut};
+
 use tree_sitter::{Node, Tree, TreeCursor};
 
 pub(crate) struct WidthFirstTraversal<'a> {
@@ -37,6 +40,24 @@ impl<'a> Iterator for WidthFirstTraversal<'a> {
                     return None;
                 }
             }
+        }
+    }
+}
+
+impl From<tree_sitter::Point> for Point {
+    fn from(value: tree_sitter::Point) -> Self {
+        Self {
+            row: value.row,
+            column: value.column,
+        }
+    }
+}
+
+impl From<tree_sitter::Range> for Range {
+    fn from(value: tree_sitter::Range) -> Self {
+        Self {
+            start: value.start_point.into(),
+            end: value.end_point.into(),
         }
     }
 }

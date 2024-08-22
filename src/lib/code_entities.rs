@@ -1,6 +1,16 @@
 use super::{processed_file::ProcessedFile, tree_sitter::WidthFirstTraversal};
 use tree_sitter::Tree;
 
+pub(super) struct Point {
+    pub(super) row: usize,
+    pub(super) column: usize,
+}
+
+pub(super) struct Range {
+    pub(super) start: Point,
+    pub(super) end: Point,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(super) enum FeatureVisibility<'a> {
     Private,
