@@ -1,4 +1,4 @@
-use crate::lib::code_entities::{Point, Range};
+use crate::lib::code_entities::{Class, Feature, Point, Range};
 use std::ops::{Deref, DerefMut};
 
 use tree_sitter::{Node, Tree, TreeCursor};
@@ -62,54 +62,123 @@ impl From<tree_sitter::Range> for Range {
     }
 }
 
+impl<'c> Class<'c> {
+    /// This relies on the first `class_name` node (containing the class associated to the current file) coming earliar than any "extended_feature_name" node in the `WidthFirstTraversal` of the tree-sitter tree.
+    pub(super) fn from_tree_and_src<'a>(tree: &'a Tree, src: &'a str) -> Class<'c> {
+        let cursor = tree.walk();
+        let mut traversal = WidthFirstTraversal::new(cursor);
+
+        let node = traversal
+            .find(|x| x.kind() == "class_name")
+            .expect("class_name");
+
+        let name = src[node.byte_range()].into();
+        let range = node.range().into();
+        let mut class = Self::from_name_range(name, range);
+
+        for node in traversal.filter(|x| x.kind() == "extended_feature_name") {
+            let feature =
+                Feature::from_name_and_range(src[node.byte_range()].into(), node.range().into());
+            class.add_feature(feature);
+        }
+        class
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lib::processed_file::ProcessedFile;
-    use std::fs::File;
-    use std::io::prelude::*;
-    use std::path::PathBuf;
 
-    const PROCEDURE_PATH: &str = "/tmp/class_with_feature_path.e";
-    const PROCEDURE: &str = "
+    #[test]
+    fn process_base_class() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_eiffel::language())
+            .expect("Error loading Eiffel grammar");
+
+        let src = "
+    class A
+    note
+    end
+        ";
+        let tree = parser.parse(src, None).expect("AST");
+
+        let class = Class::from_tree_and_src(&tree, &src);
+
+        assert_eq!(
+            class.name(),
+            "A".to_string(),
+            "Equality of {} and {}",
+            class.name(),
+            "A".to_string()
+        );
+    }
+
+    #[test]
+    fn process_annotated_class() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_eiffel::language())
+            .expect("Error loading Eiffel grammar");
+
+        let src = "
+note
+  demo_note: True
+  multi_note: True, False
+class DEMO_CLASS
+invariant
+  note
+    note_after_invariant: True
+end
+    ";
+        let tree = parser.parse(src, None).expect("AST");
+
+        let class = Class::from_tree_and_src(&tree, &src);
+
+        assert_eq!(class.name(), "DEMO_CLASS".to_string());
+    }
+
+    #[test]
+    fn process_procedure() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_eiffel::language())
+            .expect("Error loading Eiffel grammar");
+
+        let src = "
 class A feature
   f(x, y: INTEGER; z: BOOLEAN)
     do
     end
 end
 ";
+        let tree = parser.parse(src, None).unwrap();
+        let class = Class::from_tree_and_src(&tree, &src);
+        let features = class.features().clone();
+
+        assert_eq!(class.name(), "A".to_string());
+        assert_eq!(features.first().unwrap().name(), "f".to_string());
+    }
 
     #[test]
-    fn process_procedure() -> std::io::Result<()> {
-        let procedure_path: PathBuf = PathBuf::from(PROCEDURE_PATH);
-        let mut file = File::create(&procedure_path)?;
-        file.write_all(PROCEDURE.as_bytes())?;
-
+    fn process_attribute() {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(tree_sitter_eiffel::language())
             .expect("Error loading Eiffel grammar");
 
-        let file = ProcessedFile::new(&mut parser, procedure_path.clone());
+        let src = "
+class A
+feature
+    x: INTEGER
+end
+";
+        let tree = parser.parse(src, None).unwrap();
 
-        let cursor = file.tree.walk();
-        let mut width_first = WidthFirstTraversal::new(cursor);
+        let class = Class::from_tree_and_src(&tree, &src);
+        let features = class.features().clone();
 
-        assert_eq!(
-            width_first.next().expect("source file node").kind(),
-            "source_file"
-        );
-        assert_eq!(
-            width_first.next().expect("class declaration node").kind(),
-            "class_declaration"
-        );
-        assert_eq!(width_first.next().expect("class").kind(), "class");
-        assert_eq!(width_first.next().expect("class_name").kind(), "class_name");
-        assert_eq!(
-            width_first.next().expect("feature clause").kind(),
-            "feature_clause"
-        );
-
-        Ok(())
+        assert_eq!(class.name(), "A".to_string());
+        assert_eq!(features.first().unwrap().name(), "x".to_string());
     }
 }
