@@ -1,26 +1,14 @@
-use std::ops::ControlFlow;
-use std::time::Duration;
-
-use async_lsp::client_monitor::ClientProcessMonitorLayer;
 use async_lsp::concurrency::ConcurrencyLayer;
-use async_lsp::lsp_types::{
-    notification, request, Hover, HoverContents, HoverProviderCapability, InitializeResult,
-    MarkedString, MessageType, OneOf, ServerCapabilities, ShowMessageParams,
-};
+use async_lsp::lsp_types::request;
 use async_lsp::panic::CatchUnwindLayer;
-use async_lsp::router::Router;
+use async_lsp::router;
 use async_lsp::server::LifecycleLayer;
 use async_lsp::tracing::TracingLayer;
-use async_lsp::ClientSocket;
+use async_lsp::{client_monitor::ClientProcessMonitorLayer, lsp_types::notification};
+use eiffel_tools::lib::language_server_protocol::{Router, TickEvent};
+use std::time::Duration;
 use tower::ServiceBuilder;
 use tracing::{info, Level};
-
-struct ServerState {
-    client: ClientSocket,
-    counter: i32,
-}
-
-struct TickEvent;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -38,57 +26,16 @@ async fn main() {
             }
         });
 
-        let mut router = Router::new(ServerState {
-            client: client.clone(),
-            counter: 0,
-        });
-        router
-            .request::<request::Initialize, _>(|_, params| async move {
-                eprintln!("Initialize with {params:?}");
-                Ok(InitializeResult {
-                    capabilities: ServerCapabilities {
-                        hover_provider: Some(HoverProviderCapability::Simple(true)),
-                        definition_provider: Some(OneOf::Left(true)),
-                        ..ServerCapabilities::default()
-                    },
-                    server_info: None,
-                })
-            })
-            .request::<request::HoverRequest, _>(|st, _| {
-                let client = st.client.clone();
-                let counter = st.counter;
-                async move {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    client
-                        .notify::<notification::ShowMessage>(ShowMessageParams {
-                            typ: MessageType::INFO,
-                            message: "Hello LSP".into(),
-                        })
-                        .unwrap();
-                    Ok(Some(Hover {
-                        contents: HoverContents::Scalar(MarkedString::String(format!(
-                            "I am a hover text {counter}!"
-                        ))),
-                        range: None,
-                    }))
-                }
-            })
-            .request::<request::GotoDefinition, _>(|_, _| async move {
-                unimplemented!("Not yet implemented!")
-            })
-            .request::<request::DocumentSymbolRequest, _>(|_, _| async move {
-                unimplemented!("Not yet implemented!")
-            })
-            .notification::<notification::Initialized>(|_, _| ControlFlow::Continue(()))
-            .notification::<notification::DidChangeConfiguration>(|_, _| ControlFlow::Continue(()))
-            .notification::<notification::DidOpenTextDocument>(|_, _| ControlFlow::Continue(()))
-            .notification::<notification::DidChangeTextDocument>(|_, _| ControlFlow::Continue(()))
-            .notification::<notification::DidCloseTextDocument>(|_, _| ControlFlow::Continue(()))
-            .event::<TickEvent>(|st, _| {
-                info!("tick");
-                st.counter += 1;
-                ControlFlow::Continue(())
-            });
+        let mut router = Router::new(&client);
+        router.set_handler_request::<request::Initialize>();
+        router.set_handler_request::<request::HoverRequest>();
+        router.set_handler_request::<request::GotoDefinition>();
+        router.set_handler_request::<request::DocumentSymbolRequest>();
+        router.set_handler_notification::<notification::Initialized>();
+        router.set_handler_notification::<notification::DidOpenTextDocument>();
+        router.set_handler_notification::<notification::DidChangeTextDocument>();
+        router.set_handler_notification::<notification::DidCloseTextDocument>();
+        router.set_tick_event();
 
         ServiceBuilder::new()
             .layer(TracingLayer::default())
@@ -96,7 +43,7 @@ async fn main() {
             .layer(CatchUnwindLayer::default())
             .layer(ConcurrencyLayer::default())
             .layer(ClientProcessMonitorLayer::new(client))
-            .service(router)
+            .service::<router::Router<_>>(router.into())
     });
 
     tracing_subscriber::fmt()
