@@ -38,6 +38,9 @@ impl Feature<'_> {
     pub(super) fn name(&self) -> &str {
         &self.name
     }
+    pub(super) fn range(&self) -> &Range {
+        &self.range
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -55,6 +58,9 @@ impl<'c> Class<'c> {
     }
     pub(super) fn features(&self) -> &Vec<Feature<'_>> {
         &self.features
+    }
+    pub(super) fn range(&self) -> &Range {
+        &self.range
     }
     pub(super) fn from_name_range(name: String, range: Range) -> Class<'c> {
         let features = Vec::new();

@@ -1,8 +1,9 @@
 use crate::lib::code_entities::*;
+use crate::lib::processed_file::ProcessedFile;
 use async_lsp::lsp_types::{
-    notification, request, DocumentSymbol, Hover, HoverContents, HoverProviderCapability,
-    InitializeResult, MarkedString, MessageType, OneOf, ServerCapabilities, ShowMessageParams,
-    SymbolKind,
+    notification, request, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, Hover,
+    HoverContents, HoverProviderCapability, InitializeResult, MarkedString, MessageType, OneOf,
+    ServerCapabilities, ShowMessageParams, SymbolKind,
 };
 use async_lsp::router;
 use async_lsp::ClientSocket;
@@ -10,8 +11,10 @@ use async_lsp::{lsp_types, ResponseError};
 use async_lsp::{Error, Result};
 use std::future::Future;
 use std::ops::ControlFlow;
+use std::path::PathBuf;
 use std::time::Duration;
 use tracing::{info, Level};
+use tree_sitter::Parser;
 
 impl From<DocumentSymbol> for Feature<'_> {
     fn from(value: DocumentSymbol) -> Self {
@@ -20,6 +23,23 @@ impl From<DocumentSymbol> for Feature<'_> {
         let range = value.range;
         debug_assert_ne!(kind, SymbolKind::CLASS);
         Feature::from_name_and_range(name, range.into())
+    }
+}
+
+impl From<&Feature<'_>> for DocumentSymbol {
+    fn from(value: &Feature<'_>) -> Self {
+        let name = value.name().to_string();
+        let range = value.range().clone().into();
+        DocumentSymbol {
+            name,
+            detail: None,
+            kind: SymbolKind::METHOD,
+            tags: None,
+            deprecated: None,
+            range,
+            selection_range: range,
+            children: None,
+        }
     }
 }
 
@@ -34,6 +54,35 @@ impl From<DocumentSymbol> for Class<'_> {
             None => Vec::new(),
         };
         Class::from_name_range(name, range.into())
+    }
+}
+
+impl From<&Class<'_>> for DocumentSymbol {
+    fn from(value: &Class<'_>) -> Self {
+        let name = value.name().to_string();
+        let features = value.features();
+        let range = value.range().clone().into();
+        let children: Option<Vec<DocumentSymbol>> =
+            Some(features.into_iter().map(|x| x.into()).collect());
+        DocumentSymbol {
+            name,
+            detail: None,
+            kind: SymbolKind::CLASS,
+            tags: None,
+            deprecated: None,
+            range,
+            selection_range: range,
+            children,
+        }
+    }
+}
+
+impl From<Point> for async_lsp::lsp_types::Position {
+    fn from(value: Point) -> Self {
+        Self {
+            line: value.row.try_into().expect("Failed to convert row"),
+            character: value.column.try_into().expect("Failed to convert column"),
+        }
     }
 }
 
@@ -54,6 +103,15 @@ impl From<async_lsp::lsp_types::Position> for Point {
 
 impl From<async_lsp::lsp_types::Range> for Range {
     fn from(value: async_lsp::lsp_types::Range) -> Self {
+        Self {
+            start: value.start.into(),
+            end: value.end.into(),
+        }
+    }
+}
+
+impl From<Range> for async_lsp::lsp_types::Range {
+    fn from(value: Range) -> Self {
         Self {
             start: value.start.into(),
             end: value.end.into(),
@@ -149,10 +207,20 @@ impl HandleRequest for request::GotoDefinition {
 impl HandleRequest for request::DocumentSymbolRequest {
     fn handle_request(
         st: ServerState,
-        params: <Self as request::Request>::Params,
-    ) -> impl Future<Output = Result<<Self as request::Request>::Result, ResponseError>> + Send + 'static
-    {
-        async move { unimplemented!() }
+        params: DocumentSymbolParams,
+    ) -> impl Future<Output = Result<Self::Result, ResponseError>> + Send + 'static {
+        async move {
+            let path: PathBuf = params.text_document.uri.path().into();
+            let mut parser = tree_sitter::Parser::new();
+            parser
+                .set_language(tree_sitter_eiffel::language())
+                .expect("Error loading Eiffel grammar");
+            let file = ProcessedFile::new(&mut parser, path);
+            let class: Class = (&file).into();
+            let symbol: DocumentSymbol = (&class).into();
+            let classes: Vec<DocumentSymbol> = vec![symbol];
+            Ok(Some(DocumentSymbolResponse::Nested(classes)))
+        }
     }
 }
 
