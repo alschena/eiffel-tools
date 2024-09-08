@@ -1,5 +1,6 @@
 use crate::lib::code_entities::*;
 use crate::lib::processed_file::ProcessedFile;
+use crate::lib::workspace;
 use async_lsp::lsp_types::{
     notification, request, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, Hover,
     HoverContents, HoverProviderCapability, InitializeResult, MarkedString, MessageType, OneOf,
@@ -12,6 +13,7 @@ use async_lsp::{Error, Result};
 use std::future::Future;
 use std::ops::ControlFlow;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::{info, Level};
 use tree_sitter::Parser;
@@ -122,11 +124,12 @@ impl From<Range> for async_lsp::lsp_types::Range {
 #[derive(Clone)]
 pub struct ServerState {
     client: ClientSocket,
+    workspace: Arc<RwLock<Vec<ProcessedFile>>>,
     counter: i32,
 }
 
 pub struct TickEvent;
-pub trait HandleRequest: lsp_types::request::Request {
+pub trait HandleRequest: request::Request {
     fn handle_request(
         st: ServerState,
         params: <Self as request::Request>::Params,
@@ -152,6 +155,7 @@ impl HandleRequest for request::Initialize {
                 capabilities: ServerCapabilities {
                     hover_provider: Some(HoverProviderCapability::Simple(true)),
                     definition_provider: Some(OneOf::Left(true)),
+                    document_symbol_provider: Some(OneOf::Left(true)),
                     ..ServerCapabilities::default()
                 },
                 server_info: None,
@@ -211,15 +215,34 @@ impl HandleRequest for request::DocumentSymbolRequest {
     ) -> impl Future<Output = Result<Self::Result, ResponseError>> + Send + 'static {
         async move {
             let path: PathBuf = params.text_document.uri.path().into();
-            let mut parser = tree_sitter::Parser::new();
-            parser
-                .set_language(tree_sitter_eiffel::language())
-                .expect("Error loading Eiffel grammar");
-            let file = ProcessedFile::new(&mut parser, path);
-            let class: Class = (&file).into();
-            let symbol: DocumentSymbol = (&class).into();
-            let classes: Vec<DocumentSymbol> = vec![symbol];
-            Ok(Some(DocumentSymbolResponse::Nested(classes)))
+            // Read borrow
+            {
+                let read_workspace = st.workspace.read().unwrap();
+                let file = read_workspace.iter().find(|&x| x.path == path);
+                if let Some(file) = file {
+                    let class: Class = file.into();
+                    let symbol: DocumentSymbol = (&class).into();
+                    let classes = vec![symbol];
+                    return Ok(Some(DocumentSymbolResponse::Nested(classes)));
+                }
+            }
+            // Write borrow
+            {
+                let mut write_workspace = st.workspace.write().unwrap();
+                debug_assert!(write_workspace.iter().find(|&x| x.path == path).is_none());
+
+                let mut parser = tree_sitter::Parser::new();
+                parser
+                    .set_language(tree_sitter_eiffel::language())
+                    .expect("Error loading Eiffel grammar");
+                let file = ProcessedFile::new(&mut parser, path);
+                let class: Class = (&file).into();
+                let symbol: DocumentSymbol = (&class).into();
+                let classes = vec![symbol];
+
+                write_workspace.push(file);
+                return Ok(Some(DocumentSymbolResponse::Nested(classes)));
+            }
         }
     }
 }
@@ -278,6 +301,7 @@ impl Router<ServerState> {
     pub fn new(client: &ClientSocket) -> Router<ServerState> {
         let kernel = router::Router::new(ServerState {
             client: client.clone(),
+            workspace: Arc::new(RwLock::new(Vec::new())),
             counter: 0,
         });
         Router(kernel)
