@@ -1,10 +1,10 @@
 use crate::lib::code_entities::*;
 use crate::lib::processed_file::ProcessedFile;
-use crate::lib::workspace;
 use async_lsp::lsp_types::{
     notification, request, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, Hover,
     HoverContents, HoverProviderCapability, InitializeResult, MarkedString, MessageType, OneOf,
-    ServerCapabilities, ShowMessageParams, SymbolKind,
+    ServerCapabilities, ShowMessageParams, SymbolInformation, SymbolKind, WorkspaceLocation,
+    WorkspaceSymbol, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use async_lsp::router;
 use async_lsp::ClientSocket;
@@ -75,6 +75,22 @@ impl From<&Class<'_>> for DocumentSymbol {
             range,
             selection_range: range,
             children,
+        }
+    }
+}
+
+impl From<&Class<'_>> for WorkspaceSymbol {
+    fn from(value: &Class<'_>) -> Self {
+        let name = value.name().into();
+        let range = value.range();
+        let workspace_location = todo!();
+        Self {
+            name,
+            kind: SymbolKind::CLASS,
+            tags: None,
+            container_name: None,
+            location: OneOf::Right(workspace_location),
+            data: None,
         }
     }
 }
@@ -243,6 +259,27 @@ impl HandleRequest for request::DocumentSymbolRequest {
                 write_workspace.push(file);
                 return Ok(Some(DocumentSymbolResponse::Nested(classes)));
             }
+        }
+    }
+}
+
+impl HandleRequest for request::WorkspaceSymbolRequest {
+    fn handle_request(
+        st: ServerState,
+        _params: WorkspaceSymbolParams,
+    ) -> impl Future<Output = Result<Self::Result, ResponseError>> + Send + 'static {
+        async move {
+            Ok(Some(WorkspaceSymbolResponse::Nested(
+                st.workspace
+                    .read()
+                    .unwrap()
+                    .iter()
+                    .map(|x| {
+                        let class: Class<'_> = x.into();
+                        (&class).into()
+                    })
+                    .collect(),
+            )))
         }
     }
 }
