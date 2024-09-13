@@ -81,7 +81,6 @@ impl<'c> Class<'c> {
                 Feature::from_name_and_range(src[node.byte_range()].into(), node.range().into());
             class.add_feature(feature);
         }
-        class.add_location(src);
         class
     }
 }

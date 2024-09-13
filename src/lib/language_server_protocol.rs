@@ -3,8 +3,8 @@ use crate::lib::processed_file::ProcessedFile;
 use async_lsp::lsp_types::{
     notification, request, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, Hover,
     HoverContents, HoverProviderCapability, InitializeResult, MarkedString, MessageType, OneOf,
-    ServerCapabilities, ShowMessageParams, SymbolInformation, SymbolKind, WorkspaceLocation,
-    WorkspaceSymbol, WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    ServerCapabilities, ShowMessageParams, SymbolKind, Url, WorkspaceLocation, WorkspaceSymbol,
+    WorkspaceSymbolResponse,
 };
 use async_lsp::router;
 use async_lsp::ClientSocket;
@@ -12,7 +12,8 @@ use async_lsp::{lsp_types, ResponseError};
 use async_lsp::{Error, Result};
 use std::future::Future;
 use std::ops::ControlFlow;
-use std::path::PathBuf;
+use std::path;
+use std::string::ParseError;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::{info, Level};
@@ -81,17 +82,42 @@ impl From<&Class<'_>> for DocumentSymbol {
 
 impl From<&Class<'_>> for WorkspaceSymbol {
     fn from(value: &Class<'_>) -> Self {
-        let name = value.name().into();
-        let range = value.range();
-        let workspace_location = todo!();
-        Self {
+        let name = value.name().to_string();
+        let features = value.features();
+        let children: Option<Vec<DocumentSymbol>> =
+            Some(features.into_iter().map(|x| x.into()).collect());
+        let path = value
+            .location()
+            .expect("Expected class with valid file location");
+        let location: WorkspaceLocation = path
+            .try_into()
+            .expect("Path cannot be converted to WorkspaceLocation");
+        WorkspaceSymbol {
             name,
             kind: SymbolKind::CLASS,
             tags: None,
             container_name: None,
-            location: OneOf::Right(workspace_location),
+            location: OneOf::Right(location),
             data: None,
         }
+    }
+}
+
+impl TryFrom<&Location> for WorkspaceLocation {
+    type Error = ();
+    fn try_from(value: &Location) -> Result<Self, ()> {
+        match value.try_into() {
+            Err(_) => Err(()),
+            Ok(uri) => Ok(Self { uri }),
+        }
+    }
+}
+
+impl TryFrom<&Location> for Url {
+    type Error = ();
+
+    fn try_from(value: &Location) -> std::result::Result<Self, ()> {
+        Self::from_file_path(value.path.clone())
     }
 }
 
@@ -230,7 +256,7 @@ impl HandleRequest for request::DocumentSymbolRequest {
         params: DocumentSymbolParams,
     ) -> impl Future<Output = Result<Self::Result, ResponseError>> + Send + 'static {
         async move {
-            let path: PathBuf = params.text_document.uri.path().into();
+            let path: path::PathBuf = params.text_document.uri.path().into();
             // Read borrow
             {
                 let read_workspace = st.workspace.read().unwrap();
@@ -266,20 +292,16 @@ impl HandleRequest for request::DocumentSymbolRequest {
 impl HandleRequest for request::WorkspaceSymbolRequest {
     fn handle_request(
         st: ServerState,
-        _params: WorkspaceSymbolParams,
-    ) -> impl Future<Output = Result<Self::Result, ResponseError>> + Send + 'static {
+        params: <Self as request::Request>::Params,
+    ) -> impl Future<Output = Result<<Self as request::Request>::Result, ResponseError>> + Send + 'static
+    {
         async move {
-            Ok(Some(WorkspaceSymbolResponse::Nested(
-                st.workspace
-                    .read()
-                    .unwrap()
-                    .iter()
-                    .map(|x| {
-                        let class: Class<'_> = x.into();
-                        (&class).into()
-                    })
-                    .collect(),
-            )))
+            let read_workspace = st.workspace.read().unwrap();
+
+            let classes: Vec<Class<'_>> = read_workspace.iter().map(|x| x.into()).collect();
+            let workspace_symbols: Vec<WorkspaceSymbol> =
+                classes.iter().map(|x| x.into()).collect();
+            Ok(Some(WorkspaceSymbolResponse::Nested(workspace_symbols)))
         }
     }
 }
@@ -357,5 +379,41 @@ impl Router<ServerState> {
             st.counter += 1;
             ControlFlow::Continue(())
         });
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+    use std::fs::File;
+    use std::io::prelude::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn class_to_workspacesymbol() {
+        let path = "/tmp/eiffel_tool_test_class_to_workspacesymbol.e";
+        let path = PathBuf::from(path);
+        let src = "
+    class A
+    note
+    end
+        ";
+        let mut file = File::create(path.clone()).expect("Failed to create file");
+        file.write_all(src.as_bytes())
+            .expect("Failed to write to file");
+
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_eiffel::language())
+            .expect("Error loading Eiffel grammar");
+
+        let file = ProcessedFile::new(&mut parser, path.clone());
+        let class: Class = (&file).into();
+        let location = class.location().expect("location non empty");
+
+        eprintln!("{:?}", location);
+
+        assert!(<WorkspaceSymbol>::try_from(&class).is_ok());
     }
 }

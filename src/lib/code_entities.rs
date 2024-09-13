@@ -1,4 +1,5 @@
 use super::{processed_file::ProcessedFile, tree_sitter::WidthFirstTraversal};
+use std::path::PathBuf;
 use std::{path, str::FromStr};
 use tree_sitter::Tree;
 
@@ -76,7 +77,7 @@ impl<'c> Class<'c> {
     pub(super) fn range(&self) -> &Range {
         &self.range
     }
-    pub(super) fn path(&self) -> Option<&Location> {
+    pub(super) fn location(&self) -> Option<&Location> {
         match &self.path {
             None => None,
             Some(file) => Some(&file),
@@ -100,7 +101,8 @@ impl<'c> Class<'c> {
         self.features.push(feature)
     }
 
-    pub(super) fn add_location(&mut self, file: &str) {
-        self.path = Some(file.into())
+    pub(super) fn add_location(&mut self, path: &PathBuf) {
+        let path = path.clone();
+        self.path = Some(Location { path })
     }
 }

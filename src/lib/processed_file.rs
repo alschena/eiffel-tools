@@ -18,7 +18,9 @@ impl ProcessedFile {
 
 impl From<&ProcessedFile> for Class<'_> {
     fn from(value: &ProcessedFile) -> Self {
-        Class::from_tree_and_src(&value.tree, &value.src)
+        let mut class = Class::from_tree_and_src(&value.tree, &value.src);
+        class.add_location(&value.path);
+        class
     }
 }
 
