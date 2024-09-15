@@ -5,7 +5,7 @@ use async_lsp::router;
 use async_lsp::server::LifecycleLayer;
 use async_lsp::tracing::TracingLayer;
 use async_lsp::{client_monitor::ClientProcessMonitorLayer, lsp_types::notification};
-use eiffel_tools::lib::language_server_protocol::{Router, TickEvent};
+use eiffel_tools::lib::language_server_protocol::common::{Router, TickEvent};
 use std::time::Duration;
 use tower::ServiceBuilder;
 use tracing::{info, Level};
@@ -31,6 +31,7 @@ async fn main() {
         router.set_handler_request::<request::HoverRequest>();
         router.set_handler_request::<request::GotoDefinition>();
         router.set_handler_request::<request::DocumentSymbolRequest>();
+        router.set_handler_request::<request::WorkspaceSymbolRequest>();
         router.set_handler_notification::<notification::Initialized>();
         router.set_handler_notification::<notification::DidOpenTextDocument>();
         router.set_handler_notification::<notification::DidChangeTextDocument>();
