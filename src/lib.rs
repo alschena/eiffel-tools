@@ -7,6 +7,7 @@ pub mod lib {
         pub mod initialization;
         pub mod workspace_document_symbol;
     }
+    mod gemini;
     mod processed_file;
     mod tree_sitter;
     mod workspace;
