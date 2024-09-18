@@ -1,4 +1,4 @@
-use super::code_entities::Class;
+use super::code_entities::{Class, Feature, Range};
 use std::path::PathBuf;
 use tree_sitter::{Parser, Tree};
 
@@ -13,6 +13,15 @@ impl ProcessedFile {
             .expect("Source code must be UTF8 encoded");
         let tree = parser.parse(&src, None).unwrap();
         ProcessedFile { tree, path, src }
+    }
+    pub(crate) fn tree(&self) -> &Tree {
+        &self.tree
+    }
+    pub(crate) fn containing_feature(&self, range: Range) -> Option<Feature> {
+        Class::from(self)
+            .into_features()
+            .into_iter()
+            .find(|x| range <= *x.range())
     }
 }
 

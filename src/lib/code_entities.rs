@@ -1,4 +1,5 @@
 use super::{processed_file::ProcessedFile, tree_sitter::WidthFirstTraversal};
+use std::cmp::{Ordering, PartialOrd};
 use std::path::PathBuf;
 use std::{path, str::FromStr};
 use tree_sitter::Tree;
@@ -8,11 +9,37 @@ pub(super) struct Point {
     pub(super) row: usize,
     pub(super) column: usize,
 }
+impl PartialOrd for Point {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.row < other.row {
+            Some(Ordering::Less)
+        } else if self.row < other.row {
+            Some(Ordering::Greater)
+        } else {
+            if self.column < other.column {
+                Some(Ordering::Less)
+            } else if self.column > other.column {
+                Some(Ordering::Greater)
+            } else {
+                Some(Ordering::Equal)
+            }
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(super) struct Range {
     pub(super) start: Point,
     pub(super) end: Point,
+}
+impl PartialOrd for Range {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (s, o) if s.start <= o.start && s.end >= o.end => Some(Ordering::Greater),
+            (s, o) if s.start > o.start && s.end < o.end => Some(Ordering::Less),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -73,6 +100,12 @@ impl<'c> Class<'c> {
     }
     pub(super) fn features(&self) -> &Vec<Feature<'_>> {
         &self.features
+    }
+    pub(super) fn into_features<'a>(self) -> Vec<Feature<'a>>
+    where
+        'c: 'a,
+    {
+        self.features
     }
     pub(super) fn range(&self) -> &Range {
         &self.range
