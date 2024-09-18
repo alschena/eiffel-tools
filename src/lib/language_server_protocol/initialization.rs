@@ -19,6 +19,7 @@ impl HandleRequest for request::Initialize {
                     definition_provider: Some(OneOf::Left(true)),
                     document_symbol_provider: Some(OneOf::Left(true)),
                     workspace_symbol_provider: Some(OneOf::Left(true)),
+                    code_action_provider: Some(true.into()),
                     ..ServerCapabilities::default()
                 },
                 server_info: None,

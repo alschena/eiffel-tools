@@ -1,6 +1,7 @@
 pub mod lib {
     mod code_entities;
     pub mod language_server_protocol {
+        pub mod code_action;
         pub mod common;
         pub mod document_symbol;
         pub mod hover;
