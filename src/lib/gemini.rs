@@ -1,3 +1,3 @@
-mod model_config;
+mod model;
 mod request;
 mod response;

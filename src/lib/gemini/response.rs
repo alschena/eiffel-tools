@@ -1,4 +1,4 @@
-use super::model_config;
+use super::model;
 use super::request;
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +44,7 @@ struct Candidate {
 #[derive(Serialize, Deserialize, Debug)]
 struct Content {
     parts: Vec<request::Part>,
-    role: Option<model_config::Role>,
+    role: Option<model::Role>,
 }
 /// Optional. Output only. The reason why the model stopped generating tokens. If empty, the model has not stopped generating tokens.
 #[derive(Deserialize, Debug)]
@@ -67,8 +67,8 @@ struct Index {}
 
 #[cfg(test)]
 mod test {
-    use super::super::model_config;
-    use super::super::request;
+    use super::super::model;
+    use super::super::request::{self, config};
     use super::*;
 
     #[tokio::test]
@@ -76,7 +76,7 @@ mod test {
         let req = request::Request::from(
             "Write a story about turles from the prospective of a frog.".to_string(),
         );
-        let config = model_config::Config::default();
+        let config = model::Config::default();
         let web_client = reqwest::Client::new();
         let json_req = web_client.post(config.end_point().clone()).json(&req);
         eprintln!("{:?}", json_req);
@@ -93,21 +93,20 @@ mod test {
         let req = request::Request::from(
             "Write a story about turtles from the prospective of a frog.".to_string(),
         );
-        let config = model_config::Config::default();
+        let config = model::Config::default();
         let res = req.process(&config).await;
     }
     #[tokio::test]
     async fn format_contract_response_as_json() {
         let mut req = request::Request::from("Write preconditions and postconditions for the routine `minimum (x: INTEGER, y: INTEGER): INTEGER`.".to_string());
-        let mut generation_config = request::GenerationConfig::default();
-        generation_config.set_response_mime_type(Some(request::ResponseMimeType::Json));
-        // assert!(generation_config.response_mime_type == Some(request::ResponseMimeType::Json));
-        generation_config.set_response_schema(Some(request::ResponseSchema::contracts()));
+        let mut generation_config = config::GenerationConfig::default();
+        generation_config.set_response_mime_type(Some(config::ResponseMimeType::Json));
+        assert!(generation_config.response_mime_type() == &Some(config::ResponseMimeType::Json));
+        generation_config.set_response_schema(Some(config::ResponseSchema::contracts()));
         req.set_generation_config(Some(generation_config));
         eprintln!("{:?}", req);
-        let server_config = model_config::Config::default();
+        let server_config = model::Config::default();
         let res = req.process(&server_config).await;
         eprintln!("{:?}", res);
-        assert!(false)
     }
 }
