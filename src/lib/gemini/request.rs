@@ -7,6 +7,13 @@ use std::str::FromStr;
 /// The content of the current conversation with the model.
 /// For single-turn queries, this is a single instance.
 /// For multi-turn queries like chat, this is a repeated field that contains the conversation history and the latest request.
+const DESCRIPTION_PRECONDITION: &str = "Preconditions are predicates on the prestate, the state before the execution, of a routine. They describe the properties that the fields of the model in the current object must satisfy in the prestate. Preconditions cannot contain a call to `old_` or the `old` keyword.";
+
+const DESCRIPTION_POSTCONDITION: &str = "Postconditions describe the properties that the model of the current object must satisfy after the routine.
+        Postconditions are two-states predicates.
+        They can refer to the prestate of the routine by calling the feature `old_` on any object which existed before the execution of the routine.
+        Equivalently, you can use the keyword `old` before a feature to access its prestate.
+        ";
 #[derive(Serialize, Debug)]
 pub struct Contents {
     parts: Vec<Part>,
@@ -306,6 +313,32 @@ impl ResponseSchema {
     }
 }
 impl ResponseSchema {
+    pub fn format(&self) -> &Option<String> {
+        &self.format
+    }
+    pub fn description(&self) -> &Option<String> {
+        &self.description
+    }
+    pub fn nullable(&self) -> &Option<bool> {
+        &self.nullable
+    }
+    pub fn possibilities(&self) -> &Option<String> {
+        &self.possibilities
+    }
+    pub fn max_items(&self) -> &Option<String> {
+        &self.max_items
+    }
+    pub fn properties(&self) -> &Option<HashMap<String, ResponseSchema>> {
+        &self.properties
+    }
+    pub fn required(&self) -> &Option<Vec<String>> {
+        &self.required
+    }
+    pub fn items(&self) -> &Option<Box<ResponseSchema>> {
+        &self.items
+    }
+}
+impl ResponseSchema {
     pub fn contracts() -> ResponseSchema {
         let pre = "preconditions".to_string();
         let post = "postconditions".to_string();
@@ -343,17 +376,13 @@ impl ResponseSchema {
     fn preconditions() -> ResponseSchema {
         let mut schema = ResponseSchema::contract();
         let items = Some(Box::from(ResponseSchema::precondition_clause()));
-        schema.description = Some("Preconditions are predicates on the prestate, the state before the execution, of a routine. They describe the properties that the fields of the model in the current object must satisfy in the prestate. Preconditions cannot contain a call to `old_` or the `old` keyword. ".to_string());
+        schema.description = Some(DESCRIPTION_PRECONDITION.to_string());
         schema.items = items;
         schema
     }
     fn postconditions() -> ResponseSchema {
         let mut schema = ResponseSchema::contract();
-        schema.description = Some("Postconditions describe the properties that the model of the current object must satisfy after the routine.
-        Postconditions are two-states predicates.
-        They can refer to the prestate of the routine by calling the feature `old_` on any object which existed before the execution of the routine.
-        Equivalently, you can use the keyword `old` before a feature to access its prestate.
-        ".to_string());
+        schema.description = Some(DESCRIPTION_POSTCONDITION.to_string());
         schema
     }
     fn contract_clause() -> ResponseSchema {
