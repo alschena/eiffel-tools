@@ -157,6 +157,47 @@ enum SchemaType {
     #[serde(rename(serialize = "OBJECT"))]
     Object,
 }
+impl From<SchemaType> for ResponseSchema {
+    fn from(value: SchemaType) -> Self {
+        ResponseSchema {
+            schema_type: value,
+            format: None,
+            description: None,
+            nullable: None,
+            possibilities: None,
+            max_items: None,
+            properties: None,
+            required: None,
+            items: None,
+        }
+    }
+}
+impl ResponseSchema {
+    fn set_format(&mut self, format: Option<String>) {
+        self.format = format
+    }
+    fn set_description(&mut self, description: Option<String>) {
+        self.description = description
+    }
+    fn set_nullable(&mut self, nullable: Option<bool>) {
+        self.nullable = nullable
+    }
+    fn set_possibilities(&mut self, possibilities: Option<String>) {
+        self.possibilities = possibilities
+    }
+    fn set_max_items(&mut self, max_items: Option<String>) {
+        self.max_items = max_items
+    }
+    fn set_properties(&mut self, properties: Option<HashMap<String, ResponseSchema>>) {
+        self.properties = properties
+    }
+    fn set_required(&mut self, required: Option<Vec<String>>) {
+        self.required = required
+    }
+    fn set_items(&mut self, items: Option<Box<ResponseSchema>>) {
+        self.items = items
+    }
+}
 impl ResponseSchema {
     pub fn contracts() -> ResponseSchema {
         let pre = "preconditions".to_string();
