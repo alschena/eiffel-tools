@@ -95,6 +95,11 @@ impl Class {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lib::processed_file::ProcessedFile;
+    use crate::lib::tree_sitter::WidthFirstTraversal;
+    use std::fs::File;
+    use std::io::prelude::*;
+    use std::path::PathBuf;
 
     #[test]
     fn process_base_class() {
@@ -187,5 +192,46 @@ end
 
         assert_eq!(class.name(), "A".to_string());
         assert_eq!(features.first().unwrap().name(), "x".to_string());
+    }
+    #[test]
+    fn width_first_traversal() -> std::io::Result<()> {
+        let procedure_src: &str = "
+class A feature
+  f(x, y: INTEGER; z: BOOLEAN)
+    do
+    end
+end
+";
+        let procedure_path: &str = "/tmp/class_with_feature_path.e";
+        let procedure_path: PathBuf = PathBuf::from(procedure_path);
+        let mut file = File::create(&procedure_path)?;
+        file.write_all(procedure_src.as_bytes())?;
+
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_eiffel::language())
+            .expect("Error loading Eiffel grammar");
+
+        let file = ProcessedFile::new(&mut parser, procedure_path.clone());
+
+        let cursor = file.tree.walk();
+        let mut width_first = WidthFirstTraversal::new(cursor);
+
+        assert_eq!(
+            width_first.next().expect("source file node").kind(),
+            "source_file"
+        );
+        assert_eq!(
+            width_first.next().expect("class declaration node").kind(),
+            "class_declaration"
+        );
+        assert_eq!(width_first.next().expect("class").kind(), "class");
+        assert_eq!(width_first.next().expect("class_name").kind(), "class_name");
+        assert_eq!(
+            width_first.next().expect("feature clause").kind(),
+            "feature_clause"
+        );
+
+        Ok(())
     }
 }
