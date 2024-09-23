@@ -32,6 +32,7 @@ async fn main() {
         router.set_handler_request::<request::GotoDefinition>();
         router.set_handler_request::<request::DocumentSymbolRequest>();
         router.set_handler_request::<request::WorkspaceSymbolRequest>();
+        router.set_handler_request::<request::CodeActionRequest>();
         router.set_handler_notification::<notification::Initialized>();
         router.set_handler_notification::<notification::DidOpenTextDocument>();
         router.set_handler_notification::<notification::DidChangeTextDocument>();

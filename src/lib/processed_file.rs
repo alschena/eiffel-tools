@@ -17,7 +17,7 @@ impl ProcessedFile {
     pub(crate) fn tree(&self) -> &Tree {
         &self.tree
     }
-    pub(crate) fn containing_feature(&self, range: Range) -> Option<Box<Feature>> {
+    pub(crate) fn feature_around(&self, range: Range) -> Option<Box<Feature>> {
         Class::from(self)
             .into_features()
             .into_iter()

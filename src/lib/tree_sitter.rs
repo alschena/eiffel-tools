@@ -75,18 +75,20 @@ impl Class {
         let range = node.range().into();
         let mut class = Self::from_name_range(name, range);
 
-        for node in traversal.filter(|x| x.kind() == "extended_feature_name") {
-            let feature =
-                Feature::from_name_and_range(src[node.byte_range()].into(), node.range().into());
+        for node in traversal.filter(|x| x.kind() == "feature_declaration") {
+            let range = node.range().into();
+            let mut cursor = tree.walk();
+            cursor.reset(node);
+            let mut traversal = WidthFirstTraversal::new(cursor);
+            let name = src[traversal
+                .find(|x| x.kind() == "extended_feature_name")
+                .expect("Each feature declaration contains an extended feature name")
+                .byte_range()]
+            .into();
+            let feature = Feature::from_name_and_range(name, range);
             class.add_feature(&feature);
         }
         class
-    }
-}
-
-impl Feature {
-    pub(super) fn surrounding(range: Range) -> Option<Feature> {
-        todo!()
     }
 }
 
