@@ -11,12 +11,12 @@ impl PartialOrd for Point {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.row < other.row {
             Some(Ordering::Less)
-        } else if self.row < other.row {
+        } else if other.row < self.row {
             Some(Ordering::Greater)
         } else {
             if self.column < other.column {
                 Some(Ordering::Less)
-            } else if self.column > other.column {
+            } else if other.column < self.column {
                 Some(Ordering::Greater)
             } else {
                 Some(Ordering::Equal)
@@ -66,7 +66,7 @@ pub(super) struct Feature {
     range: Range,
 }
 impl Feature {
-    pub(super) fn from_name_and_range<'a>(name: String, range: Range) -> Feature {
+    pub(super) fn from_name_and_range(name: String, range: Range) -> Feature {
         let visibility = FeatureVisibility::Private;
         Feature {
             name,
