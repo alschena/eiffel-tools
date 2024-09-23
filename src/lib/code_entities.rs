@@ -1,8 +1,6 @@
-use super::{processed_file::ProcessedFile, tree_sitter::WidthFirstTraversal};
 use std::cmp::{Ordering, PartialOrd};
+use std::path;
 use std::path::PathBuf;
-use std::{path, str::FromStr};
-use tree_sitter::Tree;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(super) struct Point {
@@ -55,20 +53,20 @@ impl From<&str> for Location {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub(super) enum FeatureVisibility<'a> {
+pub(super) enum FeatureVisibility {
     Private,
-    Some(&'a Class<'a>),
+    Some(Box<Class>),
     Public,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub(super) struct Feature<'a> {
+pub(super) struct Feature {
     name: String,
-    visibility: FeatureVisibility<'a>,
+    visibility: FeatureVisibility,
     range: Range,
 }
-impl Feature<'_> {
-    pub(super) fn from_name_and_range<'a>(name: String, range: Range) -> Feature<'a> {
+impl Feature {
+    pub(super) fn from_name_and_range<'a>(name: String, range: Range) -> Feature {
         let visibility = FeatureVisibility::Private;
         Feature {
             name,
@@ -85,26 +83,23 @@ impl Feature<'_> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub(super) struct Class<'a> {
+pub(super) struct Class {
     name: String,
     path: Option<Location>,
-    features: Vec<Feature<'a>>,
-    descendants: Vec<&'a Class<'a>>,
-    ancestors: Vec<&'a Class<'a>>,
+    features: Vec<Box<Feature>>,
+    descendants: Vec<Box<Class>>,
+    ancestors: Vec<Box<Class>>,
     range: Range,
 }
 
-impl<'c> Class<'c> {
+impl Class {
     pub(super) fn name(&self) -> &str {
         &self.name
     }
-    pub(super) fn features(&self) -> &Vec<Feature<'_>> {
+    pub(super) fn features(&self) -> &Vec<Box<Feature>> {
         &self.features
     }
-    pub(super) fn into_features<'a>(self) -> Vec<Feature<'a>>
-    where
-        'c: 'a,
-    {
+    pub(super) fn into_features(self) -> Vec<Box<Feature>> {
         self.features
     }
     pub(super) fn range(&self) -> &Range {
@@ -116,7 +111,7 @@ impl<'c> Class<'c> {
             Some(file) => Some(&file),
         }
     }
-    pub(super) fn from_name_range(name: String, range: Range) -> Class<'c> {
+    pub(super) fn from_name_range(name: String, range: Range) -> Class {
         let features = Vec::new();
         let descendants = Vec::new();
         let ancestors = Vec::new();
@@ -130,8 +125,8 @@ impl<'c> Class<'c> {
         }
     }
 
-    pub(super) fn add_feature(&mut self, feature: Feature<'c>) {
-        self.features.push(feature)
+    pub(super) fn add_feature(&mut self, feature: &Feature) {
+        self.features.push(Box::new(feature.clone()))
     }
 
     pub(super) fn add_location(&mut self, path: &PathBuf) {

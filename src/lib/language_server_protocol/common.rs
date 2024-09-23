@@ -9,7 +9,7 @@ use std::future::Future;
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
 use tracing::info;
-impl TryFrom<&Class<'_>> for lsp_types::Location {
+impl TryFrom<&Class> for lsp_types::Location {
     type Error = ();
 
     fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
@@ -22,9 +22,9 @@ impl TryFrom<&Class<'_>> for lsp_types::Location {
         Ok(Self { uri, range })
     }
 }
-impl TryFrom<&Class<'_>> for lsp_types::SymbolInformation {
+impl TryFrom<&Class> for lsp_types::SymbolInformation {
     type Error = ();
-    fn try_from(value: &Class<'_>) -> std::result::Result<Self, Self::Error> {
+    fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
         let name = value.name().into();
         let kind = SymbolKind::CLASS;
         let tags = None;

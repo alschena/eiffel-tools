@@ -7,12 +7,12 @@ use async_lsp::lsp_types::{
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::future::Future;
-impl From<&Class<'_>> for WorkspaceSymbol {
-    fn from(value: &Class<'_>) -> Self {
+impl From<&Class> for WorkspaceSymbol {
+    fn from(value: &Class) -> Self {
         let name = value.name().to_string();
         let features = value.features();
         let children: Option<Vec<DocumentSymbol>> =
-            Some(features.into_iter().map(|x| x.into()).collect());
+            Some(features.into_iter().map(|x| x.as_ref().into()).collect());
         let path = value
             .location()
             .expect("Expected class with valid file location");
@@ -48,7 +48,7 @@ impl HandleRequest for request::WorkspaceSymbolRequest {
     {
         async move {
             let read_workspace = st.workspace.read().unwrap();
-            let classes: Vec<Class<'_>> = read_workspace.iter().map(|x| x.into()).collect();
+            let classes: Vec<Class> = read_workspace.iter().map(|x| x.into()).collect();
             let symbol_information: Vec<SymbolInformation> = classes
                 .iter()
                 .map(|x| {

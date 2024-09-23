@@ -24,6 +24,7 @@ impl HandleRequest for request::CodeActionRequest {
                 .expect("Code action on an parsed file");
             let tree = processed_file.tree();
             let range = params.range;
+
             todo!()
         }
     }

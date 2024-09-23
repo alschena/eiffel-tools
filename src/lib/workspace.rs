@@ -3,14 +3,14 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tree_sitter::{Parser, Tree, TreeCursor};
 
-struct Workspace<'a> {
-    classes: Vec<Class<'a>>,
+struct Workspace {
+    classes: Vec<Class>,
     files: HashMap<PathBuf, Tree>,
     parser: Parser,
 }
 
-impl Workspace<'_> {
-    fn new() -> Workspace<'static> {
+impl Workspace {
+    fn new() -> Workspace {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(tree_sitter_eiffel::language())

@@ -8,7 +8,7 @@ use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::future::Future;
 use std::path;
-impl From<DocumentSymbol> for Class<'_> {
+impl From<DocumentSymbol> for Class {
     fn from(value: DocumentSymbol) -> Self {
         let name = value.name;
         let kind = value.kind;
@@ -21,7 +21,7 @@ impl From<DocumentSymbol> for Class<'_> {
         Class::from_name_range(name, range.into())
     }
 }
-impl From<DocumentSymbol> for Feature<'_> {
+impl From<DocumentSymbol> for Feature {
     fn from(value: DocumentSymbol) -> Self {
         let name = value.name;
         let kind = value.kind;
@@ -30,8 +30,8 @@ impl From<DocumentSymbol> for Feature<'_> {
         Feature::from_name_and_range(name, range.into())
     }
 }
-impl From<&Feature<'_>> for DocumentSymbol {
-    fn from(value: &Feature<'_>) -> Self {
+impl From<&Feature> for DocumentSymbol {
+    fn from(value: &Feature) -> Self {
         let name = value.name().to_string();
         let range = value.range().clone().into();
         DocumentSymbol {
@@ -46,13 +46,13 @@ impl From<&Feature<'_>> for DocumentSymbol {
         }
     }
 }
-impl From<&Class<'_>> for DocumentSymbol {
-    fn from(value: &Class<'_>) -> Self {
+impl From<&Class> for DocumentSymbol {
+    fn from(value: &Class) -> Self {
         let name = value.name().to_string();
         let features = value.features();
         let range = value.range().clone().into();
         let children: Option<Vec<DocumentSymbol>> =
-            Some(features.into_iter().map(|x| x.into()).collect());
+            Some(features.into_iter().map(|x| x.as_ref().into()).collect());
         DocumentSymbol {
             name,
             detail: None,

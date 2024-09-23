@@ -17,7 +17,7 @@ impl ProcessedFile {
     pub(crate) fn tree(&self) -> &Tree {
         &self.tree
     }
-    pub(crate) fn containing_feature(&self, range: Range) -> Option<Feature> {
+    pub(crate) fn containing_feature(&self, range: Range) -> Option<Box<Feature>> {
         Class::from(self)
             .into_features()
             .into_iter()
@@ -25,7 +25,7 @@ impl ProcessedFile {
     }
 }
 
-impl From<&ProcessedFile> for Class<'_> {
+impl From<&ProcessedFile> for Class {
     fn from(value: &ProcessedFile) -> Self {
         let mut class = Class::from_tree_and_src(&value.tree, &value.src);
         class.add_location(&value.path);

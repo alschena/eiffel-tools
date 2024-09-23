@@ -1,5 +1,4 @@
 use crate::lib::code_entities::{Class, Feature, Point, Range};
-use std::ops::{Deref, DerefMut};
 
 use tree_sitter::{Node, Tree, TreeCursor};
 
@@ -62,9 +61,9 @@ impl From<tree_sitter::Range> for Range {
     }
 }
 
-impl<'c> Class<'c> {
+impl Class {
     /// This relies on the first `class_name` node (containing the class associated to the current file) coming earliar than any "extended_feature_name" node in the `WidthFirstTraversal` of the tree-sitter tree.
-    pub(super) fn from_tree_and_src<'a>(tree: &'a Tree, src: &'a str) -> Class<'c> {
+    pub(super) fn from_tree_and_src<'a>(tree: &'a Tree, src: &'a str) -> Class {
         let cursor = tree.walk();
         let mut traversal = WidthFirstTraversal::new(cursor);
 
@@ -79,9 +78,15 @@ impl<'c> Class<'c> {
         for node in traversal.filter(|x| x.kind() == "extended_feature_name") {
             let feature =
                 Feature::from_name_and_range(src[node.byte_range()].into(), node.range().into());
-            class.add_feature(feature);
+            class.add_feature(&feature);
         }
         class
+    }
+}
+
+impl Feature {
+    pub(super) fn surrounding(range: Range) -> Option<Feature> {
+        todo!()
     }
 }
 
