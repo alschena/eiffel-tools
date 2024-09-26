@@ -8,33 +8,48 @@ use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::future::Future;
 use std::path;
-impl From<DocumentSymbol> for Class {
-    fn from(value: DocumentSymbol) -> Self {
+impl TryFrom<DocumentSymbol> for Class {
+    type Error = &'static str;
+
+    fn try_from(value: DocumentSymbol) -> std::result::Result<Self, Self::Error> {
         let name = value.name;
         let kind = value.kind;
-        let range = value.range;
+        let range = match value.range.try_into() {
+            Ok(r) => r,
+            Err(_) => return Err("Range conversion"),
+        };
         debug_assert_eq!(kind, SymbolKind::CLASS);
         let children: Vec<Feature> = match value.children {
-            Some(v) => v.into_iter().map(|x| x.into()).collect(),
+            Some(v) => v
+                .into_iter()
+                .map(|x| x.try_into().expect("Feature to document symbol"))
+                .collect(),
             None => Vec::new(),
         };
-        Class::from_name_range(name, range.into())
+        Ok(Class::from_name_range(name, range))
     }
 }
-impl From<DocumentSymbol> for Feature {
-    fn from(value: DocumentSymbol) -> Self {
+impl TryFrom<DocumentSymbol> for Feature {
+    type Error = &'static str;
+
+    fn try_from(value: DocumentSymbol) -> std::result::Result<Self, Self::Error> {
         let name = value.name;
         let kind = value.kind;
-        let range = value.range;
+        let range = match value.range.try_into() {
+            Ok(r) => r,
+            Err(_) => return Err("Range conversion"),
+        };
         debug_assert_ne!(kind, SymbolKind::CLASS);
-        Feature::from_name_and_range(name, range.into())
+        Ok(Feature::from_name_and_range(name, range))
     }
 }
-impl From<&Feature> for DocumentSymbol {
-    fn from(value: &Feature) -> Self {
+impl TryFrom<&Feature> for DocumentSymbol {
+    type Error = &'static str;
+
+    fn try_from(value: &Feature) -> std::result::Result<Self, Self::Error> {
         let name = value.name().to_string();
-        let range = value.range().clone().into();
-        DocumentSymbol {
+        let range = value.range().clone().try_into()?;
+        Ok(DocumentSymbol {
             name,
             detail: None,
             kind: SymbolKind::METHOD,
@@ -43,17 +58,27 @@ impl From<&Feature> for DocumentSymbol {
             range,
             selection_range: range,
             children: None,
-        }
+        })
     }
 }
-impl From<&Class> for DocumentSymbol {
-    fn from(value: &Class) -> Self {
+impl TryFrom<&Class> for DocumentSymbol {
+    type Error = &'static str;
+
+    fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
         let name = value.name().to_string();
         let features = value.features();
-        let range = value.range().clone().into();
-        let children: Option<Vec<DocumentSymbol>> =
-            Some(features.into_iter().map(|x| x.as_ref().into()).collect());
-        DocumentSymbol {
+        let range = value.range().clone().try_into()?;
+        let children: Option<Vec<DocumentSymbol>> = Some(
+            features
+                .into_iter()
+                .map(|x| {
+                    x.as_ref()
+                        .try_into()
+                        .expect("feature conversion to document symbol")
+                })
+                .collect(),
+        );
+        Ok(DocumentSymbol {
             name,
             detail: None,
             kind: SymbolKind::CLASS,
@@ -62,7 +87,7 @@ impl From<&Class> for DocumentSymbol {
             range,
             selection_range: range,
             children,
-        }
+        })
     }
 }
 impl HandleRequest for request::DocumentSymbolRequest {
@@ -78,7 +103,9 @@ impl HandleRequest for request::DocumentSymbolRequest {
                 let file = read_workspace.iter().find(|&x| x.path == path);
                 if let Some(file) = file {
                     let class: Class = file.into();
-                    let symbol: DocumentSymbol = (&class).into();
+                    let symbol: DocumentSymbol = (&class)
+                        .try_into()
+                        .expect("class conversion to document symbol");
                     let classes = vec![symbol];
                     return Ok(Some(DocumentSymbolResponse::Nested(classes)));
                 }
@@ -94,7 +121,9 @@ impl HandleRequest for request::DocumentSymbolRequest {
                     .expect("Error loading Eiffel grammar");
                 let file = ProcessedFile::new(&mut parser, path);
                 let class: Class = (&file).into();
-                let symbol: DocumentSymbol = (&class).into();
+                let symbol: DocumentSymbol = (&class)
+                    .try_into()
+                    .expect("Class conversion to document symbol");
                 let document_symbols = vec![symbol];
 
                 write_workspace.push(file);

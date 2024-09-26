@@ -10,10 +10,10 @@ use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
 use tracing::info;
 impl TryFrom<&Class> for lsp_types::Location {
-    type Error = ();
+    type Error = &'static str;
 
     fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
-        let range = value.range().clone().into();
+        let range = value.range().clone().try_into()?;
         let uri = value
             .location()
             .expect("Valid location of class")
@@ -23,7 +23,7 @@ impl TryFrom<&Class> for lsp_types::Location {
     }
 }
 impl TryFrom<&Class> for lsp_types::SymbolInformation {
-    type Error = ();
+    type Error = &'static str;
     fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
         let name = value.name().into();
         let kind = SymbolKind::CLASS;
@@ -50,42 +50,59 @@ impl TryFrom<&Location> for Url {
         Self::from_file_path(value.path.clone())
     }
 }
-impl From<Point> for async_lsp::lsp_types::Position {
-    fn from(value: Point) -> Self {
-        Self {
-            line: value.row.try_into().expect("Failed to convert row"),
-            character: value.column.try_into().expect("Failed to convert column"),
-        }
+impl TryFrom<Point> for async_lsp::lsp_types::Position {
+    type Error = &'static str;
+
+    fn try_from(value: Point) -> std::result::Result<Self, Self::Error> {
+        let line = match value.row.try_into() {
+            Ok(l) => l,
+            Err(_) => return Err("line conversion"),
+        };
+        let character = match value.column.try_into() {
+            Ok(c) => c,
+            Err(_) => return Err("character conversion"),
+        };
+        Ok(Self { line, character })
     }
 }
-impl From<async_lsp::lsp_types::Position> for Point {
-    fn from(value: async_lsp::lsp_types::Position) -> Self {
-        Self {
-            row: value
-                .line
-                .try_into()
-                .expect("Failed conversion of row from u32 to usize or viceversa"),
-            column: value
-                .character
-                .try_into()
-                .expect("Failed conversion of row from u32 to usize or viceversa"),
-        }
+impl TryFrom<async_lsp::lsp_types::Position> for Point {
+    type Error = &'static str;
+
+    fn try_from(value: async_lsp::lsp_types::Position) -> std::result::Result<Self, Self::Error> {
+        let row = match value.line.try_into() {
+            Ok(r) => r,
+            Err(_) => return Err("Row conversion"),
+        };
+        let column = match value.character.try_into() {
+            Ok(c) => c,
+            Err(_) => return Err("Column convertion"),
+        };
+        Ok(Self { row, column })
     }
 }
-impl From<async_lsp::lsp_types::Range> for Range {
-    fn from(value: async_lsp::lsp_types::Range) -> Self {
-        Self {
-            start: value.start.into(),
-            end: value.end.into(),
-        }
+impl TryFrom<async_lsp::lsp_types::Range> for Range {
+    type Error = &'static str;
+
+    fn try_from(value: async_lsp::lsp_types::Range) -> std::result::Result<Self, Self::Error> {
+        let start = match value.start.try_into() {
+            Ok(v) => v,
+            Err(_) => return Err("Start conversion"),
+        };
+        let end = match value.end.try_into() {
+            Ok(v) => v,
+            Err(_) => return Err("End conversion"),
+        };
+        Ok(Self { start, end })
     }
 }
-impl From<Range> for async_lsp::lsp_types::Range {
-    fn from(value: Range) -> Self {
-        Self {
-            start: value.start.into(),
-            end: value.end.into(),
-        }
+impl TryFrom<Range> for async_lsp::lsp_types::Range {
+    type Error = &'static str;
+
+    fn try_from(value: Range) -> std::result::Result<Self, Self::Error> {
+        Ok(Self {
+            start: value.start.try_into()?,
+            end: value.end.try_into()?,
+        })
     }
 }
 #[derive(Clone)]

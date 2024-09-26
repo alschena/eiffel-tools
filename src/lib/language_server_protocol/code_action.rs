@@ -24,7 +24,7 @@ impl HandleRequest for request::CodeActionRequest {
                 .iter()
                 .find(|&x| x.path == path)
                 .expect("Code action on not yet parsed file");
-            let range = params.range.into();
+            let range = params.range.try_into().expect("Range conversion");
             let surrounding_feature = processed_file.feature_around(range);
 
             let title = "Add contracts to current routine".into();

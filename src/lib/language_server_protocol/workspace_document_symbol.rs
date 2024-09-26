@@ -7,28 +7,37 @@ use async_lsp::lsp_types::{
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::future::Future;
-impl From<&Class> for WorkspaceSymbol {
-    fn from(value: &Class) -> Self {
+impl TryFrom<&Class> for WorkspaceSymbol {
+    type Error = &'static str;
+
+    fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
         let name = value.name().to_string();
         let features = value.features();
-        let children: Option<Vec<DocumentSymbol>> =
-            Some(features.into_iter().map(|x| x.as_ref().into()).collect());
-        let path = value
-            .location()
-            .expect("Expected class with valid file location");
-        let location = value
-            .location()
-            .expect("Valid location")
-            .try_into()
-            .expect("Path cannot be converted to WorkspaceLocation");
-        WorkspaceSymbol {
+        let children: Option<Vec<DocumentSymbol>> = Some(
+            features
+                .into_iter()
+                .map(|x| {
+                    x.as_ref()
+                        .try_into()
+                        .expect("feature conversion to document symbol")
+                })
+                .collect(),
+        );
+        let location = match value.location() {
+            Some(v) => match v.try_into() {
+                Ok(v) => v,
+                Err(_) => return Err("Covertion between code entities location and lsp location"),
+            },
+            None => return Err("Expected class with valid file location"),
+        };
+        Ok(WorkspaceSymbol {
             name,
             kind: SymbolKind::CLASS,
             tags: None,
             container_name: None,
             location: OneOf::Right(location),
             data: None,
-        }
+        })
     }
 }
 impl TryFrom<&Location> for WorkspaceLocation {
