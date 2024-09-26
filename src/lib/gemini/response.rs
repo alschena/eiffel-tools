@@ -102,11 +102,12 @@ mod test {
         let mut generation_config = config::GenerationConfig::default();
         generation_config.set_response_mime_type(Some(config::ResponseMimeType::Json));
         assert!(generation_config.response_mime_type() == &Some(config::ResponseMimeType::Json));
-        generation_config.set_response_schema(Some(config::ResponseSchema::contracts()));
+        generation_config.set_response_schema(Some(config::schema::ResponseSchema::contracts()));
         req.set_generation_config(Some(generation_config));
         eprintln!("{:?}", req);
         let server_config = model::Config::default();
         let res = req.process(&server_config).await;
         eprintln!("{:?}", res);
+        assert!(false);
     }
 }
