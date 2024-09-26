@@ -1,4 +1,7 @@
+use serde::Deserialize;
 use std::cmp::{Ordering, PartialOrd};
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 use std::path;
 use std::path::PathBuf;
 
@@ -132,5 +135,59 @@ impl Class {
     pub(super) fn add_location(&mut self, path: &PathBuf) {
         let path = path.clone();
         self.path = Some(Location { path })
+    }
+}
+
+#[derive(Deserialize)]
+pub struct Contract<T: ContractType>(Vec<ContractClause<T>>);
+impl<T: ContractType> Deref for Contract<T> {
+    type Target = Vec<ContractClause<T>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<T: ContractType> DerefMut for Contract<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+#[derive(Deserialize)]
+pub struct ContractClause<T: ContractType> {
+    tag: Option<Tag>,
+    predicate: Predicate,
+    #[serde(skip)]
+    contract_type: PhantomData<T>,
+}
+pub trait ContractType {
+    fn definition() -> String;
+    fn predicate_definition() -> String;
+    fn tag_definition() -> String {
+        "Write a valid tag clause for the Eiffel programming language.".to_string()
+    }
+}
+#[derive(Deserialize)]
+pub struct Tag(String);
+#[derive(Deserialize)]
+pub struct Predicate(String);
+struct Precondition {}
+struct Postcondition {}
+impl ContractType for Precondition {
+    fn definition() -> String {
+        "Preconditions are predicates on the prestate, the state before the execution, of a routine. They describe the properties that the fields of the model in the current object must satisfy in the prestate. Preconditions cannot contain a call to `old_` or the `old` keyword.".to_string()
+    }
+    fn predicate_definition() -> String {
+        "Write a valid precondition clause for the Eiffel programming language.".to_string()
+    }
+}
+impl ContractType for Postcondition {
+    fn definition() -> String {
+        "Postconditions describe the properties that the model of the current object must satisfy after the routine.
+        Postconditions are two-states predicates.
+        They can refer to the prestate of the routine by calling the feature `old_` on any object which existed before the execution of the routine.
+        Equivalently, you can use the keyword `old` before a feature to access its prestate.".to_string()
+    }
+    fn predicate_definition() -> String {
+        "Write a valid postcondition clause for the Eiffel programming language.".to_string()
     }
 }
