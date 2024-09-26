@@ -1,3 +1,4 @@
+use async_lsp::Result;
 use serde::Serialize;
 use std::collections::HashMap;
 /// The content of the current conversation with the model.
@@ -71,6 +72,19 @@ enum SchemaType {
     #[serde(rename(serialize = "OBJECT"))]
     Object,
 }
+impl TryFrom<&serde_json::Value> for SchemaType {
+    type Error = &'static str;
+    fn try_from(value: &serde_json::Value) -> Result<Self, Self::Error> {
+        match value {
+            serde_json::Value::Null => Err("Null is an invalid example of Schematype"),
+            serde_json::Value::Bool(_) => Ok(SchemaType::Boolean),
+            serde_json::Value::Number(_) => Ok(SchemaType::Boolean),
+            serde_json::Value::String(_) => Ok(SchemaType::String),
+            serde_json::Value::Array(_) => Ok(SchemaType::Array),
+            serde_json::Value::Object(_) => Ok(SchemaType::Object),
+        }
+    }
+}
 impl From<SchemaType> for ResponseSchema {
     fn from(value: SchemaType) -> Self {
         ResponseSchema {
@@ -84,6 +98,61 @@ impl From<SchemaType> for ResponseSchema {
             required: None,
             items: None,
         }
+    }
+}
+// TODO add test
+impl TryFrom<&serde_json::Value> for ResponseSchema {
+    type Error = &'static str;
+
+    fn try_from(value: &serde_json::Value) -> Result<Self, Self::Error> {
+        let schema_type: SchemaType = value
+            .try_into()
+            .expect("Null is an invalid example of ResponseSchema");
+        let format: Option<String> = None;
+        let description: Option<String> = None;
+        let nullable: Option<bool> = None;
+        let possibilities: Option<String> = None;
+        let max_items: Option<String> = None;
+        let mut properties: Option<HashMap<String, ResponseSchema>> = None;
+        let mut required: Option<Vec<String>> = None;
+        let mut items: Option<Box<ResponseSchema>> = None;
+        match value {
+            serde_json::Value::Array(entries) => {
+                if entries.is_empty() {
+                    return Err("Empty array is an invalid example of ResponseSchema");
+                } else {
+                    items = Some(Box::new(
+                        entries
+                            .first()
+                            .expect("The vector must be non-empty")
+                            .try_into()
+                            .expect("Valid items of array type"),
+                    ))
+                }
+            }
+            serde_json::Value::Object(attributes) => {
+                let mut p = HashMap::new();
+                let mut r = Vec::new();
+                attributes.iter().for_each(|(k, v)| {
+                    p.insert(k.clone(), v.try_into().expect("In the range of the HashMap a value which is convertible to a ResponseSchema"));
+                    r.push(k.clone())
+                });
+                properties = Some(p);
+                required = Some(r);
+            }
+            _ => {}
+        }
+        Ok(ResponseSchema {
+            schema_type,
+            format,
+            description,
+            nullable,
+            possibilities,
+            max_items,
+            properties,
+            required,
+            items,
+        })
     }
 }
 impl ResponseSchema {
@@ -233,7 +302,7 @@ impl ResponseSchema {
             (pre.clone(), ResponseSchema::precondition_clause()),
             (tag.clone(), ResponseSchema::tag()),
         ]));
-        let required = Some(vec![pre, tag]);
+        let required = Some(vec![tag, pre]);
         ResponseSchema {
             schema_type: SchemaType::Object,
             format: None,
@@ -254,7 +323,7 @@ impl ResponseSchema {
             (post.clone(), ResponseSchema::postcondition_clause()),
             (tag.clone(), ResponseSchema::tag()),
         ]));
-        let required = Some(vec![post, tag]);
+        let required = Some(vec![tag, post]);
         ResponseSchema {
             schema_type: SchemaType::Object,
             format: None,
