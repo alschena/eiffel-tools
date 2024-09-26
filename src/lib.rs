@@ -1,5 +1,6 @@
 pub mod lib {
     mod code_entities;
+    mod config;
     mod gemini;
     pub mod language_server_protocol;
     mod processed_file;

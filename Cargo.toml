@@ -18,3 +18,4 @@ tree-sitter-eiffel = { git = "https://github.com/imustafin/tree-sitter-eiffel", 
 reqwest = {version = "0.12.*", features = ["json"]}
 serde = "1.0.*"
 serde_json = { version = "1.0" }
+serde-xml-rs = { version = "0.6" }
