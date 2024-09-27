@@ -9,20 +9,17 @@ use async_lsp::Result;
 use std::future::Future;
 use std::path;
 impl TryFrom<DocumentSymbol> for Class {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(value: DocumentSymbol) -> std::result::Result<Self, Self::Error> {
         let name = value.name;
         let kind = value.kind;
-        let range = match value.range.try_into() {
-            Ok(r) => r,
-            Err(_) => return Err("Range conversion"),
-        };
+        let range = value.range.try_into()?;
         debug_assert_eq!(kind, SymbolKind::CLASS);
         let children: Vec<Feature> = match value.children {
             Some(v) => v
                 .into_iter()
-                .map(|x| x.try_into().expect("Feature to document symbol"))
+                .map(|x| Feature::try_from(x).expect("Document symbol to feature"))
                 .collect(),
             None => Vec::new(),
         };
@@ -30,21 +27,18 @@ impl TryFrom<DocumentSymbol> for Class {
     }
 }
 impl TryFrom<DocumentSymbol> for Feature {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(value: DocumentSymbol) -> std::result::Result<Self, Self::Error> {
         let name = value.name;
         let kind = value.kind;
-        let range = match value.range.try_into() {
-            Ok(r) => r,
-            Err(_) => return Err("Range conversion"),
-        };
+        let range = value.range.try_into()?;
         debug_assert_ne!(kind, SymbolKind::CLASS);
         Ok(Feature::from_name_and_range(name, range))
     }
 }
 impl TryFrom<&Feature> for DocumentSymbol {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(value: &Feature) -> std::result::Result<Self, Self::Error> {
         let name = value.name().to_string();
@@ -62,7 +56,7 @@ impl TryFrom<&Feature> for DocumentSymbol {
     }
 }
 impl TryFrom<&Class> for DocumentSymbol {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
         let name = value.name().to_string();
@@ -102,7 +96,7 @@ impl HandleRequest for request::DocumentSymbolRequest {
                 let read_workspace = st.workspace.read().unwrap();
                 let file = read_workspace.iter().find(|&x| x.path == path);
                 if let Some(file) = file {
-                    let class: Class = file.into();
+                    let class: Class = file.try_into().expect("Parse class");
                     let symbol: DocumentSymbol = (&class)
                         .try_into()
                         .expect("class conversion to document symbol");
@@ -120,7 +114,7 @@ impl HandleRequest for request::DocumentSymbolRequest {
                     .set_language(tree_sitter_eiffel::language())
                     .expect("Error loading Eiffel grammar");
                 let file = ProcessedFile::new(&mut parser, path);
-                let class: Class = (&file).into();
+                let class: Class = (&file).try_into().expect("Parse class");
                 let symbol: DocumentSymbol = (&class)
                     .try_into()
                     .expect("Class conversion to document symbol");

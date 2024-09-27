@@ -1,4 +1,5 @@
 use crate::lib::code_entities;
+use anyhow::anyhow;
 use async_lsp::Result;
 use reqwest::header::ValueDrain;
 use serde::{Deserialize, Serialize};
@@ -75,10 +76,10 @@ enum SchemaType {
     Object,
 }
 impl TryFrom<&serde_json::Value> for SchemaType {
-    type Error = &'static str;
+    type Error = anyhow::Error;
     fn try_from(value: &serde_json::Value) -> Result<Self, Self::Error> {
         match value {
-            serde_json::Value::Null => Err("Null is an invalid example of Schematype"),
+            serde_json::Value::Null => Err(anyhow!("Null is an invalid example of Schematype")),
             serde_json::Value::Bool(_) => Ok(SchemaType::Boolean),
             serde_json::Value::Number(_) => Ok(SchemaType::Boolean),
             serde_json::Value::String(_) => Ok(SchemaType::String),
@@ -104,7 +105,7 @@ impl From<SchemaType> for ResponseSchema {
 }
 // TODO add test
 impl TryFrom<&serde_json::Value> for ResponseSchema {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(value: &serde_json::Value) -> Result<Self, Self::Error> {
         let schema_type: SchemaType = value
@@ -121,7 +122,9 @@ impl TryFrom<&serde_json::Value> for ResponseSchema {
         match value {
             serde_json::Value::Array(entries) => {
                 if entries.is_empty() {
-                    return Err("Empty array is an invalid example of ResponseSchema");
+                    return Err(anyhow!(
+                        "Empty array is an invalid example of ResponseSchema"
+                    ));
                 } else {
                     items = Some(Box::new(
                         entries

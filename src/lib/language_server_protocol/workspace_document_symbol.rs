@@ -8,7 +8,7 @@ use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::future::Future;
 impl TryFrom<&Class> for WorkspaceSymbol {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
         let name = value.name().to_string();
@@ -16,19 +16,12 @@ impl TryFrom<&Class> for WorkspaceSymbol {
         let children: Option<Vec<DocumentSymbol>> = Some(
             features
                 .into_iter()
-                .map(|x| {
-                    x.as_ref()
-                        .try_into()
-                        .expect("feature conversion to document symbol")
-                })
-                .collect(),
+                .map(|x| DocumentSymbol::try_from(x.as_ref()))
+                .collect::<anyhow::Result<Vec<DocumentSymbol>>>()?,
         );
         let location = match value.location() {
-            Some(v) => match v.try_into() {
-                Ok(v) => v,
-                Err(_) => return Err("Covertion between code entities location and lsp location"),
-            },
-            None => return Err("Expected class with valid file location"),
+            Some(v) => v.try_into()?,
+            None => anyhow::bail!("Expected class with valid file location"),
         };
         Ok(WorkspaceSymbol {
             name,
@@ -41,10 +34,10 @@ impl TryFrom<&Class> for WorkspaceSymbol {
     }
 }
 impl TryFrom<&Location> for WorkspaceLocation {
-    type Error = ();
-    fn try_from(value: &Location) -> Result<Self, ()> {
+    type Error = anyhow::Error;
+    fn try_from(value: &Location) -> Result<Self, Self::Error> {
         match value.try_into() {
-            Err(_) => Err(()),
+            Err(e) => Err(e),
             Ok(uri) => Ok(Self { uri }),
         }
     }
@@ -57,7 +50,10 @@ impl HandleRequest for request::WorkspaceSymbolRequest {
     {
         async move {
             let read_workspace = st.workspace.read().unwrap();
-            let classes: Vec<Class> = read_workspace.iter().map(|x| x.into()).collect();
+            let classes: Vec<Class> = read_workspace
+                .iter()
+                .map(|x| x.try_into().expect("Parse class"))
+                .collect();
             let symbol_information: Vec<SymbolInformation> = classes
                 .iter()
                 .map(|x| {
@@ -96,7 +92,7 @@ mod test {
             .set_language(tree_sitter_eiffel::language())
             .expect("Error loading Eiffel grammar");
         let file = processed_file::ProcessedFile::new(&mut parser, path.clone());
-        let class: Class = (&file).into();
+        let class: Class = (&file).try_into().expect("Parse class");
         let symbol = <WorkspaceSymbol>::try_from(&class);
         assert!(symbol.is_ok())
     }

@@ -1,5 +1,6 @@
 use crate::lib::code_entities::{Class, Feature, Point, Range};
 
+use anyhow::anyhow;
 use tree_sitter::{Node, Tree, TreeCursor};
 
 pub(crate) struct WidthFirstTraversal<'a> {
@@ -61,9 +62,10 @@ impl From<tree_sitter::Range> for Range {
     }
 }
 
-impl Class {
-    /// This relies on the first `class_name` node (containing the class associated to the current file) coming earliar than any "extended_feature_name" node in the `WidthFirstTraversal` of the tree-sitter tree.
-    pub(super) fn from_tree_and_src<'a>(tree: &'a Tree, src: &'a str) -> Class {
+impl<'a> TryFrom<(&Tree, &'a str)> for Class {
+    type Error = anyhow::Error;
+
+    fn try_from((tree, src): (&Tree, &'a str)) -> Result<Self, Self::Error> {
         let cursor = tree.walk();
         let mut traversal = WidthFirstTraversal::new(cursor);
 
@@ -88,7 +90,7 @@ impl Class {
             let feature = Feature::from_name_and_range(name, range);
             class.add_feature(&feature);
         }
-        class
+        Ok(class)
     }
 }
 
@@ -115,7 +117,7 @@ mod tests {
         ";
         let tree = parser.parse(src, None).expect("AST");
 
-        let class = Class::from_tree_and_src(&tree, &src);
+        let class = Class::try_from((&tree, src)).expect("Parse class");
 
         assert_eq!(
             class.name(),
@@ -145,7 +147,7 @@ end
     ";
         let tree = parser.parse(src, None).expect("AST");
 
-        let class = Class::from_tree_and_src(&tree, &src);
+        let class = Class::try_from((&tree, src)).expect("Parse class");
 
         assert_eq!(class.name(), "DEMO_CLASS".to_string());
     }
@@ -165,7 +167,7 @@ class A feature
 end
 ";
         let tree = parser.parse(src, None).unwrap();
-        let class = Class::from_tree_and_src(&tree, &src);
+        let class = Class::try_from((&tree, src)).expect("Parse class");
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
@@ -187,7 +189,7 @@ end
 ";
         let tree = parser.parse(src, None).unwrap();
 
-        let class = Class::from_tree_and_src(&tree, &src);
+        let class = Class::try_from((&tree, src)).expect("Parse class");
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());

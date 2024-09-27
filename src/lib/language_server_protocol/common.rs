@@ -1,5 +1,6 @@
 use crate::lib::code_entities::*;
 use crate::lib::processed_file::ProcessedFile;
+use anyhow::{anyhow, Context};
 use async_lsp::lsp_types::{notification, request, SymbolKind, Url};
 use async_lsp::router;
 use async_lsp::ClientSocket;
@@ -10,7 +11,7 @@ use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
 use tracing::info;
 impl TryFrom<&Class> for lsp_types::Location {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
         let range = value.range().clone().try_into()?;
@@ -23,7 +24,7 @@ impl TryFrom<&Class> for lsp_types::Location {
     }
 }
 impl TryFrom<&Class> for lsp_types::SymbolInformation {
-    type Error = &'static str;
+    type Error = anyhow::Error;
     fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
         let name = value.name().into();
         let kind = SymbolKind::CLASS;
@@ -44,59 +45,42 @@ impl TryFrom<&Class> for lsp_types::SymbolInformation {
     }
 }
 impl TryFrom<&Location> for Url {
-    type Error = ();
+    type Error = anyhow::Error;
 
-    fn try_from(value: &Location) -> std::result::Result<Self, ()> {
+    fn try_from(value: &Location) -> std::result::Result<Self, Self::Error> {
         Self::from_file_path(value.path.clone())
+            .map_err(|()| anyhow!("code entitites location to url"))
     }
 }
 impl TryFrom<Point> for async_lsp::lsp_types::Position {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(value: Point) -> std::result::Result<Self, Self::Error> {
-        let line = match value.row.try_into() {
-            Ok(l) => l,
-            Err(_) => return Err("line conversion"),
-        };
-        let character = match value.column.try_into() {
-            Ok(c) => c,
-            Err(_) => return Err("character conversion"),
-        };
+        let line = value.row.try_into().context("line conversion")?;
+        let character = value.column.try_into().context("character conversion")?;
         Ok(Self { line, character })
     }
 }
 impl TryFrom<async_lsp::lsp_types::Position> for Point {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(value: async_lsp::lsp_types::Position) -> std::result::Result<Self, Self::Error> {
-        let row = match value.line.try_into() {
-            Ok(r) => r,
-            Err(_) => return Err("Row conversion"),
-        };
-        let column = match value.character.try_into() {
-            Ok(c) => c,
-            Err(_) => return Err("Column convertion"),
-        };
+        let row = value.line.try_into().context("row conversion")?;
+        let column = value.line.try_into().context("column conversion")?;
         Ok(Self { row, column })
     }
 }
 impl TryFrom<async_lsp::lsp_types::Range> for Range {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(value: async_lsp::lsp_types::Range) -> std::result::Result<Self, Self::Error> {
-        let start = match value.start.try_into() {
-            Ok(v) => v,
-            Err(_) => return Err("Start conversion"),
-        };
-        let end = match value.end.try_into() {
-            Ok(v) => v,
-            Err(_) => return Err("End conversion"),
-        };
+        let start = value.start.try_into().context("conversion of start")?;
+        let end = value.end.try_into().context("conversion of end")?;
         Ok(Self { start, end })
     }
 }
 impl TryFrom<Range> for async_lsp::lsp_types::Range {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(value: Range) -> std::result::Result<Self, Self::Error> {
         Ok(Self {

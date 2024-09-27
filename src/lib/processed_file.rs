@@ -18,17 +18,20 @@ impl ProcessedFile {
         &self.tree
     }
     pub(crate) fn feature_around(&self, range: Range) -> Option<Box<Feature>> {
-        Class::from(self)
+        Class::try_from(self)
+            .expect("Parse class")
             .into_features()
             .into_iter()
             .find(|x| range <= *x.range())
     }
 }
 
-impl From<&ProcessedFile> for Class {
-    fn from(value: &ProcessedFile) -> Self {
-        let mut class = Class::from_tree_and_src(&value.tree, &value.src);
+impl TryFrom<&ProcessedFile> for Class {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &ProcessedFile) -> Result<Self, Self::Error> {
+        let mut class = Class::try_from((&value.tree, value.src.as_str()))?;
         class.add_location(&value.path);
-        class
+        Ok(class)
     }
 }
