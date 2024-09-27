@@ -1,5 +1,7 @@
+use crate::lib::code_entities;
 use async_lsp::Result;
-use serde::Serialize;
+use reqwest::header::ValueDrain;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 /// The content of the current conversation with the model.
 /// For single-turn queries, this is a single instance.
@@ -335,5 +337,64 @@ impl ResponseSchema {
             required,
             items: None,
         }
+    }
+}
+
+#[derive(Deserialize)]
+struct PostconditionClause {
+    tag: String,
+    predicate: String,
+}
+impl From<PostconditionClause> for code_entities::ContractClause<code_entities::Postcondition> {
+    fn from(value: PostconditionClause) -> Self {
+        let tag = if value.tag.is_empty() {
+            None
+        } else {
+            Some(code_entities::Tag::from(value.tag))
+        };
+        Self::new(tag, code_entities::Predicate::from(value.predicate))
+    }
+}
+#[derive(Deserialize)]
+struct PreconditionClause {
+    tag: String,
+    predicate: String,
+}
+impl From<PreconditionClause> for code_entities::ContractClause<code_entities::Precondition> {
+    fn from(value: PreconditionClause) -> Self {
+        let tag = if value.tag.is_empty() {
+            None
+        } else {
+            Some(code_entities::Tag::from(value.tag))
+        };
+        Self::new(tag, code_entities::Predicate::from(value.predicate))
+    }
+}
+#[derive(Deserialize)]
+struct Precondition {
+    precondition: Vec<PreconditionClause>,
+}
+impl From<Precondition> for code_entities::Contract<code_entities::Precondition> {
+    fn from(value: Precondition) -> Self {
+        let pre: Vec<code_entities::ContractClause<code_entities::Precondition>> = value
+            .precondition
+            .into_iter()
+            .map(|x| code_entities::ContractClause::<code_entities::Precondition>::from(x))
+            .collect();
+        Self::from(pre)
+    }
+}
+#[derive(Deserialize)]
+struct Postcondition {
+    postcondition: Vec<PostconditionClause>,
+}
+impl From<Postcondition> for code_entities::Contract<code_entities::Postcondition> {
+    fn from(value: Postcondition) -> Self {
+        let post: Vec<code_entities::ContractClause<code_entities::Postcondition>> = value
+            .postcondition
+            .into_iter()
+            .map(|x| code_entities::ContractClause::<code_entities::Postcondition>::from(x))
+            .collect();
+        Self::from(post)
     }
 }

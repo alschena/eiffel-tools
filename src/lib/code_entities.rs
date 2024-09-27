@@ -1,9 +1,9 @@
-use serde::Deserialize;
 use std::cmp::{Ordering, PartialOrd};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::path;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(super) struct Point {
@@ -138,7 +138,6 @@ impl Class {
     }
 }
 
-#[derive(Deserialize)]
 pub struct Contract<T: ContractType>(Vec<ContractClause<T>>);
 impl<T: ContractType> Deref for Contract<T> {
     type Target = Vec<ContractClause<T>>;
@@ -147,17 +146,30 @@ impl<T: ContractType> Deref for Contract<T> {
         &self.0
     }
 }
+impl<T: ContractType> From<Vec<ContractClause<T>>> for Contract<T> {
+    fn from(value: Vec<ContractClause<T>>) -> Self {
+        Self(value)
+    }
+}
 impl<T: ContractType> DerefMut for Contract<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
-#[derive(Deserialize)]
 pub struct ContractClause<T: ContractType> {
     tag: Option<Tag>,
     predicate: Predicate,
-    #[serde(skip)]
     contract_type: PhantomData<T>,
+}
+impl<T: ContractType> ContractClause<T> {
+    pub fn new(tag: Option<Tag>, predicate: Predicate) -> ContractClause<T> {
+        let contract_type = PhantomData::<T>::default();
+        ContractClause {
+            tag,
+            predicate,
+            contract_type,
+        }
+    }
 }
 pub trait ContractType {
     fn definition() -> String;
@@ -166,12 +178,27 @@ pub trait ContractType {
         "Write a valid tag clause for the Eiffel programming language.".to_string()
     }
 }
-#[derive(Deserialize)]
 pub struct Tag(String);
-#[derive(Deserialize)]
+impl From<String> for Tag {
+    fn from(value: String) -> Self {
+        Tag(value)
+    }
+}
 pub struct Predicate(String);
-struct Precondition {}
-struct Postcondition {}
+impl From<String> for Predicate {
+    fn from(value: String) -> Self {
+        Predicate(value)
+    }
+}
+impl FromStr for Predicate {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Predicate(s.to_string()))
+    }
+}
+pub struct Precondition;
+pub struct Postcondition;
 impl ContractType for Precondition {
     fn definition() -> String {
         "Preconditions are predicates on the prestate, the state before the execution, of a routine. They describe the properties that the fields of the model in the current object must satisfy in the prestate. Preconditions cannot contain a call to `old_` or the `old` keyword.".to_string()
