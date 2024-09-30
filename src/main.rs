@@ -11,7 +11,7 @@ use tower::ServiceBuilder;
 use tracing::{info, Level};
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let (server, _) = async_lsp::MainLoop::new_server(|client| {
         tokio::spawn({
             let client = client.clone();
@@ -57,8 +57,8 @@ async fn main() {
     // Prefer truly asynchronous piped stdin/stdout without blocking tasks.
     #[cfg(unix)]
     let (stdin, stdout) = (
-        async_lsp::stdio::PipeStdin::lock_tokio().unwrap(),
-        async_lsp::stdio::PipeStdout::lock_tokio().unwrap(),
+        async_lsp::stdio::PipeStdin::lock_tokio()?,
+        async_lsp::stdio::PipeStdout::lock_tokio()?,
     );
     // Fallback to spawn blocking read/write otherwise.
     #[cfg(not(unix))]
@@ -67,5 +67,6 @@ async fn main() {
         tokio_util::compat::TokioAsyncWriteCompatExt::compat_write(tokio::io::stdout()),
     );
 
-    server.run_buffered(stdin, stdout).await.unwrap();
+    server.run_buffered(stdin, stdout).await?;
+    Ok(())
 }
