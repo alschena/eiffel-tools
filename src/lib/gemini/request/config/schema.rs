@@ -1,7 +1,6 @@
 use crate::lib::code_entities;
 use anyhow::anyhow;
 use async_lsp::Result;
-use reqwest::header::ValueDrain;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 /// The content of the current conversation with the model.
@@ -343,10 +342,17 @@ impl ResponseSchema {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct PostconditionClause {
     tag: String,
     predicate: String,
+}
+impl Default for PostconditionClause {
+    fn default() -> Self {
+        let tag = "trivial".to_string();
+        let predicate = "True".to_string();
+        PostconditionClause { tag, predicate }
+    }
 }
 impl From<PostconditionClause> for code_entities::ContractClause<code_entities::Postcondition> {
     fn from(value: PostconditionClause) -> Self {
@@ -358,10 +364,17 @@ impl From<PostconditionClause> for code_entities::ContractClause<code_entities::
         Self::new(tag, code_entities::Predicate::from(value.predicate))
     }
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct PreconditionClause {
     tag: String,
     predicate: String,
+}
+impl Default for PreconditionClause {
+    fn default() -> Self {
+        let tag = "trivial".to_string();
+        let predicate = "True".to_string();
+        PreconditionClause { tag, predicate }
+    }
 }
 impl From<PreconditionClause> for code_entities::ContractClause<code_entities::Precondition> {
     fn from(value: PreconditionClause) -> Self {
@@ -373,7 +386,7 @@ impl From<PreconditionClause> for code_entities::ContractClause<code_entities::P
         Self::new(tag, code_entities::Predicate::from(value.predicate))
     }
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct Precondition {
     precondition: Vec<PreconditionClause>,
 }
@@ -387,7 +400,7 @@ impl From<Precondition> for code_entities::Contract<code_entities::Precondition>
         Self::from(pre)
     }
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct Postcondition {
     postcondition: Vec<PostconditionClause>,
 }
@@ -399,5 +412,32 @@ impl From<Postcondition> for code_entities::Contract<code_entities::Postconditio
             .map(|x| code_entities::ContractClause::<code_entities::Postcondition>::from(x))
             .collect();
         Self::from(post)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserialize_contract() {
+        let pre_str = r#"{
+  "precondition": [
+    {
+      "tag": "name_pre",
+      "predicate": "a = b"
+    }
+  ]
+}"#;
+        let post_str = r#"{
+  "postcondition": [
+    {
+      "tag": "name_post",
+      "predicate": "a = b"
+    }
+  ]
+}"#;
+        let pre: Precondition = serde_json::from_str(pre_str).expect("Parse precondition");
+        let post: Postcondition = serde_json::from_str(post_str).expect("Parse postcondition");
     }
 }

@@ -72,6 +72,7 @@ mod test {
     use super::*;
 
     #[tokio::test]
+    #[ignore]
     async fn text_response() {
         let req = request::Request::from(
             "Write a story about turles from the prospective of a frog.".to_string(),
@@ -89,6 +90,7 @@ mod test {
         eprintln!("{:?}", res);
     }
     #[tokio::test]
+    #[ignore]
     async fn simple_json_response() {
         let req = request::Request::from(
             "Write a story about turtles from the prospective of a frog.".to_string(),
@@ -97,6 +99,7 @@ mod test {
         let res = req.process(&config).await;
     }
     #[tokio::test]
+    #[ignore]
     async fn format_contract_response_as_json() {
         let mut req = request::Request::from("Write preconditions and postconditions for the routine `minimum (x: INTEGER, y: INTEGER): INTEGER`.".to_string());
         let mut generation_config = config::GenerationConfig::default();
@@ -108,6 +111,7 @@ mod test {
         let server_config = model::Config::default();
         let res = req.process(&server_config).await;
         eprintln!("{:?}", res);
-        assert!(false);
+        // TODO add interesting assertion abount serialization
+        // assert!(false);
     }
 }
