@@ -1,11 +1,12 @@
 use super::code_entities::Class;
+use crate::lib::processed_file::ProcessedFile;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tree_sitter::{Parser, Tree, TreeCursor};
 
 struct Workspace {
-    classes: Vec<Class>,
-    files: HashMap<PathBuf, Tree>,
+    classes: HashMap<PathBuf, Vec<Class>>,
+    files: HashMap<PathBuf, ProcessedFile>,
     parser: Parser,
 }
 
@@ -17,7 +18,7 @@ impl Workspace {
             .expect("Error loading Eiffel grammar");
 
         Workspace {
-            classes: Vec::new(),
+            classes: HashMap::new(),
             files: HashMap::new(),
             parser,
         }
