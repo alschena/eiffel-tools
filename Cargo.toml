@@ -7,6 +7,7 @@ edition = "2021"
 cc="*"
 
 [dependencies]
+anyhow = "1.0"
 async-lsp = { version = "0.2.*", features = ["client-monitor", "omni-trait", "stdio", "tracing", "tokio"]}
 tokio = { version = "1.27", features = ["full"] }
 tower = "0.5.*"
