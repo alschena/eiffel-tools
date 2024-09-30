@@ -1,6 +1,4 @@
-use crate::lib::code_entities::{Class, Feature, Point, Range};
-
-use anyhow::anyhow;
+use crate::lib::code_entities::{Class, Feature, Model, Point, Range};
 use tree_sitter::{Node, Tree, TreeCursor};
 
 pub(crate) struct WidthFirstTraversal<'a> {
@@ -66,9 +64,9 @@ impl<'a> TryFrom<(&Tree, &'a str)> for Class {
     type Error = anyhow::Error;
 
     fn try_from((tree, src): (&Tree, &'a str)) -> Result<Self, Self::Error> {
-        let cursor = tree.walk();
-        let mut traversal = WidthFirstTraversal::new(cursor);
+        let mut traversal = WidthFirstTraversal::new(tree.walk());
 
+        // Extract class name
         let node = traversal
             .find(|x| x.kind() == "class_name")
             .expect("class_name");
@@ -77,6 +75,7 @@ impl<'a> TryFrom<(&Tree, &'a str)> for Class {
         let range = node.range().into();
         let mut class = Self::from_name_range(name, range);
 
+        // Extract features
         for node in traversal.filter(|x| x.kind() == "feature_declaration") {
             let range = node.range().into();
             let mut cursor = tree.walk();
@@ -90,6 +89,51 @@ impl<'a> TryFrom<(&Tree, &'a str)> for Class {
             let feature = Feature::from_name_and_range(name, range);
             class.add_feature(&feature);
         }
+
+        // Extract optional model
+        let mut model_names: Vec<String> = Vec::new();
+        let tag = WidthFirstTraversal::new(tree.walk()).find(|x| {
+            x.kind() == "tag"
+                && &src[x.byte_range()] == "model"
+                && x.parent().is_some_and(|p| {
+                    p.kind() == "note_entry"
+                        && p.parent().is_some_and(|pp| {
+                            pp.parent()
+                                .is_some_and(|ppp| ppp.kind() == "class_declaration")
+                        })
+                })
+        });
+        match tag {
+            Some(n) => {
+                let mut next = n.next_sibling();
+                while next.is_some() {
+                    let current = next.unwrap();
+                    model_names.push(src[current.byte_range()].to_string());
+                    next = current.next_sibling();
+                }
+            }
+            None => {}
+        }
+        let features_of_current_class = class.features();
+        let model: Vec<Feature> = model_names
+            .iter()
+            .filter(|x| {
+                features_of_current_class
+                    .iter()
+                    .find(|&y| y.name() == x.as_str())
+                    .is_some()
+            })
+            .map(|x| {
+                let f = features_of_current_class
+                    .iter()
+                    .find(|&y| y.name() == x.as_str())
+                    .unwrap()
+                    .clone();
+                *f
+            })
+            .collect();
+        let model = Model(model);
+        class.add_model(&model);
         Ok(class)
     }
 }
@@ -193,6 +237,32 @@ end
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
+        assert_eq!(features.first().unwrap().name(), "x".to_string());
+    }
+    #[test]
+    fn process_model() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_eiffel::language())
+            .expect("Error loading Eiffel grammar");
+
+        let src = "
+note
+    model: seq
+class A
+feature
+    x: INTEGER
+    seq: MML_SEQUENCE [INTEGER]
+end
+";
+        let tree = parser.parse(src, None).unwrap();
+
+        let class = Class::try_from((&tree, src)).expect("Parse class");
+        let model = class.model().clone();
+        let features = class.features().clone();
+
+        assert_eq!(class.name(), "A".to_string());
+        assert_eq!((&model.0.first().unwrap()).name(), "seq".to_string());
         assert_eq!(features.first().unwrap().name(), "x".to_string());
     }
     #[test]

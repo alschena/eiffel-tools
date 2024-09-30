@@ -85,10 +85,15 @@ impl Feature {
     }
 }
 
+// TODO accept only attributes of logical type in the model
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub(super) struct Model(pub Vec<Feature>);
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(super) struct Class {
     name: String,
     path: Option<Location>,
+    model: Model,
     features: Vec<Box<Feature>>,
     descendants: Vec<Box<Class>>,
     ancestors: Vec<Box<Class>>,
@@ -98,6 +103,9 @@ pub(super) struct Class {
 impl Class {
     pub(super) fn name(&self) -> &str {
         &self.name
+    }
+    pub(super) fn model(&self) -> &Model {
+        &self.model
     }
     pub(super) fn features(&self) -> &Vec<Box<Feature>> {
         &self.features
@@ -115,12 +123,14 @@ impl Class {
         }
     }
     pub(super) fn from_name_range(name: String, range: Range) -> Class {
+        let model = Model(Vec::new());
         let features = Vec::new();
         let descendants = Vec::new();
         let ancestors = Vec::new();
         Class {
             name,
             path: None,
+            model,
             features,
             descendants,
             ancestors,
@@ -130,6 +140,10 @@ impl Class {
 
     pub(super) fn add_feature(&mut self, feature: &Feature) {
         self.features.push(Box::new(feature.clone()))
+    }
+
+    pub(super) fn add_model(&mut self, model: &Model) {
+        self.model = model.clone()
     }
 
     pub(super) fn add_location(&mut self, path: &PathBuf) {
