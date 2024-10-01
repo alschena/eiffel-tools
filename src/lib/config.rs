@@ -1,6 +1,19 @@
 use serde::Deserialize;
 use serde_xml_rs;
 #[derive(Deserialize, Debug, PartialEq)]
+struct Config {
+    system: System,
+}
+#[derive(Deserialize, Debug, PartialEq)]
+struct System {
+    target: Target,
+}
+#[derive(Deserialize, Debug, PartialEq)]
+struct Target {
+    cluster: Vec<Cluster>,
+}
+
+#[derive(Deserialize, Debug, PartialEq)]
 struct Cluster {
     name: String,
     location: String,
@@ -8,6 +21,7 @@ struct Cluster {
 }
 #[cfg(test)]
 mod tests {
+    use super::*;
     const XML_EXAMPLE: &str = r#"<?xml version="1.0" encoding="ISO-8859-1"?>
 <system xmlns="http://www.eiffel.com/developers/xml/configuration-1-16-0"
 	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -24,18 +38,19 @@ mod tests {
 		<capability>
 			<void_safety support="all" />
 		</capability>
-		<!-- <option warning="true"> -->
-		<!-- 	<assertions precondition="true" postcondition="true" check="true" -->
-		<!-- 		invariant="true" loop="true" supplier_precondition="true" /> -->
-		<!-- </option> -->
-		<!-- <setting name="console_application" value="true" /> -->
-		<library name="base" location="$AP/library/base/base-scoop-safe.ecf" />
-		<!-- <cluster name="sanity-check" -->
-		<!-- 	location="./modified_condition_decision_coverage/rewrite/" recursive="true" /> -->
 		<cluster name="list_inversion"
 			location="./list_inversion/" recursive="true" />
 		<cluster name="levenshtein_distance"
 			location="./levenshtein_distance/" recursive="true" />
 	</target>
 </system>"#;
+    #[test]
+    fn extract_cluster() {
+        let system: System = serde_xml_rs::from_str(XML_EXAMPLE).unwrap();
+        let target = system.target;
+        let cluster = target.cluster.first().expect("At least a cluster");
+        assert_eq!(cluster.name, "list_inversion".to_string());
+        assert_eq!(cluster.location, "./list_inversion/".to_string());
+        assert!(cluster.recursive);
+    }
 }
