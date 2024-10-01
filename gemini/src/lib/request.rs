@@ -105,29 +105,6 @@ pub struct Request {
     cached_content: Option<CachedContent>,
 }
 impl Request {
-    pub fn set_contents(&mut self, contents: Contents) {
-        self.contents = contents;
-    }
-    pub fn set_tools(&mut self, tools: Option<Tools>) {
-        self.tools = tools;
-    }
-    pub fn set_tool_config(&mut self, tool_config: Option<ToolConfig>) {
-        self.tool_config = tool_config;
-    }
-    pub fn set_safety_settings(&mut self, safety_settings: Option<Vec<SafetySetting>>) {
-        self.safety_settings = safety_settings;
-    }
-    pub fn set_system_instruction(&mut self, system_instruction: Option<SystemInstruction>) {
-        self.system_instruction = system_instruction;
-    }
-    pub fn set_generation_config(&mut self, generation_config: Option<config::GenerationConfig>) {
-        self.generation_config = generation_config;
-    }
-    pub fn set_cached_content(&mut self, cached_content: Option<CachedContent>) {
-        self.cached_content = cached_content;
-    }
-}
-impl Request {
     pub async fn process(&self, config: &model::Config) -> response::Response {
         let web_client = reqwest::Client::new();
         let json_req = web_client.post(config.end_point().clone()).json(&self);
@@ -214,17 +191,6 @@ mod test {
     fn serialize_simple_request() {
         let req =
             Request::from("Write a story about turles from the prospective of a frog.".to_string());
-        eprintln!("{:?}", serde_json::to_string(&req));
-    }
-    #[test]
-    fn serialize_request_json_config() {
-        let mut req =
-            Request::from("Write a story about turles from the prospective of a frog.".to_string());
-        let mut generation_config = config::GenerationConfig::default();
-        generation_config.set_response_mime_type(Some(config::ResponseMimeType::Json));
-        assert!(generation_config.response_mime_type() == &Some(config::ResponseMimeType::Json));
-        generation_config.set_response_schema(Some(config::schema::ResponseSchema::contracts()));
-        req.set_generation_config(Some(generation_config));
         eprintln!("{:?}", serde_json::to_string(&req));
     }
 }
