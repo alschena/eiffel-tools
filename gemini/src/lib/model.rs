@@ -10,7 +10,7 @@ pub(super) enum Role {
     Model,
 }
 #[derive(Debug, Clone)]
-enum Mode {
+pub enum Mode {
     Generate,
     Stream,
 }
@@ -23,7 +23,7 @@ impl Display for Mode {
     }
 }
 #[derive(Debug, Clone)]
-enum Model {
+pub enum Model {
     Flash,
     Pro,
 }
@@ -64,5 +64,17 @@ impl Default for Config {
         let model = Model::Flash;
         let env_var_token = "GOOGLE_API_KEY".to_string();
         Self::new(model, mode, env_var_token)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn mode_display() {
+        let mode = Mode::Generate;
+        assert_eq!(format!("{mode}"), "generateContent".to_string());
+        let mode = Mode::Stream;
+        assert_eq!(format!("{mode}"), "streamGenerateContent".to_string());
     }
 }
