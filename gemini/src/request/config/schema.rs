@@ -1,8 +1,4 @@
-//! The content of the current conversation with the model.
-//! For single-turn queries, this is a single instance.
-//! For multi-turn queries like chat, this is a repeated field that contains the conversation history and the latest request.
-use anyhow::anyhow;
-use async_lsp::Result;
+//! The structure of the model response candidates.
 use serde::Serialize;
 use std::collections::HashMap;
 /// Output schema of the generated candidate text. Schemas must be a subset of the OpenAPI schema and can be objects, primitives or arrays.
