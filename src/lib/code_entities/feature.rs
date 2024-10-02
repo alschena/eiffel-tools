@@ -1,12 +1,8 @@
 use super::class::Class;
-use super::shared::*;
+use super::*;
+use crate::lib::tree_sitter;
+use anyhow::anyhow;
 use async_lsp::lsp_types;
-use gemini::request::config::schema::{ResponseSchema, ToResponseSchema};
-use gemini_macro_derive::ToResponseSchema;
-use serde::Deserialize;
-use std::cmp::{Ordering, PartialOrd};
-use std::path;
-use std::path::PathBuf;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum FeatureVisibility {
     Private,
@@ -16,17 +12,20 @@ pub enum FeatureVisibility {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Feature {
-    name: String,
-    visibility: FeatureVisibility,
-    range: Range,
+    pub(super) name: String,
+    pub(super) visibility: FeatureVisibility,
+    pub(super) range: Range,
+    pub(super) preconditions: Option<Precondition>,
+    pub(super) postconditions: Option<Postcondition>,
 }
 impl Feature {
     pub fn from_name_and_range(name: String, range: Range) -> Feature {
-        let visibility = FeatureVisibility::Private;
         Feature {
             name,
-            visibility,
+            visibility: FeatureVisibility::Private,
             range,
+            preconditions: None,
+            postconditions: None,
         }
     }
     pub fn name(&self) -> &str {
@@ -34,6 +33,38 @@ impl Feature {
     }
     pub fn range(&self) -> &Range {
         &self.range
+    }
+}
+impl<'a, 'b, 'c>
+    TryFrom<(
+        &::tree_sitter::Node<'b>,
+        ::tree_sitter::TreeCursor<'c>,
+        &'a str,
+    )> for Feature
+where
+    'c: 'b,
+{
+    type Error = anyhow::Error;
+
+    fn try_from(
+        (node, mut cursor, src): (&tree_sitter::Node<'_>, tree_sitter::TreeCursor, &'a str),
+    ) -> Result<Self, Self::Error> {
+        debug_assert!(node.kind() == "feature_declaration");
+        cursor.reset(*node);
+        let mut traversal = tree_sitter::WidthFirstTraversal::new(cursor);
+        Ok(Feature {
+            name: src[traversal
+                .find(|x| x.kind() == "extended_feature_name")
+                .ok_or(anyhow!(
+                    "Each feature declaration contains an extended feature name"
+                ))?
+                .byte_range()]
+            .into(),
+            visibility: FeatureVisibility::Private,
+            range: node.range().into(),
+            preconditions: None,
+            postconditions: None,
+        })
     }
 }
 impl TryFrom<lsp_types::DocumentSymbol> for Feature {

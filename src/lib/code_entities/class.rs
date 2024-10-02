@@ -12,9 +12,9 @@ pub struct Class {
     name: String,
     path: Option<Location>,
     model: Model,
-    features: Vec<Box<Feature>>,
-    descendants: Vec<Box<Class>>,
-    ancestors: Vec<Box<Class>>,
+    features: Vec<Feature>,
+    descendants: Vec<Class>,
+    ancestors: Vec<Class>,
     range: Range,
 }
 
@@ -25,10 +25,10 @@ impl Class {
     pub fn model(&self) -> &Model {
         &self.model
     }
-    pub fn features(&self) -> &Vec<Box<Feature>> {
+    pub fn features(&self) -> &Vec<Feature> {
         &self.features
     }
-    pub fn into_features(self) -> Vec<Box<Feature>> {
+    pub fn into_features(self) -> Vec<Feature> {
         self.features
     }
     pub fn range(&self) -> &Range {
@@ -57,7 +57,7 @@ impl Class {
     }
 
     pub fn add_feature(&mut self, feature: &Feature) {
-        self.features.push(Box::new(feature.clone()))
+        self.features.push(feature.clone())
     }
 
     pub fn add_model(&mut self, model: &Model) {
@@ -131,11 +131,7 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
         let children: Option<Vec<lsp_types::DocumentSymbol>> = Some(
             features
                 .into_iter()
-                .map(|x| {
-                    x.as_ref()
-                        .try_into()
-                        .expect("feature conversion to document symbol")
-                })
+                .map(|x| x.try_into().expect("feature conversion to document symbol"))
                 .collect(),
         );
         Ok(lsp_types::DocumentSymbol {
@@ -166,19 +162,11 @@ impl<'a> TryFrom<(&tree_sitter::Tree, &'a str)> for Class {
         let mut class = Self::from_name_range(name, range);
 
         // Extract features
-        for node in traversal.filter(|x| x.kind() == "feature_declaration") {
-            let range = node.range().into();
-            let mut cursor = tree.walk();
-            cursor.reset(node);
-            let mut traversal = tree_sitter::WidthFirstTraversal::new(cursor);
-            let name = src[traversal
-                .find(|x| x.kind() == "extended_feature_name")
-                .expect("Each feature declaration contains an extended feature name")
-                .byte_range()]
-            .into();
-            let feature = Feature::from_name_and_range(name, range);
-            class.add_feature(&feature);
-        }
+        let features: Vec<Feature> = traversal
+            .filter(|x| x.kind() == "feature_declaration")
+            .map(|node| Feature::try_from((&node, tree.walk(), src)))
+            .collect::<anyhow::Result<Vec<Feature>>>()?;
+        class.features = features;
 
         // Extract optional model
         let mut model_names: Vec<String> = Vec::new();
@@ -219,7 +207,7 @@ impl<'a> TryFrom<(&tree_sitter::Tree, &'a str)> for Class {
                     .find(|&y| y.name() == x.as_str())
                     .unwrap()
                     .clone();
-                *f
+                f
             })
             .collect();
         let model = Model(model);
@@ -236,7 +224,7 @@ impl TryFrom<&Class> for lsp_types::WorkspaceSymbol {
         let children: Option<Vec<lsp_types::DocumentSymbol>> = Some(
             features
                 .into_iter()
-                .map(|x| lsp_types::DocumentSymbol::try_from(x.as_ref()))
+                .map(|x| lsp_types::DocumentSymbol::try_from(x))
                 .collect::<anyhow::Result<Vec<lsp_types::DocumentSymbol>>>()?,
         );
         let location = match value.location() {

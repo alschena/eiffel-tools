@@ -1,10 +1,6 @@
 use super::common::{HandleRequest, ServerState};
-use crate::lib::code_entities::class::Class;
-use crate::lib::code_entities::shared::*;
-use async_lsp::lsp_types::{
-    request, DocumentSymbol, OneOf, SymbolInformation, SymbolKind, WorkspaceLocation,
-    WorkspaceSymbol, WorkspaceSymbolResponse,
-};
+use crate::lib::code_entities::Class;
+use async_lsp::lsp_types::{request, SymbolInformation, WorkspaceSymbolResponse};
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::future::Future;

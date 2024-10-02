@@ -1,11 +1,7 @@
 use anyhow::{anyhow, Context};
 use async_lsp::lsp_types;
-use gemini::request::config::schema::{ResponseSchema, ToResponseSchema};
-use gemini_macro_derive::ToResponseSchema;
-use serde::Deserialize;
 use std::cmp::{Ordering, PartialOrd};
 use std::path;
-use std::path::PathBuf;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Point {
     pub row: usize,

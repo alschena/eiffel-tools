@@ -1,8 +1,8 @@
-use super::code_entities::class::Class;
+use super::code_entities::Class;
 use crate::lib::processed_file::ProcessedFile;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tree_sitter::{Parser, Tree, TreeCursor};
+use tree_sitter::Parser;
 
 struct Workspace {
     classes: HashMap<PathBuf, Vec<Class>>,

@@ -1,6 +1,6 @@
-use super::code_entities::class::Class;
-use super::code_entities::feature::Feature;
-use super::code_entities::shared::Range;
+use super::code_entities::Class;
+use super::code_entities::Feature;
+use super::code_entities::Range;
 use std::path::PathBuf;
 use tree_sitter::{Parser, Tree};
 
@@ -19,7 +19,7 @@ impl ProcessedFile {
     pub(crate) fn tree(&self) -> &Tree {
         &self.tree
     }
-    pub(crate) fn feature_around(&self, range: Range) -> Option<Box<Feature>> {
+    pub(crate) fn feature_around(&self, range: Range) -> Option<Feature> {
         Class::try_from(self)
             .expect("Parse class")
             .into_features()
