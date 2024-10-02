@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context};
 use async_lsp::lsp_types;
-use gemini::lib::request::config::schema::{ResponseSchema, ToResponseSchema};
+use gemini::request::config::schema::{ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
 use std::cmp::{Ordering, PartialOrd};
@@ -47,6 +47,16 @@ impl PartialOrd for Range {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Location {
     pub path: path::PathBuf,
+}
+
+impl TryFrom<&Location> for lsp_types::WorkspaceLocation {
+    type Error = anyhow::Error;
+    fn try_from(value: &Location) -> Result<Self, Self::Error> {
+        match value.try_into() {
+            Err(e) => Err(e),
+            Ok(uri) => Ok(Self { uri }),
+        }
+    }
 }
 
 impl From<&str> for Location {

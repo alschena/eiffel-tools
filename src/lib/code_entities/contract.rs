@@ -1,4 +1,4 @@
-use gemini::lib::request::config::schema::{Described, ResponseSchema, ToResponseSchema};
+use gemini::request::config::schema::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
 use std::cmp::{Ordering, PartialOrd};

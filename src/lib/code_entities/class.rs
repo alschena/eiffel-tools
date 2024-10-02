@@ -103,6 +103,53 @@ impl TryFrom<&Class> for lsp_types::SymbolInformation {
         }
     }
 }
+impl TryFrom<lsp_types::DocumentSymbol> for Class {
+    type Error = anyhow::Error;
+
+    fn try_from(value: lsp_types::DocumentSymbol) -> std::result::Result<Self, Self::Error> {
+        let name = value.name;
+        let kind = value.kind;
+        let range = value.range.try_into()?;
+        debug_assert_eq!(kind, lsp_types::SymbolKind::CLASS);
+        let children: Vec<Feature> = match value.children {
+            Some(v) => v
+                .into_iter()
+                .map(|x| Feature::try_from(x).expect("Document symbol to feature"))
+                .collect(),
+            None => Vec::new(),
+        };
+        Ok(Class::from_name_range(name, range))
+    }
+}
+impl TryFrom<&Class> for lsp_types::DocumentSymbol {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
+        let name = value.name().to_string();
+        let features = value.features();
+        let range = value.range().clone().try_into()?;
+        let children: Option<Vec<lsp_types::DocumentSymbol>> = Some(
+            features
+                .into_iter()
+                .map(|x| {
+                    x.as_ref()
+                        .try_into()
+                        .expect("feature conversion to document symbol")
+                })
+                .collect(),
+        );
+        Ok(lsp_types::DocumentSymbol {
+            name,
+            detail: None,
+            kind: lsp_types::SymbolKind::CLASS,
+            tags: None,
+            deprecated: None,
+            range,
+            selection_range: range,
+            children,
+        })
+    }
+}
 impl<'a> TryFrom<(&tree_sitter::Tree, &'a str)> for Class {
     type Error = anyhow::Error;
 
@@ -180,10 +227,40 @@ impl<'a> TryFrom<(&tree_sitter::Tree, &'a str)> for Class {
         Ok(class)
     }
 }
+impl TryFrom<&Class> for lsp_types::WorkspaceSymbol {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
+        let name = value.name().to_string();
+        let features = value.features();
+        let children: Option<Vec<lsp_types::DocumentSymbol>> = Some(
+            features
+                .into_iter()
+                .map(|x| lsp_types::DocumentSymbol::try_from(x.as_ref()))
+                .collect::<anyhow::Result<Vec<lsp_types::DocumentSymbol>>>()?,
+        );
+        let location = match value.location() {
+            Some(v) => v.try_into()?,
+            None => anyhow::bail!("Expected class with valid file location"),
+        };
+        Ok(lsp_types::WorkspaceSymbol {
+            name,
+            kind: lsp_types::SymbolKind::CLASS,
+            tags: None,
+            container_name: None,
+            location: lsp_types::OneOf::Right(location),
+            data: None,
+        })
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lib::processed_file;
     use ::tree_sitter;
+    use std::fs::File;
+    use std::io::prelude::*;
+    use std::path::PathBuf;
 
     #[test]
     fn process_base_class() {
@@ -301,5 +378,26 @@ end
         assert_eq!(class.name(), "A".to_string());
         assert_eq!((&model.0.first().unwrap()).name(), "seq".to_string());
         assert_eq!(features.first().unwrap().name(), "x".to_string());
+    }
+    #[test]
+    fn class_to_workspacesymbol() {
+        let path = "/tmp/eiffel_tool_test_class_to_workspacesymbol.e";
+        let path = PathBuf::from(path);
+        let src = "
+    class A
+    note
+    end
+        ";
+        let mut file = File::create(path.clone()).expect("Failed to create file");
+        file.write_all(src.as_bytes())
+            .expect("Failed to write to file");
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_eiffel::language())
+            .expect("Error loading Eiffel grammar");
+        let file = processed_file::ProcessedFile::new(&mut parser, path.clone());
+        let class: Class = (&file).try_into().expect("Parse class");
+        let symbol = <lsp_types::WorkspaceSymbol>::try_from(&class);
+        assert!(symbol.is_ok())
     }
 }

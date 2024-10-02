@@ -26,9 +26,9 @@ fn impl_to_response_schema(ast: &syn::DeriveInput) -> TokenStream {
                 .collect();
             quote! {
                 impl ToResponseSchema for #struct_name {
-                    fn to_response_schema() -> gemini::lib::request::config::schema::ResponseSchema {
+                    fn to_response_schema() -> gemini::request::config::schema::ResponseSchema {
                         ResponseSchema {
-                            schema_type: gemini::lib::request::config::schema::SchemaType::Object,
+                            schema_type: gemini::request::config::schema::SchemaType::Object,
                             format: None,
                             description: None,
                             nullable: None,
