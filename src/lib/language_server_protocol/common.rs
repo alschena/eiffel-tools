@@ -1,9 +1,5 @@
-use crate::lib::code_entities::class::Class;
-use crate::lib::code_entities::feature::Feature;
-use crate::lib::code_entities::shared::{Location, Point, Range};
 use crate::lib::processed_file::ProcessedFile;
-use anyhow::{anyhow, Context};
-use async_lsp::lsp_types::{notification, request, SymbolKind, Url};
+use async_lsp::lsp_types::{notification, request};
 use async_lsp::router;
 use async_lsp::ClientSocket;
 use async_lsp::Result;

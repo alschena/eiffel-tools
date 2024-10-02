@@ -1,3 +1,3 @@
-mod model;
+pub mod model;
 pub mod request;
-mod response;
+pub mod response;

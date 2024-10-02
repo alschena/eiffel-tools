@@ -1,11 +1,14 @@
 use super::common::{HandleRequest, ServerState};
 use async_lsp::lsp_types::{
-    request, CodeAction, CodeActionDisabled, CodeActionOrCommand, CodeActionResponse, Command,
-    SymbolInformation,
+    self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand, CodeActionResponse,
+    Command, SymbolInformation,
 };
 use async_lsp::ResponseError;
 use async_lsp::Result;
+use std::collections::HashMap;
 use std::future::Future;
+use std::ops::Deref;
+mod transformer;
 
 impl HandleRequest for request::CodeActionRequest {
     fn handle_request(
@@ -36,13 +39,30 @@ impl HandleRequest for request::CodeActionRequest {
             let mut response = CodeActionResponse::new();
             match surrounding_feature {
                 Some(f) => {
-                    let edit = None; // TODO
+                    let model = transformer::LLM::default();
+                    let (pre, post) = model.add_contracts(f);
+                    let edit = lsp_types::WorkspaceEdit::new(HashMap::from([
+                        (
+                            params.text_document.uri,
+                            vec![lsp_types::TextEdit {
+                                range: todo!(),
+                                new_text: format!("{pre}"),
+                            }],
+                        ),
+                        (
+                            params.text_document.uri,
+                            vec![lsp_types::TextEdit {
+                                range: todo!(),
+                                new_text: format!("{post}"),
+                            }],
+                        ),
+                    ]));
                     let disabled = None;
                     let code_action = CodeAction {
                         title,
                         kind,
                         diagnostics,
-                        edit,
+                        edit: Some(edit),
                         command,
                         is_preferred,
                         disabled,
