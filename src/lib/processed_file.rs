@@ -1,4 +1,6 @@
-use super::code_entities::{Class, Feature, Range};
+use super::code_entities::class::Class;
+use super::code_entities::feature::Feature;
+use super::code_entities::shared::Range;
 use std::path::PathBuf;
 use tree_sitter::{Parser, Tree};
 

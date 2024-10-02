@@ -1,5 +1,3 @@
-pub mod lib {
-    mod model;
-    pub mod request;
-    mod response;
-}
+mod model;
+pub mod request;
+mod response;

@@ -1,5 +1,6 @@
 use super::common::{HandleRequest, ServerState};
-use crate::lib::code_entities::*;
+use crate::lib::code_entities::class::Class;
+use crate::lib::code_entities::shared::*;
 use async_lsp::lsp_types::{
     request, DocumentSymbol, OneOf, SymbolInformation, SymbolKind, WorkspaceLocation,
     WorkspaceSymbol, WorkspaceSymbolResponse,

@@ -1,4 +1,4 @@
-use super::code_entities::Class;
+use super::code_entities::class::Class;
 use crate::lib::processed_file::ProcessedFile;
 use std::collections::HashMap;
 use std::path::PathBuf;

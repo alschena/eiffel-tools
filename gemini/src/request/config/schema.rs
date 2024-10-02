@@ -126,11 +126,12 @@ where
 pub trait ToResponseSchema {
     fn to_response_schema() -> ResponseSchema;
 }
+pub trait Described {
+    fn description() -> String;
+}
 #[cfg(test)]
 mod tests {
-    use crate::lib::request::config::schema::SchemaType;
-
-    use super::ToResponseSchema;
+    use super::{SchemaType, ToResponseSchema};
 
     #[test]
     fn response_schema_string() {

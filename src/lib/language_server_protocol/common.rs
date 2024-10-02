@@ -1,4 +1,6 @@
-use crate::lib::code_entities::*;
+use crate::lib::code_entities::class::Class;
+use crate::lib::code_entities::feature::Feature;
+use crate::lib::code_entities::shared::{Location, Point, Range};
 use crate::lib::processed_file::ProcessedFile;
 use anyhow::{anyhow, Context};
 use async_lsp::lsp_types::{notification, request, SymbolKind, Url};
@@ -10,85 +12,6 @@ use std::future::Future;
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
 use tracing::info;
-impl TryFrom<&Class> for lsp_types::Location {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
-        let range = value.range().clone().try_into()?;
-        let uri = value
-            .location()
-            .expect("Valid location of class")
-            .try_into()
-            .expect("Extraction of location from class");
-        Ok(Self { uri, range })
-    }
-}
-impl TryFrom<&Class> for lsp_types::SymbolInformation {
-    type Error = anyhow::Error;
-    fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
-        let name = value.name().into();
-        let kind = SymbolKind::CLASS;
-        let tags = None;
-        let deprecated = None;
-        let container_name = None;
-        match value.try_into() {
-            Err(e) => Err(e),
-            Ok(location) => Ok(Self {
-                name,
-                kind,
-                tags,
-                deprecated,
-                location,
-                container_name,
-            }),
-        }
-    }
-}
-impl TryFrom<&Location> for Url {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &Location) -> std::result::Result<Self, Self::Error> {
-        Self::from_file_path(value.path.clone())
-            .map_err(|()| anyhow!("code entitites location to url"))
-    }
-}
-impl TryFrom<Point> for async_lsp::lsp_types::Position {
-    type Error = anyhow::Error;
-
-    fn try_from(value: Point) -> std::result::Result<Self, Self::Error> {
-        let line = value.row.try_into().context("line conversion")?;
-        let character = value.column.try_into().context("character conversion")?;
-        Ok(Self { line, character })
-    }
-}
-impl TryFrom<async_lsp::lsp_types::Position> for Point {
-    type Error = anyhow::Error;
-
-    fn try_from(value: async_lsp::lsp_types::Position) -> std::result::Result<Self, Self::Error> {
-        let row = value.line.try_into().context("row conversion")?;
-        let column = value.line.try_into().context("column conversion")?;
-        Ok(Self { row, column })
-    }
-}
-impl TryFrom<async_lsp::lsp_types::Range> for Range {
-    type Error = anyhow::Error;
-
-    fn try_from(value: async_lsp::lsp_types::Range) -> std::result::Result<Self, Self::Error> {
-        let start = value.start.try_into().context("conversion of start")?;
-        let end = value.end.try_into().context("conversion of end")?;
-        Ok(Self { start, end })
-    }
-}
-impl TryFrom<Range> for async_lsp::lsp_types::Range {
-    type Error = anyhow::Error;
-
-    fn try_from(value: Range) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            start: value.start.try_into()?,
-            end: value.end.try_into()?,
-        })
-    }
-}
 #[derive(Clone)]
 pub struct ServerState {
     pub(super) client: ClientSocket,
