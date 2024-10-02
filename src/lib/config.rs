@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use serde_xml_rs;
 #[derive(Deserialize, Debug, PartialEq)]
 struct Config {
     system: System,
