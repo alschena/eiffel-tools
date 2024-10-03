@@ -150,7 +150,8 @@ impl<'a> TryFrom<(&tree_sitter::Tree, &'a str)> for Class {
     type Error = anyhow::Error;
 
     fn try_from((tree, src): (&tree_sitter::Tree, &'a str)) -> Result<Self, Self::Error> {
-        let mut traversal = tree_sitter::WidthFirstTraversal::new(tree.walk());
+        let mut cursor = tree.walk();
+        let mut traversal = tree_sitter::WidthFirstTraversal::new(&mut cursor);
 
         // Extract class name
         let node = traversal
@@ -170,7 +171,8 @@ impl<'a> TryFrom<(&tree_sitter::Tree, &'a str)> for Class {
 
         // Extract optional model
         let mut model_names: Vec<String> = Vec::new();
-        let tag = tree_sitter::WidthFirstTraversal::new(tree.walk()).find(|x| {
+        let mut cursor = tree.walk();
+        let tag = tree_sitter::WidthFirstTraversal::new(&mut cursor).find(|x| {
             x.kind() == "tag"
                 && &src[x.byte_range()] == "model"
                 && x.parent().is_some_and(|p| {

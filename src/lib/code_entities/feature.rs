@@ -51,7 +51,7 @@ where
     ) -> Result<Self, Self::Error> {
         debug_assert!(node.kind() == "feature_declaration");
         cursor.reset(*node);
-        let mut traversal = tree_sitter::WidthFirstTraversal::new(cursor);
+        let mut traversal = tree_sitter::WidthFirstTraversal::new(&mut cursor);
         Ok(Feature {
             name: src[traversal
                 .find(|x| x.kind() == "extended_feature_name")

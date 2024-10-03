@@ -1,18 +1,18 @@
 pub use tree_sitter::{Node, Tree, TreeCursor};
 
-pub(crate) struct WidthFirstTraversal<'a> {
-    cursor: TreeCursor<'a>,
+pub(crate) struct WidthFirstTraversal<'a, 'b> {
+    cursor: &'b mut TreeCursor<'a>,
     stack: Vec<Node<'a>>,
 }
 
-impl WidthFirstTraversal<'_> {
-    pub(crate) fn new(cursor: TreeCursor<'_>) -> WidthFirstTraversal<'_> {
+impl<'a, 'b> WidthFirstTraversal<'a, 'b> {
+    pub(crate) fn new(cursor: &'b mut TreeCursor<'a>) -> WidthFirstTraversal<'a, 'b> {
         let stack = Vec::new();
         WidthFirstTraversal { cursor, stack }
     }
 }
 
-impl<'a> Iterator for WidthFirstTraversal<'a> {
+impl<'a, 'b> Iterator for WidthFirstTraversal<'a, 'b> {
     type Item = Node<'a>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.stack.is_empty() {
@@ -69,8 +69,8 @@ end
 
         let file = ProcessedFile::new(&mut parser, procedure_path.clone());
 
-        let cursor = file.tree.walk();
-        let mut width_first = WidthFirstTraversal::new(cursor);
+        let mut cursor = file.tree.walk();
+        let mut width_first = WidthFirstTraversal::new(&mut cursor);
 
         assert_eq!(
             width_first.next().expect("source file node").kind(),
