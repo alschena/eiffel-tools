@@ -6,7 +6,56 @@ use std::path::PathBuf;
 // TODO accept only attributes of logical type in the model
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Model(pub Vec<Feature>);
-
+impl Model {
+    fn new() -> Model {
+        Model(Vec::new())
+    }
+}
+impl<'a, 'b, 'c>
+    From<(
+        &::tree_sitter::Node<'b>,
+        &mut ::tree_sitter::TreeCursor<'c>,
+        &'a str,
+        &Vec<Feature>,
+    )> for Model
+where
+    'b: 'c,
+{
+    fn from(
+        (node, mut cursor, src, features): (
+            &::tree_sitter::Node<'b>,
+            &mut ::tree_sitter::TreeCursor<'c>,
+            &'a str,
+            &Vec<Feature>,
+        ),
+    ) -> Self {
+        cursor.reset(*node);
+        let mut traversal = tree_sitter::WidthFirstTraversal::new(&mut cursor);
+        match traversal.find(|x| {
+            x.kind() == "tag"
+                && &src[x.byte_range()] == "model"
+                && x.parent().is_some_and(|p| {
+                    p.kind() == "note_entry"
+                        && p.parent().is_some_and(|pp| {
+                            pp.parent()
+                                .is_some_and(|ppp| ppp.kind() == "class_declaration")
+                        })
+                })
+        }) {
+            Some(_) => Model(
+                traversal
+                    .filter_map(|node| {
+                        features
+                            .iter()
+                            .find(|feature| *feature.name() == src[node.byte_range()])
+                            .cloned()
+                    })
+                    .collect(),
+            ),
+            None => Model::new(),
+        }
+    }
+}
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Class {
     name: String,
@@ -163,57 +212,15 @@ impl<'a> TryFrom<(&tree_sitter::Tree, &'a str)> for Class {
         let mut class = Self::from_name_range(name, range);
 
         // Extract features
+        let mut cursor = tree.walk();
         let features: Vec<Feature> = traversal
             .filter(|x| x.kind() == "feature_declaration")
-            .map(|node| Feature::try_from((&node, tree.walk(), src)))
+            .map(|node| Feature::try_from((&node, &mut cursor, src)))
             .collect::<anyhow::Result<Vec<Feature>>>()?;
-        class.features = features;
 
         // Extract optional model
-        let mut model_names: Vec<String> = Vec::new();
-        let mut cursor = tree.walk();
-        let tag = tree_sitter::WidthFirstTraversal::new(&mut cursor).find(|x| {
-            x.kind() == "tag"
-                && &src[x.byte_range()] == "model"
-                && x.parent().is_some_and(|p| {
-                    p.kind() == "note_entry"
-                        && p.parent().is_some_and(|pp| {
-                            pp.parent()
-                                .is_some_and(|ppp| ppp.kind() == "class_declaration")
-                        })
-                })
-        });
-        match tag {
-            Some(n) => {
-                let mut next = n.next_sibling();
-                while next.is_some() {
-                    let current = next.unwrap();
-                    model_names.push(src[current.byte_range()].to_string());
-                    next = current.next_sibling();
-                }
-            }
-            None => {}
-        }
-        let features_of_current_class = class.features();
-        let model: Vec<Feature> = model_names
-            .iter()
-            .filter(|x| {
-                features_of_current_class
-                    .iter()
-                    .find(|&y| y.name() == x.as_str())
-                    .is_some()
-            })
-            .map(|x| {
-                let f = features_of_current_class
-                    .iter()
-                    .find(|&y| y.name() == x.as_str())
-                    .unwrap()
-                    .clone();
-                f
-            })
-            .collect();
-        let model = Model(model);
-        class.add_model(&model);
+        class.model = Model::from((&tree.root_node(), &mut cursor, src, &features));
+        class.features = features;
         Ok(class)
     }
 }

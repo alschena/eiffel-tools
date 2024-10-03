@@ -38,20 +38,24 @@ impl Feature {
 impl<'a, 'b, 'c>
     TryFrom<(
         &::tree_sitter::Node<'b>,
-        ::tree_sitter::TreeCursor<'c>,
+        &mut ::tree_sitter::TreeCursor<'c>,
         &'a str,
     )> for Feature
 where
-    'c: 'b,
+    'b: 'c,
 {
     type Error = anyhow::Error;
 
     fn try_from(
-        (node, mut cursor, src): (&tree_sitter::Node<'_>, tree_sitter::TreeCursor, &'a str),
+        (node, cursor, src): (
+            &tree_sitter::Node<'b>,
+            &mut tree_sitter::TreeCursor<'c>,
+            &'a str,
+        ),
     ) -> Result<Self, Self::Error> {
         debug_assert!(node.kind() == "feature_declaration");
         cursor.reset(*node);
-        let mut traversal = tree_sitter::WidthFirstTraversal::new(&mut cursor);
+        let mut traversal = tree_sitter::WidthFirstTraversal::new(cursor);
         Ok(Feature {
             name: src[traversal
                 .find(|x| x.kind() == "extended_feature_name")
