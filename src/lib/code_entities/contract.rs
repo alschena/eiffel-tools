@@ -1,11 +1,47 @@
+use super::Point;
+use crate::lib::tree_sitter;
+use anyhow::{anyhow, Context};
 use gemini::request::config::schema::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
+use serde_xml_rs::debug_expect;
 use std::fmt::Display;
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
 pub struct ContractClause {
     pub predicate: Predicate,
     pub tag: Tag,
+}
+impl TryFrom<(&::tree_sitter::Node<'_>, &str)> for ContractClause {
+    type Error = anyhow::Error;
+
+    fn try_from((node, src): (&::tree_sitter::Node<'_>, &str)) -> Result<Self, Self::Error> {
+        match node.child(0) {
+            Some(tag) if tag.kind() == "tag_mark" => Ok(Self {
+                predicate: Predicate {
+                    predicate: src[node
+                        .child(1)
+                        .context("Expression follows tag")?
+                        .byte_range()]
+                    .to_string(),
+                },
+                tag: Tag {
+                    tag: src[tag
+                        .child(0)
+                        .context("Node tag_mark must have child tag")?
+                        .byte_range()]
+                    .to_string(),
+                },
+            }),
+            Some(expression) if expression.kind() == "expression" => Ok(Self {
+                predicate: Predicate {
+                    predicate: src[expression.byte_range()].to_string(),
+                },
+                tag: Tag { tag: String::new() },
+            }),
+            Some(_) => Err(anyhow!("Invalid child of clause")),
+            None => Err(anyhow!("Empty clause")),
+        }
+    }
 }
 impl Display for ContractClause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -48,6 +84,61 @@ impl Predicate {
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
 pub struct Precondition {
     pub precondition: Vec<ContractClause>,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct PreconditionDecorated {
+    precondition: Precondition,
+    range: super::Range,
+}
+impl PreconditionDecorated {
+    pub fn range(&self) -> &super::Range {
+        &self.range
+    }
+}
+impl<'a, 'b, 'c>
+    TryFrom<(
+        &::tree_sitter::Node<'a>,
+        &mut ::tree_sitter::TreeCursor<'b>,
+        &'c str,
+    )> for PreconditionDecorated
+where
+    'a: 'b,
+{
+    type Error = anyhow::Error;
+    fn try_from(
+        (node, mut cursor, src): (
+            &::tree_sitter::Node<'a>,
+            &mut ::tree_sitter::TreeCursor<'b>,
+            &str,
+        ),
+    ) -> Result<PreconditionDecorated, anyhow::Error> {
+        debug_assert!(node.kind() == "attribute_or_routine");
+        cursor.reset(*node);
+        let Some(node) = node
+            .children(&mut cursor)
+            .find(|n| n.kind() == "precondition")
+        else {
+            let point = Point::from(node.range().start_point);
+            return Ok(Self {
+                precondition: Precondition {
+                    precondition: Vec::new(),
+                },
+                range: super::Range {
+                    start: point.clone(),
+                    end: point,
+                },
+            });
+        };
+        Ok(Self {
+            precondition: Precondition {
+                precondition: node
+                    .children(&mut cursor)
+                    .map(|clause| ContractClause::try_from((&clause, src)))
+                    .collect::<anyhow::Result<Vec<ContractClause>>>()?,
+            },
+            range: node.range().into(),
+        })
+    }
 }
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
 pub struct Postcondition {

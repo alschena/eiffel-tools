@@ -10,7 +10,7 @@ impl Default for LLM {
 impl LLM {
     pub fn add_contracts(
         &self,
-        routine: code_entities::Feature,
+        routine: &code_entities::Feature,
     ) -> (code_entities::Precondition, code_entities::Postcondition) {
         todo!()
     }

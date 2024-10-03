@@ -3,6 +3,7 @@ use super::*;
 use crate::lib::tree_sitter;
 use anyhow::anyhow;
 use async_lsp::lsp_types;
+use contract::PreconditionDecorated;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum FeatureVisibility {
     Private,
@@ -15,7 +16,7 @@ pub struct Feature {
     pub(super) name: String,
     pub(super) visibility: FeatureVisibility,
     pub(super) range: Range,
-    pub(super) preconditions: Option<Precondition>,
+    pub(super) preconditions: Option<PreconditionDecorated>,
     pub(super) postconditions: Option<Postcondition>,
 }
 impl Feature {
@@ -33,6 +34,15 @@ impl Feature {
     }
     pub fn range(&self) -> &Range {
         &self.range
+    }
+    pub fn preconditions(&self) -> &Option<PreconditionDecorated> {
+        &self.preconditions
+    }
+    pub fn range_end_preconditions(&self) -> &Range {
+        match &self.preconditions {
+            Some(precondition) => precondition.range(),
+            None => todo!(),
+        }
     }
 }
 impl<'a, 'b, 'c>
@@ -66,7 +76,16 @@ where
             .into(),
             visibility: FeatureVisibility::Private,
             range: node.range().into(),
-            preconditions: None,
+            preconditions: match traversal
+                .find(|attribute_or_routine| attribute_or_routine.kind() == "attribute_or_routine")
+            {
+                Some(attribute_or_routine) => Some(PreconditionDecorated::try_from((
+                    &attribute_or_routine,
+                    cursor,
+                    src,
+                ))?),
+                None => None,
+            },
             postconditions: None,
         })
     }

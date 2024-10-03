@@ -38,21 +38,26 @@ impl HandleRequest for request::CodeActionRequest {
             let data = None;
             let mut response = CodeActionResponse::new();
             match surrounding_feature {
-                Some(f) => {
+                Some(feature) => {
                     let model = transformer::LLM::default();
-                    let (pre, post) = model.add_contracts(f);
+                    let (pre, post) = model.add_contracts(&feature);
+                    let range = feature
+                        .range_end_preconditions()
+                        .clone()
+                        .try_into()
+                        .expect("Convert range to lsp-type range");
                     let edit = lsp_types::WorkspaceEdit::new(HashMap::from([
                         (
-                            params.text_document.uri,
+                            params.text_document.uri.clone(),
                             vec![lsp_types::TextEdit {
-                                range: todo!(),
+                                range,
                                 new_text: format!("{pre}"),
                             }],
                         ),
                         (
                             params.text_document.uri,
                             vec![lsp_types::TextEdit {
-                                range: todo!(),
+                                range,
                                 new_text: format!("{post}"),
                             }],
                         ),
