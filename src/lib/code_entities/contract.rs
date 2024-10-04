@@ -12,33 +12,37 @@ pub struct ContractClause {
     pub tag: Tag,
 }
 impl ContractClause {
-    fn extract_from_treesitter(node: &::tree_sitter::Node<'_>, src: &str) -> anyhow::Result<Self> {
-        match node.child(0) {
-            Some(tag) if tag.kind() == "tag_mark" => Ok(Self {
-                predicate: Predicate {
-                    predicate: src[node
-                        .child(1)
-                        .context("Expression follows tag")?
-                        .byte_range()]
-                    .to_string(),
-                },
-                tag: Tag {
-                    tag: src[tag
-                        .child(0)
-                        .context("Node tag_mark must have child tag")?
-                        .byte_range()]
-                    .to_string(),
-                },
-            }),
-            Some(expression) if expression.kind() == "expression" => Ok(Self {
-                predicate: Predicate {
-                    predicate: src[expression.byte_range()].to_string(),
-                },
-                tag: Tag { tag: String::new() },
-            }),
-            Some(_) => Err(anyhow!("Invalid child of clause")),
-            None => Err(anyhow!("Empty clause")),
+    fn extract_from_treesitter(
+        cursor: &mut ::tree_sitter::TreeCursor<'_>,
+        src: &str,
+    ) -> anyhow::Result<Self> {
+        if !(cursor.goto_first_child()) {
+            return Err(anyhow!("assertion_clause must have a child"));
+        };
+        let tag: Tag;
+        let predicate: Predicate;
+        match cursor.node().kind() {
+            "tag_mark" => {
+                if !cursor.goto_first_child() {
+                    return Err(anyhow!("tag_mark must have a child"));
+                };
+                tag = src[cursor.node().byte_range()].to_string().into();
+                if !cursor.goto_parent() {
+                    return Err(anyhow!("Just came from parent"));
+                };
+                if !cursor.goto_next_sibling() {
+                    return Err(anyhow!("tag_mark must have a sibling named expression"));
+                };
+                predicate = Predicate::new(src[cursor.node().byte_range()].to_string());
+            }
+            "expression" => {
+                tag = String::new().into();
+                predicate = Predicate::new(src[cursor.node().byte_range()].to_string());
+            }
+            "assertion_clause" => return Err(anyhow!("Empty clause")),
+            _ => return Err(anyhow!("Invalid child of clause")),
         }
+        Ok(Self { predicate, tag })
     }
 }
 impl Display for ContractClause {
@@ -122,7 +126,9 @@ impl PreconditionDecorated {
             precondition: Precondition {
                 precondition: node
                     .children(&mut cursor)
-                    .map(|clause| ContractClause::extract_from_treesitter(&clause, src))
+                    .collect::<Vec<::tree_sitter::Node>>()
+                    .iter()
+                    .map(|clause| ContractClause::extract_from_treesitter(&mut cursor, src))
                     .collect::<anyhow::Result<Vec<ContractClause>>>()?,
             },
             range: node.range().into(),
