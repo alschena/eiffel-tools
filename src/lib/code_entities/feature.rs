@@ -45,24 +45,12 @@ impl Feature {
         }
     }
 }
-impl<'a, 'b, 'c>
-    TryFrom<(
-        &::tree_sitter::Node<'b>,
-        &mut ::tree_sitter::TreeCursor<'c>,
-        &'a str,
-    )> for Feature
-where
-    'b: 'c,
-{
-    type Error = anyhow::Error;
-
-    fn try_from(
-        (node, cursor, src): (
-            &tree_sitter::Node<'b>,
-            &mut tree_sitter::TreeCursor<'c>,
-            &'a str,
-        ),
-    ) -> Result<Self, Self::Error> {
+impl Feature {
+    pub(crate) fn extract_from_treesitter<'a, 'b>(
+        node: &tree_sitter::Node<'a>,
+        cursor: &mut tree_sitter::TreeCursor<'a>,
+        src: &str,
+    ) -> anyhow::Result<Self> {
         debug_assert!(node.kind() == "feature_declaration");
         cursor.reset(*node);
         let mut traversal = tree_sitter::WidthFirstTraversal::new(cursor);
@@ -79,11 +67,11 @@ where
             preconditions: match traversal
                 .find(|attribute_or_routine| attribute_or_routine.kind() == "attribute_or_routine")
             {
-                Some(attribute_or_routine) => Some(PreconditionDecorated::try_from((
+                Some(attribute_or_routine) => Some(PreconditionDecorated::extract_from_treesitter(
                     &attribute_or_routine,
                     cursor,
                     src,
-                ))?),
+                )?),
                 None => None,
             },
             postconditions: None,

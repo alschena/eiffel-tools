@@ -32,7 +32,7 @@ impl TryFrom<&ProcessedFile> for Class {
     type Error = anyhow::Error;
 
     fn try_from(value: &ProcessedFile) -> Result<Self, Self::Error> {
-        let mut class = Class::try_from((&value.tree, value.src.as_str()))?;
+        let mut class = Class::extract_from_treesitter(&value.tree, value.src.as_str())?;
         class.add_location(&value.path);
         Ok(class)
     }

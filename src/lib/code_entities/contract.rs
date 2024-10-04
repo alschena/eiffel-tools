@@ -11,10 +11,8 @@ pub struct ContractClause {
     pub predicate: Predicate,
     pub tag: Tag,
 }
-impl TryFrom<(&::tree_sitter::Node<'_>, &str)> for ContractClause {
-    type Error = anyhow::Error;
-
-    fn try_from((node, src): (&::tree_sitter::Node<'_>, &str)) -> Result<Self, Self::Error> {
+impl ContractClause {
+    fn extract_from_treesitter(node: &::tree_sitter::Node<'_>, src: &str) -> anyhow::Result<Self> {
         match node.child(0) {
             Some(tag) if tag.kind() == "tag_mark" => Ok(Self {
                 predicate: Predicate {
@@ -95,23 +93,15 @@ impl PreconditionDecorated {
         &self.range
     }
 }
-impl<'a, 'b, 'c>
-    TryFrom<(
-        &::tree_sitter::Node<'a>,
-        &mut ::tree_sitter::TreeCursor<'b>,
-        &'c str,
-    )> for PreconditionDecorated
-where
-    'a: 'b,
-{
-    type Error = anyhow::Error;
-    fn try_from(
-        (node, mut cursor, src): (
-            &::tree_sitter::Node<'a>,
-            &mut ::tree_sitter::TreeCursor<'b>,
-            &str,
-        ),
-    ) -> Result<PreconditionDecorated, anyhow::Error> {
+impl PreconditionDecorated {
+    pub(super) fn extract_from_treesitter<'a, 'b>(
+        node: &::tree_sitter::Node<'a>,
+        mut cursor: &mut ::tree_sitter::TreeCursor<'b>,
+        src: &str,
+    ) -> Result<PreconditionDecorated, anyhow::Error>
+    where
+        'a: 'b,
+    {
         debug_assert!(node.kind() == "attribute_or_routine");
         cursor.reset(*node);
         let Some(node) = node
@@ -133,7 +123,7 @@ where
             precondition: Precondition {
                 precondition: node
                     .children(&mut cursor)
-                    .map(|clause| ContractClause::try_from((&clause, src)))
+                    .map(|clause| ContractClause::extract_from_treesitter(&clause, src))
                     .collect::<anyhow::Result<Vec<ContractClause>>>()?,
             },
             range: node.range().into(),

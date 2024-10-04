@@ -195,10 +195,11 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
         })
     }
 }
-impl<'a> TryFrom<(&tree_sitter::Tree, &'a str)> for Class {
-    type Error = anyhow::Error;
-
-    fn try_from((tree, src): (&tree_sitter::Tree, &'a str)) -> Result<Self, Self::Error> {
+impl Class {
+    pub(crate) fn extract_from_treesitter<'a, 'b>(
+        tree: &tree_sitter::Tree,
+        src: &str,
+    ) -> anyhow::Result<Self> {
         let mut cursor = tree.walk();
         let mut traversal = tree_sitter::WidthFirstTraversal::new(&mut cursor);
 
@@ -215,7 +216,7 @@ impl<'a> TryFrom<(&tree_sitter::Tree, &'a str)> for Class {
         let mut cursor = tree.walk();
         let features: Vec<Feature> = traversal
             .filter(|x| x.kind() == "feature_declaration")
-            .map(|node| Feature::try_from((&node, &mut cursor, src)))
+            .map(|node| Feature::extract_from_treesitter(&node, &mut cursor, src))
             .collect::<anyhow::Result<Vec<Feature>>>()?;
 
         // Extract optional model
@@ -273,7 +274,7 @@ mod tests {
         ";
         let tree = parser.parse(src, None).expect("AST");
 
-        let class = Class::try_from((&tree, src)).expect("Parse class");
+        let class = Class::extract_from_treesitter(&tree, src).expect("Parse class");
 
         assert_eq!(
             class.name(),
@@ -303,7 +304,7 @@ end
     ";
         let tree = parser.parse(src, None).expect("AST");
 
-        let class = Class::try_from((&tree, src)).expect("Parse class");
+        let class = Class::extract_from_treesitter(&tree, src).expect("Parse class");
 
         assert_eq!(class.name(), "DEMO_CLASS".to_string());
     }
@@ -322,7 +323,7 @@ class A feature
 end
 ";
         let tree = parser.parse(src, None).unwrap();
-        let class = Class::try_from((&tree, src)).expect("Parse class");
+        let class = Class::extract_from_treesitter(&tree, src).expect("Parse class");
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
@@ -344,7 +345,7 @@ end
 ";
         let tree = parser.parse(src, None).unwrap();
 
-        let class = Class::try_from((&tree, src)).expect("Parse class");
+        let class = Class::extract_from_treesitter(&tree, src).expect("Parse class");
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
@@ -368,7 +369,7 @@ end
 ";
         let tree = parser.parse(src, None).unwrap();
 
-        let class = Class::try_from((&tree, src)).expect("Parse class");
+        let class = Class::extract_from_treesitter(&tree, src).expect("Parse class");
         let model = class.model().clone();
         let features = class.features().clone();
 
