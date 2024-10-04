@@ -200,3 +200,71 @@ impl Described for Postcondition {
         Equivalently, you can use the keyword `old` before a feature to access its prestate.".to_string()
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lib::code_entities::ContractClause;
+
+    #[test]
+    fn extract_contract_clause() {
+        let src = r#"
+class A feature
+  x
+    require
+      True
+    do
+    end
+
+  y
+    require else
+    do
+    end
+end"#;
+        let mut parser = ::tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_eiffel::language())
+            .expect("Error loading Eiffel grammar");
+        let tree = parser.parse(src, None).unwrap();
+        let mut cursor = tree.walk();
+        let node = WidthFirstTraversal::new(&mut cursor)
+            .find(|node| node.kind() == "assertion_clause")
+            .expect("assertion clause");
+        cursor.reset(node);
+        let clause = ContractClause::extract_from(&mut cursor, &src).expect("Parse feature");
+        assert_eq!(clause.tag, Tag::from(String::new()));
+        assert_eq!(clause.predicate, Predicate::new("True".to_string()));
+    }
+    #[test]
+    fn extract_precondition() {
+        let src = r#"
+class A feature
+  x
+    require
+      True
+    do
+    end
+end"#;
+        let mut parser = ::tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_eiffel::language())
+            .expect("Error loading Eiffel grammar");
+        let tree = parser.parse(src, None).unwrap();
+        let mut cursor = tree.walk();
+        let node = WidthFirstTraversal::new(&mut cursor)
+            .find(|node| node.kind() == "attribute_or_routine")
+            .expect("precondition");
+        cursor.reset(node);
+        let precondition =
+            PreconditionDecorated::extract_from(&mut cursor, &src).expect("Parse precondition");
+        let predicate = Predicate::new("True".to_string());
+        let tag = Tag { tag: String::new() };
+        let clause = precondition
+            .precondition
+            .clone()
+            .precondition
+            .pop()
+            .expect("Parse clause");
+        assert_eq!(clause.predicate, predicate);
+        assert_eq!(clause.tag, tag);
+    }
+}

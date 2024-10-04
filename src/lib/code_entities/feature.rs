@@ -138,21 +138,16 @@ end"#;
         cursor.reset(node);
         let feature = Feature::extract_from(&mut cursor, &src).expect("Parse feature");
         assert_eq!(feature.name(), "x");
-        cursor.reset(node);
-        assert!(WidthFirstTraversal::new(&mut cursor)
-            .find(|node| node.kind() == "attribute_or_routine")
-            .is_some());
-        assert_eq!(
-            feature
-                .preconditions()
-                .clone()
-                .expect("extracted preconditions")
-                .precondition
-                .first()
-                .expect("non empty precondition")
-                .predicate
-                .predicate,
-            "True".to_string()
-        )
+        let predicate = feature
+            .preconditions()
+            .clone()
+            .expect("extracted preconditions")
+            .precondition
+            .first()
+            .expect("non empty precondition")
+            .predicate
+            .clone()
+            .predicate;
+        assert_eq!(predicate, "True".to_string())
     }
 }
