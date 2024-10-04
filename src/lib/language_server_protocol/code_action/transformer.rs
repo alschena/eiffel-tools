@@ -1,4 +1,4 @@
-use crate::lib::code_entities;
+use crate::lib::code_entities::{self, Precondition};
 use gemini;
 
 pub struct LLM(gemini::model::Config);
@@ -12,6 +12,27 @@ impl LLM {
         &self,
         routine: &code_entities::Feature,
     ) -> (code_entities::Precondition, code_entities::Postcondition) {
-        todo!()
+        (
+            code_entities::Precondition {
+                precondition: vec![code_entities::ContractClause {
+                    tag: code_entities::Tag {
+                        tag: "Test".to_string(),
+                    },
+                    predicate: code_entities::Predicate {
+                        predicate: "True".to_string(),
+                    },
+                }],
+            },
+            code_entities::Postcondition {
+                postcondition: vec![code_entities::ContractClause {
+                    tag: code_entities::Tag {
+                        tag: "Test".to_string(),
+                    },
+                    predicate: code_entities::Predicate {
+                        predicate: "True".to_string(),
+                    },
+                }],
+            },
+        )
     }
 }
