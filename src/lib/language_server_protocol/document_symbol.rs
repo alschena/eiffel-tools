@@ -21,7 +21,7 @@ impl HandleRequest for request::DocumentSymbolRequest {
                 let read_workspace = st.workspace.read().unwrap();
                 let file = read_workspace.iter().find(|&x| x.path == path);
                 if let Some(file) = file {
-                    let class: Class = file.try_into().expect("Parse class");
+                    let class: Class = file.class().expect("Parse class");
                     let symbol: DocumentSymbol = (&class)
                         .try_into()
                         .expect("class conversion to document symbol");
@@ -39,7 +39,7 @@ impl HandleRequest for request::DocumentSymbolRequest {
                     .set_language(tree_sitter_eiffel::language())
                     .expect("Error loading Eiffel grammar");
                 let file = ProcessedFile::new(&mut parser, path);
-                let class: Class = (&file).try_into().expect("Parse class");
+                let class: Class = (&file).class().expect("Parse class");
                 let symbol: DocumentSymbol = (&class)
                     .try_into()
                     .expect("Class conversion to document symbol");

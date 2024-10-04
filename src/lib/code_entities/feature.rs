@@ -1,6 +1,6 @@
 use super::class::Class;
 use super::*;
-use crate::lib::tree_sitter;
+use crate::lib::tree_sitter::{self, Extract};
 use anyhow::anyhow;
 use async_lsp::lsp_types;
 use contract::PreconditionDecorated;
@@ -45,11 +45,9 @@ impl Feature {
         }
     }
 }
-impl Feature {
-    pub(crate) fn extract_from_treesitter<'a, 'b>(
-        cursor: &mut tree_sitter::TreeCursor<'a>,
-        src: &str,
-    ) -> anyhow::Result<Self> {
+impl Extract for Feature {
+    type Error = anyhow::Error;
+    fn extract(cursor: &mut tree_sitter::TreeCursor, src: &str) -> anyhow::Result<Self> {
         debug_assert!(cursor.node().kind() == "feature_declaration");
         let node = cursor.node();
         let mut traversal = tree_sitter::WidthFirstTraversal::new(cursor);
@@ -68,7 +66,7 @@ impl Feature {
             {
                 Some(attribute_or_routine) => {
                     cursor.reset(attribute_or_routine);
-                    Some(PreconditionDecorated::extract_from_treesitter(cursor, src)?)
+                    Some(PreconditionDecorated::extract(cursor, src)?)
                 }
                 None => None,
             },

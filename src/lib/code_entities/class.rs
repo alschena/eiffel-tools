@@ -1,6 +1,6 @@
 use super::feature::Feature;
 use super::shared::*;
-use crate::lib::tree_sitter;
+use crate::lib::tree_sitter::{self, Extract};
 use async_lsp::lsp_types;
 use std::path::PathBuf;
 // TODO accept only attributes of logical type in the model
@@ -11,49 +11,42 @@ impl Model {
         Model(Vec::new())
     }
 }
-impl<'a, 'b, 'c>
-    From<(
-        &::tree_sitter::Node<'b>,
-        &mut ::tree_sitter::TreeCursor<'c>,
-        &'a str,
-        &Vec<Feature>,
-    )> for Model
-where
-    'b: 'c,
-{
-    fn from(
-        (node, mut cursor, src, features): (
-            &::tree_sitter::Node<'b>,
-            &mut ::tree_sitter::TreeCursor<'c>,
-            &'a str,
-            &Vec<Feature>,
-        ),
-    ) -> Self {
-        cursor.reset(*node);
-        let mut traversal = tree_sitter::WidthFirstTraversal::new(&mut cursor);
+#[derive(Debug, PartialEq, Eq, Clone)]
+struct ModelNames(Vec<String>);
+impl Extract for ModelNames {
+    type Error = anyhow::Error;
+
+    fn extract(cursor: &mut ::tree_sitter::TreeCursor, src: &str) -> Result<Self, Self::Error> {
+        let mut traversal = tree_sitter::WidthFirstTraversal::new(cursor);
         match traversal.find(|x| {
             x.kind() == "tag"
                 && &src[x.byte_range()] == "model"
-                && x.parent().is_some_and(|p| {
-                    p.kind() == "note_entry"
-                        && p.parent().is_some_and(|pp| {
-                            pp.parent()
-                                .is_some_and(|ppp| ppp.kind() == "class_declaration")
-                        })
-                })
+                && x.parent().is_some_and(|p| p.kind() == "note_entry")
         }) {
-            Some(_) => Model(
+            Some(_) => Ok(ModelNames(
                 traversal
-                    .filter_map(|node| {
-                        features
-                            .iter()
-                            .find(|feature| *feature.name() == src[node.byte_range()])
-                            .cloned()
-                    })
+                    .filter(|model_entry| model_entry.kind() == "identifier")
+                    .map(|model_entry| src[model_entry.byte_range()].to_string())
                     .collect(),
-            ),
-            None => Model::new(),
+            )),
+            None => Ok(ModelNames(Vec::new())),
         }
+    }
+}
+impl Model {
+    fn from_model_names(names: ModelNames, features: &Vec<Feature>) -> Model {
+        Model(
+            names
+                .0
+                .iter()
+                .filter_map(|name| {
+                    features
+                        .iter()
+                        .find(|feature| feature.name() == name)
+                        .cloned()
+                })
+                .collect(),
+        )
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -195,16 +188,14 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
         })
     }
 }
-impl Class {
-    pub(crate) fn extract_from_treesitter<'a, 'b>(
-        tree: &tree_sitter::Tree,
-        src: &str,
-    ) -> anyhow::Result<Self> {
-        let mut cursor = tree.walk();
-        let mut traversal = tree_sitter::WidthFirstTraversal::new(&mut cursor);
+impl Extract for Class {
+    type Error = anyhow::Error;
+    fn extract(cursor: &mut tree_sitter::TreeCursor, src: &str) -> anyhow::Result<Self> {
+        debug_assert!(cursor.node().parent().is_none());
+        let root = cursor.node();
 
         // Extract class name
-        let node = traversal
+        let node = tree_sitter::WidthFirstTraversal::new(cursor)
             .find(|x| x.kind() == "class_name")
             .expect("class_name");
 
@@ -213,17 +204,21 @@ impl Class {
         let mut class = Self::from_name_range(name, range);
 
         // Extract features
-        let mut cursor = tree.walk();
-        let features: Vec<Feature> = traversal
+        cursor.reset(root);
+        debug_assert!(cursor.clone().node().parent().is_none());
+        let features: Vec<Feature> = tree_sitter::WidthFirstTraversal::new(cursor)
             .filter(|x| x.kind() == "feature_declaration")
+            .collect::<Vec<::tree_sitter::Node>>()
+            .iter()
             .map(|node| {
-                cursor.reset(node);
-                Feature::extract_from_treesitter(&mut cursor, src)
+                cursor.reset(*node);
+                Feature::extract(cursor, src)
             })
             .collect::<anyhow::Result<Vec<Feature>>>()?;
 
         // Extract optional model
-        class.model = Model::from((&tree.root_node(), &mut cursor, src, &features));
+        cursor.reset(root);
+        class.model = Model::from_model_names(ModelNames::extract(cursor, src)?, &features);
         class.features = features;
         Ok(class)
     }
@@ -277,7 +272,7 @@ mod tests {
         ";
         let tree = parser.parse(src, None).expect("AST");
 
-        let class = Class::extract_from_treesitter(&tree, src).expect("Parse class");
+        let class = Class::extract(&mut tree.walk(), src).expect("Parse class");
 
         assert_eq!(
             class.name(),
@@ -307,7 +302,7 @@ end
     ";
         let tree = parser.parse(src, None).expect("AST");
 
-        let class = Class::extract_from_treesitter(&tree, src).expect("Parse class");
+        let class = Class::extract(&mut tree.walk(), src).expect("Parse class");
 
         assert_eq!(class.name(), "DEMO_CLASS".to_string());
     }
@@ -326,7 +321,7 @@ class A feature
 end
 ";
         let tree = parser.parse(src, None).unwrap();
-        let class = Class::extract_from_treesitter(&tree, src).expect("Parse class");
+        let class = Class::extract(&mut tree.walk(), src).expect("Parse class");
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
@@ -348,11 +343,34 @@ end
 ";
         let tree = parser.parse(src, None).unwrap();
 
-        let class = Class::extract_from_treesitter(&tree, src).expect("Parse class");
+        let class = Class::extract(&mut tree.walk(), src).expect("Parse class");
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
         assert_eq!(features.first().unwrap().name(), "x".to_string());
+    }
+    #[test]
+    fn process_model_names() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_eiffel::language())
+            .expect("Error loading Eiffel grammar");
+
+        let src = "
+note
+    model: seq
+class A
+feature
+    x: INTEGER
+    seq: MML_SEQUENCE [INTEGER]
+end
+";
+        let tree = parser.parse(src, None).unwrap();
+
+        let model_names = ModelNames::extract(&mut tree.walk(), src).expect("Parse model_names");
+
+        assert!(!model_names.0.is_empty());
+        assert_eq!(model_names.0.first(), Some(&"seq".to_string()));
     }
     #[test]
     fn process_model() {
@@ -372,13 +390,19 @@ end
 ";
         let tree = parser.parse(src, None).unwrap();
 
-        let class = Class::extract_from_treesitter(&tree, src).expect("Parse class");
+        let class = Class::extract(&mut tree.walk(), src).expect("Parse class");
         let model = class.model().clone();
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
-        assert_eq!((&model.0.first().unwrap()).name(), "seq".to_string());
-        assert_eq!(features.first().unwrap().name(), "x".to_string());
+        assert_eq!(
+            features.first().expect("Parsed first feature").name(),
+            "x".to_string()
+        );
+        assert_eq!(
+            (&model.0.first().expect("Parsed model")).name(),
+            "seq".to_string()
+        );
     }
     #[test]
     fn class_to_workspacesymbol() {
@@ -397,7 +421,7 @@ end
             .set_language(tree_sitter_eiffel::language())
             .expect("Error loading Eiffel grammar");
         let file = processed_file::ProcessedFile::new(&mut parser, path.clone());
-        let class: Class = (&file).try_into().expect("Parse class");
+        let class: Class = (&file).class().expect("Parse class");
         let symbol = <lsp_types::WorkspaceSymbol>::try_from(&class);
         assert!(symbol.is_ok())
     }

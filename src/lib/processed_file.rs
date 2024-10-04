@@ -1,6 +1,7 @@
 use super::code_entities::Class;
 use super::code_entities::Feature;
 use super::code_entities::Range;
+use super::tree_sitter::Extract;
 use std::path::PathBuf;
 use tree_sitter::{Parser, Tree};
 
@@ -20,20 +21,15 @@ impl ProcessedFile {
         &self.tree
     }
     pub(crate) fn feature_around(&self, range: Range) -> Option<Feature> {
-        Class::try_from(self)
+        self.class()
             .expect("Parse class")
             .into_features()
             .into_iter()
             .find(|x| range <= *x.range())
     }
-}
-
-impl TryFrom<&ProcessedFile> for Class {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &ProcessedFile) -> Result<Self, Self::Error> {
-        let mut class = Class::extract_from_treesitter(&value.tree, value.src.as_str())?;
-        class.add_location(&value.path);
+    pub(crate) fn class(&self) -> anyhow::Result<Class> {
+        let mut class = Class::extract(&mut self.tree.walk(), self.src.as_str())?;
+        class.add_location(&self.path);
         Ok(class)
     }
 }

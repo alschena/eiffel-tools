@@ -1,5 +1,5 @@
 use super::Point;
-use crate::lib::tree_sitter::{self, WidthFirstTraversal};
+use crate::lib::tree_sitter::{self, Extract, WidthFirstTraversal};
 use anyhow::{anyhow, Context};
 use gemini::request::config::schema::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
@@ -11,11 +11,9 @@ pub struct ContractClause {
     pub predicate: Predicate,
     pub tag: Tag,
 }
-impl ContractClause {
-    fn extract_from_treesitter(
-        cursor: &mut ::tree_sitter::TreeCursor<'_>,
-        src: &str,
-    ) -> anyhow::Result<Self> {
+impl Extract for ContractClause {
+    type Error = anyhow::Error;
+    fn extract(cursor: &mut ::tree_sitter::TreeCursor<'_>, src: &str) -> anyhow::Result<Self> {
         if !(cursor.goto_first_child()) {
             return Err(anyhow!("assertion_clause must have a child"));
         };
@@ -97,14 +95,12 @@ impl PreconditionDecorated {
         &self.range
     }
 }
-impl PreconditionDecorated {
-    pub(super) fn extract_from_treesitter<'a, 'b>(
-        mut cursor: &mut ::tree_sitter::TreeCursor<'b>,
+impl Extract for PreconditionDecorated {
+    type Error = anyhow::Error;
+    fn extract(
+        mut cursor: &mut ::tree_sitter::TreeCursor<'_>,
         src: &str,
-    ) -> Result<PreconditionDecorated, anyhow::Error>
-    where
-        'a: 'b,
-    {
+    ) -> Result<PreconditionDecorated, anyhow::Error> {
         debug_assert!(cursor.node().kind() == "attribute_or_routine");
         let node = cursor.node();
         let Some(node) = node
@@ -128,7 +124,7 @@ impl PreconditionDecorated {
                     .children(&mut cursor)
                     .collect::<Vec<::tree_sitter::Node>>()
                     .iter()
-                    .map(|clause| ContractClause::extract_from_treesitter(&mut cursor, src))
+                    .map(|clause| ContractClause::extract(&mut cursor, src))
                     .collect::<anyhow::Result<Vec<ContractClause>>>()?,
             },
             range: node.range().into(),

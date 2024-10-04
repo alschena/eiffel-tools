@@ -14,7 +14,7 @@ impl HandleRequest for request::WorkspaceSymbolRequest {
             let read_workspace = st.workspace.read().unwrap();
             let classes: Vec<Class> = read_workspace
                 .iter()
-                .map(|x| x.try_into().expect("Parse class"))
+                .map(|x| x.class().expect("Parse class"))
                 .collect();
             let symbol_information: Vec<SymbolInformation> = classes
                 .iter()
