@@ -47,12 +47,11 @@ impl Feature {
 }
 impl Feature {
     pub(crate) fn extract_from_treesitter<'a, 'b>(
-        node: &tree_sitter::Node<'a>,
         cursor: &mut tree_sitter::TreeCursor<'a>,
         src: &str,
     ) -> anyhow::Result<Self> {
-        debug_assert!(node.kind() == "feature_declaration");
-        cursor.reset(*node);
+        debug_assert!(cursor.node().kind() == "feature_declaration");
+        let node = cursor.node();
         let mut traversal = tree_sitter::WidthFirstTraversal::new(cursor);
         Ok(Feature {
             name: src[traversal
@@ -67,11 +66,10 @@ impl Feature {
             preconditions: match traversal
                 .find(|attribute_or_routine| attribute_or_routine.kind() == "attribute_or_routine")
             {
-                Some(attribute_or_routine) => Some(PreconditionDecorated::extract_from_treesitter(
-                    &attribute_or_routine,
-                    cursor,
-                    src,
-                )?),
+                Some(attribute_or_routine) => {
+                    cursor.reset(attribute_or_routine);
+                    Some(PreconditionDecorated::extract_from_treesitter(cursor, src)?)
+                }
                 None => None,
             },
             postconditions: None,

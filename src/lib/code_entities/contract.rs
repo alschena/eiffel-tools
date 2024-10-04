@@ -1,5 +1,5 @@
 use super::Point;
-use crate::lib::tree_sitter;
+use crate::lib::tree_sitter::{self, WidthFirstTraversal};
 use anyhow::{anyhow, Context};
 use gemini::request::config::schema::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
@@ -95,15 +95,14 @@ impl PreconditionDecorated {
 }
 impl PreconditionDecorated {
     pub(super) fn extract_from_treesitter<'a, 'b>(
-        node: &::tree_sitter::Node<'a>,
         mut cursor: &mut ::tree_sitter::TreeCursor<'b>,
         src: &str,
     ) -> Result<PreconditionDecorated, anyhow::Error>
     where
         'a: 'b,
     {
-        debug_assert!(node.kind() == "attribute_or_routine");
-        cursor.reset(*node);
+        debug_assert!(cursor.node().kind() == "attribute_or_routine");
+        let node = cursor.node();
         let Some(node) = node
             .children(&mut cursor)
             .find(|n| n.kind() == "precondition")

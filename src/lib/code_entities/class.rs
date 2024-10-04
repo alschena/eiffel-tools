@@ -216,7 +216,10 @@ impl Class {
         let mut cursor = tree.walk();
         let features: Vec<Feature> = traversal
             .filter(|x| x.kind() == "feature_declaration")
-            .map(|node| Feature::extract_from_treesitter(&node, &mut cursor, src))
+            .map(|node| {
+                cursor.reset(node);
+                Feature::extract_from_treesitter(&mut cursor, src)
+            })
             .collect::<anyhow::Result<Vec<Feature>>>()?;
 
         // Extract optional model
