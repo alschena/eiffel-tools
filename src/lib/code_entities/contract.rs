@@ -1,5 +1,5 @@
 use super::Point;
-use crate::lib::tree_sitter::{self, Extract, WidthFirstTraversal};
+use crate::lib::tree_sitter::{self, ExtractFrom, WidthFirstTraversal};
 use anyhow::{anyhow, Context};
 use gemini::request::config::schema::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
@@ -11,9 +11,10 @@ pub struct ContractClause {
     pub predicate: Predicate,
     pub tag: Tag,
 }
-impl Extract for ContractClause {
+impl ExtractFrom for ContractClause {
     type Error = anyhow::Error;
-    fn extract(cursor: &mut ::tree_sitter::TreeCursor<'_>, src: &str) -> anyhow::Result<Self> {
+    fn extract_from(cursor: &mut ::tree_sitter::TreeCursor<'_>, src: &str) -> anyhow::Result<Self> {
+        debug_assert_eq!(cursor.node().kind(), "assertion_clause");
         if !(cursor.goto_first_child()) {
             return Err(anyhow!("assertion_clause must have a child"));
         };
@@ -90,14 +91,26 @@ pub struct PreconditionDecorated {
     precondition: Precondition,
     range: super::Range,
 }
+impl std::ops::Deref for PreconditionDecorated {
+    type Target = Precondition;
+
+    fn deref(&self) -> &Self::Target {
+        &self.precondition
+    }
+}
+impl std::ops::DerefMut for PreconditionDecorated {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.precondition
+    }
+}
 impl PreconditionDecorated {
     pub fn range(&self) -> &super::Range {
         &self.range
     }
 }
-impl Extract for PreconditionDecorated {
+impl ExtractFrom for PreconditionDecorated {
     type Error = anyhow::Error;
-    fn extract(
+    fn extract_from(
         mut cursor: &mut ::tree_sitter::TreeCursor<'_>,
         src: &str,
     ) -> Result<PreconditionDecorated, anyhow::Error> {
@@ -118,15 +131,22 @@ impl Extract for PreconditionDecorated {
                 },
             });
         };
+
+        let precondition = node
+            .children(&mut cursor)
+            .collect::<Vec<::tree_sitter::Node>>();
+        let precondition = precondition
+            .iter()
+            .filter_map(|clause| match clause.kind() {
+                "assertion_clause" => {
+                    cursor.reset(*clause);
+                    Some(ContractClause::extract_from(&mut cursor, src))
+                }
+                _ => None,
+            })
+            .collect::<anyhow::Result<Vec<ContractClause>>>()?;
         Ok(Self {
-            precondition: Precondition {
-                precondition: node
-                    .children(&mut cursor)
-                    .collect::<Vec<::tree_sitter::Node>>()
-                    .iter()
-                    .map(|clause| ContractClause::extract(&mut cursor, src))
-                    .collect::<anyhow::Result<Vec<ContractClause>>>()?,
-            },
+            precondition: Precondition { precondition },
             range: node.range().into(),
         })
     }

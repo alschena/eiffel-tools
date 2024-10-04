@@ -1,6 +1,6 @@
 use super::feature::Feature;
 use super::shared::*;
-use crate::lib::tree_sitter::{self, Extract};
+use crate::lib::tree_sitter::{self, ExtractFrom};
 use async_lsp::lsp_types;
 use std::path::PathBuf;
 // TODO accept only attributes of logical type in the model
@@ -13,10 +13,13 @@ impl Model {
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct ModelNames(Vec<String>);
-impl Extract for ModelNames {
+impl ExtractFrom for ModelNames {
     type Error = anyhow::Error;
 
-    fn extract(cursor: &mut ::tree_sitter::TreeCursor, src: &str) -> Result<Self, Self::Error> {
+    fn extract_from(
+        cursor: &mut ::tree_sitter::TreeCursor,
+        src: &str,
+    ) -> Result<Self, Self::Error> {
         let mut traversal = tree_sitter::WidthFirstTraversal::new(cursor);
         match traversal.find(|x| {
             x.kind() == "tag"
@@ -188,9 +191,9 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
         })
     }
 }
-impl Extract for Class {
+impl ExtractFrom for Class {
     type Error = anyhow::Error;
-    fn extract(cursor: &mut tree_sitter::TreeCursor, src: &str) -> anyhow::Result<Self> {
+    fn extract_from(cursor: &mut tree_sitter::TreeCursor, src: &str) -> anyhow::Result<Self> {
         debug_assert!(cursor.node().parent().is_none());
         let root = cursor.node();
 
@@ -212,13 +215,13 @@ impl Extract for Class {
             .iter()
             .map(|node| {
                 cursor.reset(*node);
-                Feature::extract(cursor, src)
+                Feature::extract_from(cursor, src)
             })
             .collect::<anyhow::Result<Vec<Feature>>>()?;
 
         // Extract optional model
         cursor.reset(root);
-        class.model = Model::from_model_names(ModelNames::extract(cursor, src)?, &features);
+        class.model = Model::from_model_names(ModelNames::extract_from(cursor, src)?, &features);
         class.features = features;
         Ok(class)
     }
@@ -272,7 +275,7 @@ mod tests {
         ";
         let tree = parser.parse(src, None).expect("AST");
 
-        let class = Class::extract(&mut tree.walk(), src).expect("Parse class");
+        let class = Class::extract_from(&mut tree.walk(), src).expect("Parse class");
 
         assert_eq!(
             class.name(),
@@ -302,7 +305,7 @@ end
     ";
         let tree = parser.parse(src, None).expect("AST");
 
-        let class = Class::extract(&mut tree.walk(), src).expect("Parse class");
+        let class = Class::extract_from(&mut tree.walk(), src).expect("Parse class");
 
         assert_eq!(class.name(), "DEMO_CLASS".to_string());
     }
@@ -321,7 +324,7 @@ class A feature
 end
 ";
         let tree = parser.parse(src, None).unwrap();
-        let class = Class::extract(&mut tree.walk(), src).expect("Parse class");
+        let class = Class::extract_from(&mut tree.walk(), src).expect("Parse class");
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
@@ -343,7 +346,7 @@ end
 ";
         let tree = parser.parse(src, None).unwrap();
 
-        let class = Class::extract(&mut tree.walk(), src).expect("Parse class");
+        let class = Class::extract_from(&mut tree.walk(), src).expect("Parse class");
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
@@ -367,7 +370,8 @@ end
 ";
         let tree = parser.parse(src, None).unwrap();
 
-        let model_names = ModelNames::extract(&mut tree.walk(), src).expect("Parse model_names");
+        let model_names =
+            ModelNames::extract_from(&mut tree.walk(), src).expect("Parse model_names");
 
         assert!(!model_names.0.is_empty());
         assert_eq!(model_names.0.first(), Some(&"seq".to_string()));
@@ -390,7 +394,7 @@ end
 ";
         let tree = parser.parse(src, None).unwrap();
 
-        let class = Class::extract(&mut tree.walk(), src).expect("Parse class");
+        let class = Class::extract_from(&mut tree.walk(), src).expect("Parse class");
         let model = class.model().clone();
         let features = class.features().clone();
 

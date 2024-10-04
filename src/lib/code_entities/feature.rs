@@ -1,6 +1,6 @@
 use super::class::Class;
 use super::*;
-use crate::lib::tree_sitter::{self, Extract};
+use crate::lib::tree_sitter::{self, ExtractFrom};
 use anyhow::anyhow;
 use async_lsp::lsp_types;
 use contract::PreconditionDecorated;
@@ -45,31 +45,33 @@ impl Feature {
         }
     }
 }
-impl Extract for Feature {
+impl ExtractFrom for Feature {
     type Error = anyhow::Error;
-    fn extract(cursor: &mut tree_sitter::TreeCursor, src: &str) -> anyhow::Result<Self> {
+    fn extract_from(cursor: &mut tree_sitter::TreeCursor, src: &str) -> anyhow::Result<Self> {
         debug_assert!(cursor.node().kind() == "feature_declaration");
         let node = cursor.node();
-        let mut traversal = tree_sitter::WidthFirstTraversal::new(cursor);
+        let name = src[tree_sitter::WidthFirstTraversal::new(cursor)
+            .find(|x| x.kind() == "extended_feature_name")
+            .ok_or(anyhow!(
+                "Each feature declaration contains an extended feature name"
+            ))?
+            .byte_range()]
+        .into();
+        cursor.reset(node);
+        let preconditions = match tree_sitter::WidthFirstTraversal::new(cursor)
+            .find(|attribute_or_routine| attribute_or_routine.kind() == "attribute_or_routine")
+        {
+            Some(attribute_or_routine) => {
+                cursor.reset(attribute_or_routine);
+                Some(PreconditionDecorated::extract_from(cursor, src)?)
+            }
+            None => None,
+        };
         Ok(Feature {
-            name: src[traversal
-                .find(|x| x.kind() == "extended_feature_name")
-                .ok_or(anyhow!(
-                    "Each feature declaration contains an extended feature name"
-                ))?
-                .byte_range()]
-            .into(),
+            name,
             visibility: FeatureVisibility::Private,
             range: node.range().into(),
-            preconditions: match traversal
-                .find(|attribute_or_routine| attribute_or_routine.kind() == "attribute_or_routine")
-            {
-                Some(attribute_or_routine) => {
-                    cursor.reset(attribute_or_routine);
-                    Some(PreconditionDecorated::extract(cursor, src)?)
-                }
-                None => None,
-            },
+            preconditions,
             postconditions: None,
         })
     }
@@ -101,5 +103,56 @@ impl TryFrom<&Feature> for lsp_types::DocumentSymbol {
             selection_range: range,
             children: None,
         })
+    }
+}
+#[cfg(test)]
+mod tests {
+    use crate::lib::tree_sitter::WidthFirstTraversal;
+
+    use super::*;
+
+    #[test]
+    fn extract_feature_with_precondition() {
+        let src = r#"
+class A feature
+  x
+    require
+      True
+    do
+    end
+
+  y
+    require else
+    do
+    end
+end"#;
+        let mut parser = ::tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_eiffel::language())
+            .expect("Error loading Eiffel grammar");
+        let tree = parser.parse(src, None).unwrap();
+        let mut cursor = tree.walk();
+        let node = WidthFirstTraversal::new(&mut cursor)
+            .find(|node| node.kind() == "feature_declaration")
+            .expect("feature declaration");
+        cursor.reset(node);
+        let feature = Feature::extract_from(&mut cursor, &src).expect("Parse feature");
+        assert_eq!(feature.name(), "x");
+        cursor.reset(node);
+        assert!(WidthFirstTraversal::new(&mut cursor)
+            .find(|node| node.kind() == "attribute_or_routine")
+            .is_some());
+        assert_eq!(
+            feature
+                .preconditions()
+                .clone()
+                .expect("extracted preconditions")
+                .precondition
+                .first()
+                .expect("non empty precondition")
+                .predicate
+                .predicate,
+            "True".to_string()
+        )
     }
 }

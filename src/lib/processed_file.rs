@@ -1,7 +1,7 @@
 use super::code_entities::Class;
 use super::code_entities::Feature;
 use super::code_entities::Range;
-use super::tree_sitter::Extract;
+use super::tree_sitter::ExtractFrom;
 use std::path::PathBuf;
 use tree_sitter::{Parser, Tree};
 
@@ -28,7 +28,7 @@ impl ProcessedFile {
             .find(|x| range <= *x.range())
     }
     pub(crate) fn class(&self) -> anyhow::Result<Class> {
-        let mut class = Class::extract(&mut self.tree.walk(), self.src.as_str())?;
+        let mut class = Class::extract_from(&mut self.tree.walk(), self.src.as_str())?;
         class.add_location(&self.path);
         Ok(class)
     }
