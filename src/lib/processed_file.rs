@@ -1,9 +1,9 @@
 use super::code_entities::Class;
 use super::code_entities::Feature;
 use super::code_entities::Range;
-use super::tree_sitter::ExtractFrom;
+use super::tree_sitter::ExtractedFrom;
 use std::path::PathBuf;
-use tree_sitter::{Parser, Tree};
+use tree_sitter::{Parser, Tree, TreeCursor};
 
 pub(crate) struct ProcessedFile {
     pub(super) tree: Tree,

@@ -1,6 +1,6 @@
 use super::feature::Feature;
 use super::shared::*;
-use crate::lib::tree_sitter::{self, ExtractFrom};
+use crate::lib::tree_sitter::{self, ExtractedFrom};
 use async_lsp::lsp_types;
 use std::path::PathBuf;
 // TODO accept only attributes of logical type in the model
@@ -13,7 +13,7 @@ impl Model {
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct ModelNames(Vec<String>);
-impl ExtractFrom for ModelNames {
+impl ExtractedFrom for ModelNames {
     type Error = anyhow::Error;
 
     fn extract_from(
@@ -191,7 +191,7 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
         })
     }
 }
-impl ExtractFrom for Class {
+impl ExtractedFrom for Class {
     type Error = anyhow::Error;
     fn extract_from(cursor: &mut tree_sitter::TreeCursor, src: &str) -> anyhow::Result<Self> {
         debug_assert!(cursor.node().parent().is_none());

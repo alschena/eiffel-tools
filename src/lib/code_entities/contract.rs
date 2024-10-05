@@ -1,5 +1,5 @@
 use super::Point;
-use crate::lib::tree_sitter::{self, ExtractFrom, WidthFirstTraversal};
+use crate::lib::tree_sitter::{self, ExtractedFrom, WidthFirstTraversal};
 use anyhow::{anyhow, Context};
 use gemini::request::config::schema::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
@@ -11,7 +11,7 @@ pub struct ContractClause {
     pub predicate: Predicate,
     pub tag: Tag,
 }
-impl ExtractFrom for ContractClause {
+impl ExtractedFrom for ContractClause {
     type Error = anyhow::Error;
     fn extract_from(cursor: &mut ::tree_sitter::TreeCursor<'_>, src: &str) -> anyhow::Result<Self> {
         debug_assert_eq!(cursor.node().kind(), "assertion_clause");
@@ -108,7 +108,7 @@ impl PreconditionDecorated {
         &self.range
     }
 }
-impl ExtractFrom for PreconditionDecorated {
+impl ExtractedFrom for PreconditionDecorated {
     type Error = anyhow::Error;
     fn extract_from(
         mut cursor: &mut ::tree_sitter::TreeCursor<'_>,

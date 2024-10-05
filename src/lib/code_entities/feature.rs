@@ -1,6 +1,6 @@
 use super::class::Class;
 use super::*;
-use crate::lib::tree_sitter::{self, ExtractFrom};
+use crate::lib::tree_sitter::{self, ExtractedFrom};
 use anyhow::anyhow;
 use async_lsp::lsp_types;
 use contract::PreconditionDecorated;
@@ -45,7 +45,7 @@ impl Feature {
         }
     }
 }
-impl ExtractFrom for Feature {
+impl ExtractedFrom for Feature {
     type Error = anyhow::Error;
     fn extract_from(cursor: &mut tree_sitter::TreeCursor, src: &str) -> anyhow::Result<Self> {
         debug_assert!(cursor.node().kind() == "feature_declaration");
