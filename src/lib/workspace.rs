@@ -11,7 +11,7 @@ impl Workspace {
     pub(crate) fn new() -> Workspace {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         Workspace {

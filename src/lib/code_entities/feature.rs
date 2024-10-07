@@ -128,7 +128,7 @@ class A feature
 end"#;
         let mut parser = ::tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
         let tree = parser.parse(src, None).unwrap();
         let mut cursor = tree.walk();

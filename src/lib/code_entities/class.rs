@@ -265,7 +265,7 @@ mod tests {
     fn process_base_class() {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let src = "
@@ -290,7 +290,7 @@ mod tests {
     fn process_annotated_class() {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let src = "
@@ -313,7 +313,7 @@ end
     fn process_procedure() {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let src = "
@@ -335,7 +335,7 @@ end
     fn process_attribute() {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let src = "
@@ -356,7 +356,7 @@ end
     fn process_model_names() {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let src = "
@@ -380,7 +380,7 @@ end
     fn process_model() {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let src = "
@@ -422,7 +422,7 @@ end
             .expect("Failed to write to file");
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
         let file = processed_file::ProcessedFile::new(&mut parser, path.clone());
         let class: Class = (&file).class().expect("Parse class");

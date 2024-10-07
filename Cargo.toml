@@ -20,8 +20,8 @@ tower = "0.5.*"
 tracing-subscriber = "0.3.*"
 tracing = "0.1.*"
 # Treesitter
-tree-sitter = "~0.20.10"
-tree-sitter-eiffel = { git = "https://github.com/imustafin/tree-sitter-eiffel", rev = "6566d7448d658dd61dc41f730902f61a61d40d9f"}
+tree-sitter = "~0.24.2"
+tree-sitter-eiffel = { git = "https://github.com/imustafin/tree-sitter-eiffel", rev = "1cbbd471a5ee5fbf5fc63822044a648fc937737a"}
 # Parsing
 serde = "1.0.*"
 # Eiffel configuration
