@@ -3,7 +3,7 @@ use super::code_entities::Feature;
 use super::code_entities::Range;
 use super::tree_sitter::ExtractedFrom;
 use anyhow::Context;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tree_sitter::{Parser, Tree, TreeCursor};
 
 pub(crate) struct ProcessedFile {
@@ -26,6 +26,9 @@ impl ProcessedFile {
             .into_features()
             .into_iter()
             .find(|x| range <= *x.range())
+    }
+    pub fn path(&self) -> &Path {
+        &self.path
     }
     pub(crate) fn class(&self) -> anyhow::Result<Class> {
         let src: String =

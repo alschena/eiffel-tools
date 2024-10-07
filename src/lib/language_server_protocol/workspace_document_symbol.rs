@@ -12,7 +12,8 @@ impl HandleRequest for request::WorkspaceSymbolRequest {
     {
         async move {
             let read_workspace = st.workspace.read().unwrap();
-            let classes: Vec<Class> = read_workspace
+            let files = read_workspace.files();
+            let classes: Vec<Class> = files
                 .iter()
                 .map(|x| x.class().expect("Parse class"))
                 .collect();

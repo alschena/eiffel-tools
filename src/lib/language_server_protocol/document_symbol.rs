@@ -19,7 +19,7 @@ impl HandleRequest for request::DocumentSymbolRequest {
             // Read borrow
             {
                 let read_workspace = st.workspace.read().unwrap();
-                let file = read_workspace.iter().find(|&x| x.path == path);
+                let file = read_workspace.files().iter().find(|&x| x.path == path);
                 if let Some(file) = file {
                     let class: Class = file.class().expect("Parse class");
                     let symbol: DocumentSymbol = (&class)
@@ -32,20 +32,24 @@ impl HandleRequest for request::DocumentSymbolRequest {
             // Write borrow
             {
                 let mut write_workspace = st.workspace.write().unwrap();
-                debug_assert!(write_workspace.iter().find(|&x| x.path == path).is_none());
+                debug_assert!(write_workspace
+                    .files()
+                    .iter()
+                    .find(|&x| x.path == path)
+                    .is_none());
 
-                let mut parser = tree_sitter::Parser::new();
-                parser
-                    .set_language(tree_sitter_eiffel::language())
-                    .expect("Error loading Eiffel grammar");
-                let file = ProcessedFile::new(&mut parser, path);
-                let class: Class = (&file).class().expect("Parse class");
+                write_workspace.add_file(&path);
+                let class: Class = (write_workspace
+                    .files()
+                    .iter()
+                    .find(|&file| file.path() == path))
+                .expect("Inserted processed file")
+                .class()
+                .expect("Parse class");
                 let symbol: DocumentSymbol = (&class)
                     .try_into()
                     .expect("Class conversion to document symbol");
                 let document_symbols = vec![symbol];
-
-                write_workspace.push(file);
                 return Ok(Some(DocumentSymbolResponse::Nested(document_symbols)));
             }
         }

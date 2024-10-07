@@ -24,6 +24,7 @@ impl HandleRequest for request::CodeActionRequest {
                 .to_file_path()
                 .expect("Path of target document of code action");
             let processed_file = workspace
+                .files()
                 .iter()
                 .find(|&x| x.path == path)
                 .expect("Code action on not yet parsed file");

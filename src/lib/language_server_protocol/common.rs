@@ -1,4 +1,4 @@
-use crate::lib::processed_file::ProcessedFile;
+use crate::lib::workspace::Workspace;
 use async_lsp::lsp_types::{notification, request};
 use async_lsp::router;
 use async_lsp::ClientSocket;
@@ -11,7 +11,7 @@ use tracing::info;
 #[derive(Clone)]
 pub struct ServerState {
     pub(super) client: ClientSocket,
-    pub(super) workspace: Arc<RwLock<Vec<ProcessedFile>>>,
+    pub(super) workspace: Arc<RwLock<Workspace>>,
     pub(super) counter: i32,
 }
 pub struct TickEvent;
@@ -91,7 +91,7 @@ impl Router<ServerState> {
     pub fn new(client: &ClientSocket) -> Router<ServerState> {
         let kernel = router::Router::new(ServerState {
             client: client.clone(),
-            workspace: Arc::new(RwLock::new(Vec::new())),
+            workspace: Arc::new(RwLock::new(Workspace::new())),
             counter: 0,
         });
         Router(kernel)
