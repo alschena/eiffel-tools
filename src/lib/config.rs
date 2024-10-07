@@ -26,6 +26,8 @@ struct Library {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path;
     const XML_EXAMPLE: &str = r#"<?xml version="1.0" encoding="ISO-8859-1"?>
 <system xmlns="http://www.eiffel.com/developers/xml/configuration-1-16-0"
 	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -92,5 +94,30 @@ mod tests {
             library.location,
             "$AP/library/base/base-scoop-safe.ecf".to_string()
         );
+    }
+    #[test]
+    #[ignore]
+    fn extract_clusters_in_library() {
+        let system: System = serde_xml_rs::from_str(XML_EXAMPLE_LIBRARY).unwrap();
+        let target = system.target;
+        let libraries = target.library.expect("Library is present");
+        let library = libraries.first().expect("At least a library");
+        assert_eq!(library.name, "base".to_string());
+        assert_eq!(
+            library.location,
+            "$AP/library/base/base-scoop-safe.ecf".to_string()
+        );
+
+        let library_path =
+            shellexpand::env(&library.location).expect("Expansion of library location");
+        let library_path = path::Path::new(library_path.as_ref());
+        let library_config = fs::read_to_string(path::Path::new(&library_path))
+            .expect("The library location must be a valid path.");
+        let library_system: System = serde_xml_rs::from_str(&library_config).unwrap();
+        let library_target = library_system.target;
+        let _cluster = library_target
+            .cluster
+            .first()
+            .expect("There is at least a cluster in the library config file");
     }
 }

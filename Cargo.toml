@@ -9,18 +9,26 @@ edition = "2021"
 cc="*"
 
 [dependencies]
+# Error management
 anyhow = "1.0"
+# Framework for lsp
 async-lsp = { version = "0.2.*", features = ["client-monitor", "omni-trait", "stdio", "tracing", "tokio"]}
+# Asyncronous runtime (framework for lsp is built upon this)
 tokio = { version = "1.27", features = ["full"] }
+# Service-based framework (framework for lsp is built upon this)
 tower = "0.5.*"
 tracing-subscriber = "0.3.*"
 tracing = "0.1.*"
+# Treesitter
 tree-sitter = "~0.20.10"
 tree-sitter-eiffel = { git = "https://github.com/imustafin/tree-sitter-eiffel", rev = "6566d7448d658dd61dc41f730902f61a61d40d9f"}
+# Parsing
+serde = "1.0.*"
+# Eiffel configuration
+shellexpand = {version = "3.1"}
+serde-xml-rs = { version = "0.6" }
 # Gemini
 reqwest = {version = "0.12.*", features = ["json"]}
-serde = "1.0.*"
 serde_json = { version = "1.0" }
-serde-xml-rs = { version = "0.6" }
 gemini_macro_derive = {path = "./gemini_macro_derive"}
 gemini = {path = "./gemini"}
