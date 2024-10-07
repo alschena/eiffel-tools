@@ -12,7 +12,8 @@ In case of doubt refer to the [official guidance](https://www.rust-lang.org/tool
 
 This project is built using [cargo](https://doc.rust-lang.org/cargo/index.html).
 
-Before any commit run `cargo test` to run all the project-defined tests.
+The command `cargo test` tests the current crate.
+The command `cargo test --workspace` runs all the tests in the workspace. Run the latter before any commit.
 
 # Anatomy of project
 
