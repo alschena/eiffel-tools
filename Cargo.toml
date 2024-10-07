@@ -13,6 +13,7 @@ cc="*"
 anyhow = "1.0"
 # Framework for lsp
 async-lsp = { version = "0.2.*", features = ["client-monitor", "omni-trait", "stdio", "tracing", "tokio"]}
+streaming-iterator = { version = "0.1.9" }
 # Asyncronous runtime (framework for lsp is built upon this)
 tokio = { version = "1.27", features = ["full"] }
 # Service-based framework (framework for lsp is built upon this)

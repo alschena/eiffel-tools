@@ -34,8 +34,8 @@ impl ProcessedFile {
         let src: String =
             String::from_utf8(std::fs::read(&self.path).context("Failed to read file.")?)
                 .context("Source code must be UTF8 encoded")?;
-        let mut class =
-            Class::extract_from(&mut self.tree.walk(), src.as_str()).context("Parsing of class")?;
+        let mut class = Class::extract_from(&self.tree.root_node(), src.as_str())
+            .context("Parsing of class")?;
         class.add_location(&self.path);
         Ok(class)
     }

@@ -42,7 +42,7 @@ impl<'a, 'b> Iterator for WidthFirstTraversal<'a, 'b> {
 }
 pub trait ExtractedFrom: Sized {
     type Error;
-    fn extract_from(cursor: &mut TreeCursor, src: &str) -> Result<Self, Self::Error>;
+    fn extract_from(node: &Node, src: &str) -> Result<Self, Self::Error>;
 }
 
 #[cfg(test)]

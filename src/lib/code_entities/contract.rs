@@ -1,11 +1,13 @@
 use super::Point;
 use crate::lib::tree_sitter::{self, ExtractedFrom, WidthFirstTraversal};
+use ::tree_sitter::{Node, Query, QueryCursor, QueryMatch};
 use anyhow::{anyhow, Context};
 use gemini::request::config::schema::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
 use serde_xml_rs::debug_expect;
 use std::fmt::Display;
+use streaming_iterator::StreamingIterator;
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
 pub struct ContractClause {
     pub predicate: Predicate,
@@ -13,35 +15,34 @@ pub struct ContractClause {
 }
 impl ExtractedFrom for ContractClause {
     type Error = anyhow::Error;
-    fn extract_from(cursor: &mut ::tree_sitter::TreeCursor<'_>, src: &str) -> anyhow::Result<Self> {
-        debug_assert_eq!(cursor.node().kind(), "assertion_clause");
-        if !(cursor.goto_first_child()) {
-            return Err(anyhow!("assertion_clause must have a child"));
-        };
-        let tag: Tag;
-        let predicate: Predicate;
-        match cursor.node().kind() {
-            "tag_mark" => {
-                if !cursor.goto_first_child() {
-                    return Err(anyhow!("tag_mark must have a child"));
+    fn extract_from(assertion_clause: &Node, src: &str) -> anyhow::Result<Self> {
+        debug_assert_eq!(assertion_clause.kind(), "assertion_clause");
+        debug_assert!(assertion_clause.child_count() > 0);
+
+        let lang = &tree_sitter_eiffel::LANGUAGE.into();
+        let clause_query =
+            ::tree_sitter::Query::new(lang, "((tag_mark (tag) @tag)? (expression) @expr)").unwrap();
+
+        let mut binding = QueryCursor::new();
+        let mut captures =
+            binding.captures(&clause_query, assertion_clause.clone(), src.as_bytes());
+
+        match captures.next() {
+            Some(&(ref m, _)) => {
+                let tag_node = m.nodes_for_capture_index(0).next();
+                let expression_node = m.nodes_for_capture_index(1).next().unwrap();
+
+                let tag: Tag = match tag_node {
+                    Some(n) => src[n.byte_range()].to_string().into(),
+                    None => String::new().into(),
                 };
-                tag = src[cursor.node().byte_range()].to_string().into();
-                if !cursor.goto_parent() {
-                    return Err(anyhow!("Just came from parent"));
-                };
-                if !cursor.goto_next_sibling() {
-                    return Err(anyhow!("tag_mark must have a sibling named expression"));
-                };
-                predicate = Predicate::new(src[cursor.node().byte_range()].to_string());
+
+                let predicate = Predicate::new(src[expression_node.byte_range()].to_string());
+
+                Ok(Self { predicate, tag })
             }
-            "expression" => {
-                tag = String::new().into();
-                predicate = Predicate::new(src[cursor.node().byte_range()].to_string());
-            }
-            "assertion_clause" => return Err(anyhow!("Empty clause")),
-            _ => return Err(anyhow!("Invalid child of clause")),
+            None => Err(anyhow!("Wrong arguments, should match")),
         }
-        Ok(Self { predicate, tag })
     }
 }
 impl Display for ContractClause {
@@ -111,40 +112,45 @@ impl PreconditionDecorated {
 impl ExtractedFrom for PreconditionDecorated {
     type Error = anyhow::Error;
     fn extract_from(
-        mut cursor: &mut ::tree_sitter::TreeCursor<'_>,
+        attribute_or_routine: &Node,
         src: &str,
     ) -> Result<PreconditionDecorated, anyhow::Error> {
-        debug_assert!(cursor.node().kind() == "attribute_or_routine");
-        let node = cursor.node();
-        let Some(node) = node
-            .children(&mut cursor)
-            .find(|n| n.kind() == "precondition")
-        else {
-            let point = Point::from(node.range().start_point);
-            return Ok(Self {
-                precondition: Precondition {
-                    precondition: Vec::new(),
-                },
-                range: super::Range {
-                    start: point.clone(),
-                    end: point,
-                },
-            });
+        debug_assert!(attribute_or_routine.kind() == "attribute_or_routine");
+
+        let mut binding = QueryCursor::new();
+        let lang = &tree_sitter_eiffel::LANGUAGE.into();
+        let query = Query::new(lang, "(precondition) @x").unwrap();
+        let mut precondition_captures =
+            binding.captures(&query, attribute_or_routine.clone(), src.as_bytes());
+        let precondition_cap = precondition_captures.next();
+        let node = match precondition_cap {
+            Some(x) => x.0.captures[0].node,
+            None => {
+                let point = Point::from(attribute_or_routine.range().start_point);
+
+                return Ok(Self {
+                    precondition: Precondition {
+                        precondition: Vec::new(),
+                    },
+                    range: super::Range {
+                        start: point.clone(),
+                        end: point,
+                    },
+                });
+            }
         };
 
-        let precondition = node
-            .children(&mut cursor)
-            .collect::<Vec<::tree_sitter::Node>>();
-        let precondition = precondition
-            .iter()
-            .filter_map(|clause| match clause.kind() {
-                "assertion_clause" => {
-                    cursor.reset(*clause);
-                    Some(ContractClause::extract_from(&mut cursor, src))
-                }
-                _ => None,
-            })
-            .collect::<anyhow::Result<Vec<ContractClause>>>()?;
+        let query = Query::new(lang, "(assertion_clause (expression)) @x").unwrap();
+        let mut assertion_clause_matches =
+            binding.matches(&query, attribute_or_routine.clone(), src.as_bytes());
+
+        let mut precondition: Vec<ContractClause> = Vec::new();
+        while let Some(mat) = assertion_clause_matches.next() {
+            for cap in mat.captures {
+                precondition.push(ContractClause::extract_from(&cap.node, src)?)
+            }
+        }
+
         Ok(Self {
             precondition: Precondition { precondition },
             range: node.range().into(),
@@ -225,12 +231,17 @@ end"#;
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
         let tree = parser.parse(src, None).unwrap();
-        let mut cursor = tree.walk();
-        let node = WidthFirstTraversal::new(&mut cursor)
-            .find(|node| node.kind() == "assertion_clause")
-            .expect("assertion clause");
-        cursor.reset(node);
-        let clause = ContractClause::extract_from(&mut cursor, &src).expect("Parse feature");
+        let query = ::tree_sitter::Query::new(
+            &tree_sitter_eiffel::LANGUAGE.into(),
+            "(assertion_clause) @x",
+        )
+        .unwrap();
+
+        let mut binding = QueryCursor::new();
+        let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
+
+        let node = captures.next().unwrap().0.captures[0].node;
+        let clause = ContractClause::extract_from(&node, &src).expect("Parse feature");
         assert_eq!(clause.tag, Tag::from(String::new()));
         assert_eq!(clause.predicate, Predicate::new("True".to_string()));
     }
@@ -249,13 +260,20 @@ end"#;
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
         let tree = parser.parse(src, None).unwrap();
-        let mut cursor = tree.walk();
-        let node = WidthFirstTraversal::new(&mut cursor)
-            .find(|node| node.kind() == "attribute_or_routine")
-            .expect("precondition");
-        cursor.reset(node);
+
+        let query = ::tree_sitter::Query::new(
+            &tree_sitter_eiffel::LANGUAGE.into(),
+            "(attribute_or_routine) @x",
+        )
+        .unwrap();
+
+        let mut binding = QueryCursor::new();
+        let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
+
+        let node = captures.next().unwrap().0.captures[0].node;
+
         let precondition =
-            PreconditionDecorated::extract_from(&mut cursor, &src).expect("Parse precondition");
+            PreconditionDecorated::extract_from(&node, &src).expect("Parse precondition");
         let predicate = Predicate::new("True".to_string());
         let tag = Tag { tag: String::new() };
         let clause = precondition
