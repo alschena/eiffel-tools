@@ -1,24 +1,97 @@
+use anyhow::{Context, Result};
 use serde::Deserialize;
-#[derive(Deserialize, Debug, PartialEq, Clone)]
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use walkdir::{self, DirEntryExt};
+#[derive(Deserialize, Debug, PartialEq, Clone, Eq)]
 struct Config {
     system: System,
 }
-#[derive(Deserialize, Debug, PartialEq, Clone)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone)]
 struct System {
     target: Target,
 }
-#[derive(Deserialize, Debug, PartialEq, Clone)]
+impl System {
+    /// All clusters the ones defined in the target and the ones defined in the library.
+    fn clusters(self) -> Result<Vec<Cluster>> {
+        let mut clusters: Vec<Cluster> = self.target.cluster;
+        match self.target.library {
+            Some(lib) => {
+                for l in lib.into_iter() {
+                    let path = PathBuf::from(shellexpand::env(&l.location)?.as_ref());
+                    let xml_config = std::fs::read_to_string(path)
+                        .context(format!("read from {:?}", shellexpand::env(&l.location)))?;
+                    let system: System = serde_xml_rs::from_str(xml_config.as_str())
+                        .context("Library files store an eiffel system")?;
+                    for c in system.target.cluster {
+                        clusters.push(c);
+                    }
+                }
+                Ok(clusters)
+            }
+            None => Ok(clusters),
+        }
+    }
+    /// All eiffel files present in the system.
+    fn eiffel_files(self) -> Result<Vec<PathBuf>> {
+        let mut eiffel_files: Vec<PathBuf> = Vec::new();
+        for cluster in self
+            .clusters()
+            .context("All clusters in self.")?
+            .into_iter()
+        {
+            eiffel_files.append(&mut cluster.eiffel_files()?);
+        }
+        Ok(eiffel_files)
+    }
+}
+#[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
 struct Target {
     cluster: Vec<Cluster>,
     library: Option<Vec<Library>>,
 }
-#[derive(Deserialize, Debug, PartialEq, Clone)]
+#[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
 struct Cluster {
     name: String,
     location: String,
     recursive: bool,
 }
-#[derive(Deserialize, Debug, PartialEq, Clone)]
+impl Cluster {
+    fn eiffel_files(&self) -> Result<Vec<PathBuf>> {
+        let shell_expanded_string = shellexpand::env(&self.location)?;
+        let path = PathBuf::from(shell_expanded_string.as_ref());
+        let mut res = Vec::new();
+        match self.recursive {
+            true => {
+                for entry in walkdir::WalkDir::new(path).into_iter() {
+                    let entry = match entry.context("Entry in recursive walk is invalid") {
+                        Ok(e) => e,
+                        Err(_) => continue,
+                    };
+                    match entry.path().extension() {
+                        Some(ext) if ext == "e" => res.push(entry.path().to_owned()),
+                        _ => continue,
+                    }
+                }
+            }
+            false => {
+                for entry in fs::read_dir(path)?.into_iter() {
+                    let entry = match entry.context("Entry in recursive walk is invalid") {
+                        Ok(e) => e,
+                        Err(_) => continue,
+                    };
+                    match entry.path().extension() {
+                        Some(ext) if ext == "e" => res.push(entry.path().to_owned()),
+                        _ => continue,
+                    }
+                }
+            }
+        }
+        Ok(res)
+    }
+}
+#[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
 struct Library {
     name: String,
     location: String,
