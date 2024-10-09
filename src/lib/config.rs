@@ -201,6 +201,7 @@ mod tests {
     }
     #[test]
     fn all_clusters() -> anyhow::Result<()> {
+        std::env::set_var("AP", std::env::temp_dir());
         let system: System = serde_xml_rs::from_str(XML_EXAMPLE_WITH_LIBRARY)
             .expect("Parsable {XML_EXAMPLE_LIBRARY}");
         match system.target.library.clone() {
