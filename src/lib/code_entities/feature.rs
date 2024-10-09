@@ -1,9 +1,11 @@
 use super::class::Class;
 use super::*;
-use crate::lib::tree_sitter::{self, ExtractedFrom};
+use crate::lib::tree_sitter::{self, ExtractedFrom, Node};
+use ::tree_sitter::{Query, QueryCursor};
 use anyhow::anyhow;
 use async_lsp::lsp_types;
 use contract::PreconditionDecorated;
+use streaming_iterator::StreamingIterator;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum FeatureVisibility {
     Private,
@@ -47,26 +49,29 @@ impl Feature {
 }
 impl ExtractedFrom for Feature {
     type Error = anyhow::Error;
-    fn extract_from(cursor: &mut tree_sitter::TreeCursor, src: &str) -> anyhow::Result<Self> {
-        debug_assert!(cursor.node().kind() == "feature_declaration");
-        let node = cursor.node();
-        let name = src[tree_sitter::WidthFirstTraversal::new(cursor)
-            .find(|x| x.kind() == "extended_feature_name")
-            .ok_or(anyhow!(
-                "Each feature declaration contains an extended feature name"
-            ))?
+    fn extract_from(node: &Node, src: &str) -> anyhow::Result<Self> {
+        debug_assert!(node.kind() == "feature_declaration");
+        let mut binding = QueryCursor::new();
+        let lang = &tree_sitter_eiffel::LANGUAGE.into();
+        let query = Query::new(lang, "(extended_feature_name) @name").unwrap();
+        let mut name_captures = binding.captures(&query, node.clone(), src.as_bytes());
+        let name = src[name_captures.next().expect("Should have name").0.captures[0]
+            .node
             .byte_range()]
         .into();
-        cursor.reset(node);
-        let preconditions = match tree_sitter::WidthFirstTraversal::new(cursor)
-            .find(|attribute_or_routine| attribute_or_routine.kind() == "attribute_or_routine")
-        {
-            Some(attribute_or_routine) => {
-                cursor.reset(attribute_or_routine);
-                Some(PreconditionDecorated::extract_from(cursor, src)?)
-            }
+
+        let query = Query::new(lang, "(attribute_or_routine) @x").unwrap();
+        let mut attribute_or_routine_captures =
+            binding.captures(&query, node.clone(), src.as_bytes());
+        let aor = attribute_or_routine_captures.next();
+        let preconditions = match aor {
+            Some(x) => Some(PreconditionDecorated::extract_from(
+                &x.0.captures[0].node,
+                src,
+            )?),
             None => None,
         };
+
         Ok(Feature {
             name,
             visibility: FeatureVisibility::Private,
@@ -128,15 +133,18 @@ class A feature
 end"#;
         let mut parser = ::tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
         let tree = parser.parse(src, None).unwrap();
-        let mut cursor = tree.walk();
-        let node = WidthFirstTraversal::new(&mut cursor)
-            .find(|node| node.kind() == "feature_declaration")
-            .expect("feature declaration");
-        cursor.reset(node);
-        let feature = Feature::extract_from(&mut cursor, &src).expect("Parse feature");
+
+        let lang = &tree_sitter_eiffel::LANGUAGE.into();
+        let query = ::tree_sitter::Query::new(lang, "(feature_declaration) @name").unwrap();
+
+        let mut binding = QueryCursor::new();
+        let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
+        let node = captures.next().unwrap().0.captures[0].node;
+
+        let feature = Feature::extract_from(&node, &src).expect("Parse feature");
         assert_eq!(feature.name(), "x");
         let predicate = feature
             .preconditions()

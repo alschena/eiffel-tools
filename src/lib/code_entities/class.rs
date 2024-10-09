@@ -1,8 +1,10 @@
 use super::feature::Feature;
 use super::shared::*;
-use crate::lib::tree_sitter::{self, ExtractedFrom};
+use crate::lib::tree_sitter::{self, ExtractedFrom, Node};
+use ::tree_sitter::{Parser, QueryCursor};
 use async_lsp::lsp_types;
 use std::path::PathBuf;
+use streaming_iterator::StreamingIterator;
 // TODO accept only attributes of logical type in the model
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Model(pub Vec<Feature>);
@@ -16,24 +18,28 @@ struct ModelNames(Vec<String>);
 impl ExtractedFrom for ModelNames {
     type Error = anyhow::Error;
 
-    fn extract_from(
-        cursor: &mut ::tree_sitter::TreeCursor,
-        src: &str,
-    ) -> Result<Self, Self::Error> {
-        let mut traversal = tree_sitter::WidthFirstTraversal::new(cursor);
-        match traversal.find(|x| {
-            x.kind() == "tag"
-                && &src[x.byte_range()] == "model"
-                && x.parent().is_some_and(|p| p.kind() == "note_entry")
-        }) {
-            Some(_) => Ok(ModelNames(
-                traversal
-                    .filter(|model_entry| model_entry.kind() == "identifier")
-                    .map(|model_entry| src[model_entry.byte_range()].to_string())
-                    .collect(),
-            )),
-            None => Ok(ModelNames(Vec::new())),
+    fn extract_from(root: &Node, src: &str) -> Result<Self, Self::Error> {
+        debug_assert!(root.parent().is_none());
+
+        let lang = &tree_sitter_eiffel::LANGUAGE.into();
+        let name_query = ::tree_sitter::Query::new(
+            lang,
+            "(class_declaration (notes (note_entry (tag) @tag (identifier) @id)) \
+               (#eq? @tag \"model\"))",
+        )
+        .unwrap();
+
+        let mut binding = QueryCursor::new();
+        let mut matches = binding.matches(&name_query, root.clone(), src.as_bytes());
+
+        let mut names: Vec<String> = Vec::new();
+        while let Some(mat) = matches.next() {
+            for n in mat.nodes_for_capture_index(1) {
+                names.push(src[n.byte_range()].to_string())
+            }
         }
+
+        Ok(ModelNames(names))
     }
 }
 impl Model {
@@ -193,35 +199,37 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
 }
 impl ExtractedFrom for Class {
     type Error = anyhow::Error;
-    fn extract_from(cursor: &mut tree_sitter::TreeCursor, src: &str) -> anyhow::Result<Self> {
-        debug_assert!(cursor.node().parent().is_none());
-        let root = cursor.node();
-
+    fn extract_from(root: &Node, src: &str) -> anyhow::Result<Self> {
+        debug_assert!(root.parent().is_none());
         // Extract class name
-        let node = tree_sitter::WidthFirstTraversal::new(cursor)
-            .find(|x| x.kind() == "class_name")
-            .expect("class_name");
+        let lang = &tree_sitter_eiffel::LANGUAGE.into();
+        let name_query =
+            ::tree_sitter::Query::new(lang, "(class_declaration (class_name) @name)").unwrap();
 
-        let name = src[node.byte_range()].into();
-        let range = node.range().into();
+        let mut binding = QueryCursor::new();
+        let mut captures = binding.captures(&name_query, root.clone(), src.as_bytes());
+
+        let name_node = captures.next().expect("Should match").0.captures[0].node;
+
+        let name = src[name_node.byte_range()].into();
+        let range = name_node.range().into();
         let mut class = Self::from_name_range(name, range);
 
         // Extract features
-        cursor.reset(root);
-        debug_assert!(cursor.clone().node().parent().is_none());
-        let features: Vec<Feature> = tree_sitter::WidthFirstTraversal::new(cursor)
-            .filter(|x| x.kind() == "feature_declaration")
-            .collect::<Vec<::tree_sitter::Node>>()
-            .iter()
-            .map(|node| {
-                cursor.reset(*node);
-                Feature::extract_from(cursor, src)
-            })
-            .collect::<anyhow::Result<Vec<Feature>>>()?;
+        let feature_query = ::tree_sitter::Query::new(lang, "(feature_declaration) @dec").unwrap();
+
+        binding = QueryCursor::new();
+        let mut feature_cursor = binding.matches(&feature_query, root.clone(), src.as_bytes());
+
+        let mut features: Vec<Feature> = Vec::new();
+        while let Some(mat) = feature_cursor.next() {
+            for cap in mat.captures {
+                features.push(Feature::extract_from(&cap.node, src)?);
+            }
+        }
 
         // Extract optional model
-        cursor.reset(root);
-        class.model = Model::from_model_names(ModelNames::extract_from(cursor, src)?, &features);
+        class.model = Model::from_model_names(ModelNames::extract_from(root, src)?, &features);
         class.features = features;
         Ok(class)
     }
@@ -265,7 +273,7 @@ mod tests {
     fn process_base_class() {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let src = "
@@ -275,7 +283,7 @@ mod tests {
         ";
         let tree = parser.parse(src, None).expect("AST");
 
-        let class = Class::extract_from(&mut tree.walk(), src).expect("Parse class");
+        let class = Class::extract_from(&tree.root_node(), src).expect("Parse class");
 
         assert_eq!(
             class.name(),
@@ -290,7 +298,7 @@ mod tests {
     fn process_annotated_class() {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let src = "
@@ -305,7 +313,7 @@ end
     ";
         let tree = parser.parse(src, None).expect("AST");
 
-        let class = Class::extract_from(&mut tree.walk(), src).expect("Parse class");
+        let class = Class::extract_from(&tree.root_node(), src).expect("Parse class");
 
         assert_eq!(class.name(), "DEMO_CLASS".to_string());
     }
@@ -313,7 +321,7 @@ end
     fn process_procedure() {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let src = "
@@ -324,7 +332,7 @@ class A feature
 end
 ";
         let tree = parser.parse(src, None).unwrap();
-        let class = Class::extract_from(&mut tree.walk(), src).expect("Parse class");
+        let class = Class::extract_from(&tree.root_node(), src).expect("Parse class");
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
@@ -335,7 +343,7 @@ end
     fn process_attribute() {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let src = "
@@ -346,7 +354,7 @@ end
 ";
         let tree = parser.parse(src, None).unwrap();
 
-        let class = Class::extract_from(&mut tree.walk(), src).expect("Parse class");
+        let class = Class::extract_from(&tree.root_node(), src).expect("Parse class");
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
@@ -356,7 +364,7 @@ end
     fn process_model_names() {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let src = "
@@ -371,7 +379,7 @@ end
         let tree = parser.parse(src, None).unwrap();
 
         let model_names =
-            ModelNames::extract_from(&mut tree.walk(), src).expect("Parse model_names");
+            ModelNames::extract_from(&tree.root_node(), src).expect("Parse model_names");
 
         assert!(!model_names.0.is_empty());
         assert_eq!(model_names.0.first(), Some(&"seq".to_string()));
@@ -380,7 +388,7 @@ end
     fn process_model() {
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let src = "
@@ -394,7 +402,7 @@ end
 ";
         let tree = parser.parse(src, None).unwrap();
 
-        let class = Class::extract_from(&mut tree.walk(), src).expect("Parse class");
+        let class = Class::extract_from(&tree.root_node(), src).expect("Parse class");
         let model = class.model().clone();
         let features = class.features().clone();
 
@@ -422,7 +430,7 @@ end
             .expect("Failed to write to file");
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
         let file = processed_file::ProcessedFile::new(&mut parser, path.clone());
         let class: Class = (&file).class().expect("Parse class");

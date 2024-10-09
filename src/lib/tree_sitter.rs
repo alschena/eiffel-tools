@@ -42,7 +42,7 @@ impl<'a, 'b> Iterator for WidthFirstTraversal<'a, 'b> {
 }
 pub trait ExtractedFrom: Sized {
     type Error;
-    fn extract_from(cursor: &mut TreeCursor, src: &str) -> Result<Self, Self::Error>;
+    fn extract_from(node: &Node, src: &str) -> Result<Self, Self::Error>;
 }
 
 #[cfg(test)]
@@ -68,7 +68,7 @@ end
 
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(tree_sitter_eiffel::language())
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
         let file = ProcessedFile::new(&mut parser, procedure_path.clone());
