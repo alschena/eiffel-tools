@@ -25,6 +25,7 @@ tree-sitter-eiffel = { git = "https://github.com/imustafin/tree-sitter-eiffel", 
 # Parsing
 serde = "1.0.*"
 # Eiffel configuration
+walkdir = "2"
 shellexpand = {version = "3.1"}
 serde-xml-rs = { version = "0.6" }
 # Gemini
@@ -32,3 +33,6 @@ reqwest = {version = "0.12.*", features = ["json"]}
 serde_json = { version = "1.0" }
 gemini_macro_derive = {path = "./gemini_macro_derive"}
 gemini = {path = "./gemini"}
+
+[dev-dependencies]
+assert_fs = "1.1"

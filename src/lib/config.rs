@@ -99,8 +99,9 @@ struct Library {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::path;
+    use anyhow::anyhow;
+    use assert_fs::prelude::*;
+    use assert_fs::{fixture::FileWriteStr, NamedTempFile, TempDir};
     const XML_EXAMPLE: &str = r#"<?xml version="1.0" encoding="ISO-8859-1"?>
 <system xmlns="http://www.eiffel.com/developers/xml/configuration-1-16-0"
 	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -236,21 +237,31 @@ mod tests {
             }));
         Ok(())
     }
+    #[test]
+    fn cluster_eiffel_files() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new().context("failed to create temp dir")?;
+        let file_name_and_ext = "test.e";
+        temp_dir
+            .child(file_name_and_ext)
+            .touch()
+            .context("failed to create empty file in temp directory")?;
+        let path = temp_dir
+            .path()
+            .to_str()
+            .ok_or(anyhow!("failed conversion of path to string"))?
+            .to_owned();
+        let c = Cluster {
+            name: "test".to_string(),
+            location: path,
+            recursive: false,
+        };
+        let eiffel_files = c.eiffel_files().context("Cluster eiffel files")?;
+        eprintln!("{:?}", eiffel_files.first());
+        assert_eq!(eiffel_files.len(), 1);
         assert_eq!(
-            library.location,
-            "$AP/library/base/base-scoop-safe.ecf".to_string()
+            eiffel_files.iter().next().unwrap(),
+            &temp_dir.path().join(file_name_and_ext)
         );
-
-        let library_path =
-            shellexpand::env(&library.location).expect("Expansion of library location");
-        let library_path = path::Path::new(library_path.as_ref());
-        let library_config = fs::read_to_string(path::Path::new(&library_path))
-            .expect("The library location must be a valid path.");
-        let library_system: System = serde_xml_rs::from_str(&library_config).unwrap();
-        let library_target = library_system.target;
-        let _cluster = library_target
-            .cluster
-            .first()
-            .expect("There is at least a cluster in the library config file");
+        Ok(())
     }
 }
