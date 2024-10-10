@@ -9,7 +9,7 @@ struct Config {
     system: System,
 }
 #[derive(Deserialize, Debug, PartialEq, Eq, Clone)]
-struct System {
+pub struct System {
     target: Target,
 }
 impl System {
@@ -20,10 +20,14 @@ impl System {
             Some(lib) => {
                 for l in lib.into_iter() {
                     let path = PathBuf::from(shellexpand::env(&l.location)?.as_ref());
-                    let xml_config = std::fs::read_to_string(path)
-                        .context(format!("read from {:?}", shellexpand::env(&l.location)))?;
+                    let path =
+                        fs::canonicalize(path).context("Fails to canonicalize cluster path")?;
+                    let xml_config = std::fs::read_to_string(path).context(format!(
+                        "Fails to read from {:?}",
+                        shellexpand::env(&l.location)
+                    ))?;
                     let system: System = serde_xml_rs::from_str(xml_config.as_str())
-                        .context("Library files store an eiffel system")?;
+                        .context("Fails to parse the configuration file of the library")?;
                     for c in system.target.cluster {
                         clusters.push(c);
                     }
@@ -34,7 +38,7 @@ impl System {
         }
     }
     /// All eiffel files present in the system.
-    fn eiffel_files(self) -> Result<Vec<PathBuf>> {
+    pub fn eiffel_files(self) -> Result<Vec<PathBuf>> {
         let mut eiffel_files: Vec<PathBuf> = Vec::new();
         for cluster in self
             .clusters()
@@ -61,6 +65,13 @@ impl Cluster {
     fn eiffel_files(&self) -> Result<Vec<PathBuf>> {
         let shell_expanded_string = shellexpand::env(&self.location)?;
         let path = PathBuf::from(shell_expanded_string.as_ref());
+        let path = match fs::canonicalize(path) {
+            Ok(path) => path,
+            // For now the nested clusters are ignored.
+            // TODO: Expand the location of the nested clusters from their parent's location.
+            Err(_) => return Ok(Vec::new()),
+        };
+
         let mut res = Vec::new();
         match self.recursive {
             true => {
