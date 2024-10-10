@@ -2,41 +2,43 @@ use super::code_entities::Class;
 use super::code_entities::Feature;
 use super::code_entities::Range;
 use super::tree_sitter::ExtractedFrom;
-use anyhow::Context;
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
-use tree_sitter::{Parser, Tree, TreeCursor};
+use tree_sitter::{Parser, Tree};
 
+/// Stores all the information of a file
 pub(crate) struct ProcessedFile {
+    /// Treesitter abstract syntax tree, stored for incremental parsing.
     pub(super) tree: Tree,
+    /// Path of the file
     pub(super) path: PathBuf,
+    /// In eiffel a class contains all other code entities of a class
+    pub(super) class: Class,
 }
 impl ProcessedFile {
-    pub(crate) fn new(parser: &mut Parser, path: PathBuf) -> ProcessedFile {
+    pub(crate) fn new(parser: &mut Parser, path: PathBuf) -> Result<ProcessedFile> {
         let src: String = String::from_utf8(std::fs::read(&path).expect("Failed to read file."))
             .expect("Source code must be UTF8 encoded");
         let tree = parser.parse(&src, None).unwrap();
-        ProcessedFile { tree, path }
+        let mut class =
+            Class::extract_from(&tree.root_node(), src.as_str()).context("Parsing of class")?;
+        class.add_location(&path);
+        Ok(ProcessedFile { tree, path, class })
     }
     pub(crate) fn tree(&self) -> &Tree {
         &self.tree
     }
     pub(crate) fn feature_around(&self, range: Range) -> Option<Feature> {
-        self.class()
-            .expect("Parse class")
-            .into_features()
-            .into_iter()
-            .find(|x| range <= *x.range())
+        let mut features = self.class().features().iter();
+        match features.find(|x| range <= *x.range()) {
+            Some(f) => Some(f.clone()),
+            None => None,
+        }
     }
     pub fn path(&self) -> &Path {
         &self.path
     }
-    pub(crate) fn class(&self) -> anyhow::Result<Class> {
-        let src: String =
-            String::from_utf8(std::fs::read(&self.path).context("Failed to read file.")?)
-                .context("Source code must be UTF8 encoded")?;
-        let mut class = Class::extract_from(&self.tree.root_node(), src.as_str())
-            .context("Parsing of class")?;
-        class.add_location(&self.path);
-        Ok(class)
+    pub(crate) fn class(&self) -> &Class {
+        &self.class
     }
 }
