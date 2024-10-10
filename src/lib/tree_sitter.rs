@@ -49,11 +49,12 @@ pub trait ExtractedFrom: Sized {
 mod tests {
     use super::*;
     use crate::lib::processed_file::ProcessedFile;
+    use anyhow::Result;
     use std::fs::File;
     use std::io::prelude::*;
     use std::path::PathBuf;
     #[test]
-    fn width_first_traversal() -> std::io::Result<()> {
+    fn width_first_traversal() -> Result<()> {
         let procedure_src: &str = "
 class A feature
   f(x, y: INTEGER; z: BOOLEAN)
@@ -71,7 +72,7 @@ end
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
 
-        let file = ProcessedFile::new(&mut parser, procedure_path.clone());
+        let file = ProcessedFile::new(&mut parser, procedure_path.clone())?;
 
         let mut cursor = file.tree.walk();
         let mut width_first = WidthFirstTraversal::new(&mut cursor);

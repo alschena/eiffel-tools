@@ -265,6 +265,7 @@ mod tests {
     use super::*;
     use crate::lib::processed_file;
     use ::tree_sitter;
+    use anyhow::Result;
     use std::fs::File;
     use std::io::prelude::*;
     use std::path::PathBuf;
@@ -417,7 +418,7 @@ end
         );
     }
     #[test]
-    fn class_to_workspacesymbol() {
+    fn class_to_workspacesymbol() -> Result<()> {
         let path = "/tmp/eiffel_tool_test_class_to_workspacesymbol.e";
         let path = PathBuf::from(path);
         let src = "
@@ -432,9 +433,10 @@ end
         parser
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
-        let file = processed_file::ProcessedFile::new(&mut parser, path.clone());
-        let class: Class = (&file).class().expect("Parse class");
-        let symbol = <lsp_types::WorkspaceSymbol>::try_from(&class);
-        assert!(symbol.is_ok())
+        let file = processed_file::ProcessedFile::new(&mut parser, path.clone())?;
+        let class = (&file).class();
+        let symbol = <lsp_types::WorkspaceSymbol>::try_from(class);
+        assert!(symbol.is_ok());
+        Ok(())
     }
 }

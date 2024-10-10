@@ -13,13 +13,10 @@ impl HandleRequest for request::WorkspaceSymbolRequest {
         async move {
             let read_workspace = st.workspace.read().unwrap();
             let files = read_workspace.files();
-            let classes: Vec<Class> = files
-                .iter()
-                .map(|x| x.class().expect("Parse class"))
-                .collect();
+            let classes: Vec<&Class> = files.iter().map(|x| x.class()).collect();
             let symbol_information: Vec<SymbolInformation> = classes
                 .iter()
-                .map(|x| {
+                .map(|&x| {
                     <SymbolInformation>::try_from(x)
                         .expect("Class convertable to symbol information")
                 })

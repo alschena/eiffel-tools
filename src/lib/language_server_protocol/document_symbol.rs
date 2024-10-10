@@ -21,8 +21,8 @@ impl HandleRequest for request::DocumentSymbolRequest {
                 let read_workspace = st.workspace.read().unwrap();
                 let file = read_workspace.files().iter().find(|&x| x.path == path);
                 if let Some(file) = file {
-                    let class: Class = file.class().expect("Parse class");
-                    let symbol: DocumentSymbol = (&class)
+                    let class = file.class();
+                    let symbol: DocumentSymbol = (class)
                         .try_into()
                         .expect("class conversion to document symbol");
                     let classes = vec![symbol];
@@ -39,14 +39,13 @@ impl HandleRequest for request::DocumentSymbolRequest {
                     .is_none());
 
                 write_workspace.add_file(&path);
-                let class: Class = (write_workspace
+                let class = (write_workspace
                     .files()
                     .iter()
                     .find(|&file| file.path() == path))
                 .expect("Inserted processed file")
-                .class()
-                .expect("Parse class");
-                let symbol: DocumentSymbol = (&class)
+                .class();
+                let symbol: DocumentSymbol = (class)
                     .try_into()
                     .expect("Class conversion to document symbol");
                 let document_symbols = vec![symbol];
