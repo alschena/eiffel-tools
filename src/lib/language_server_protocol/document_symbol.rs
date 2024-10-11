@@ -16,40 +16,17 @@ impl HandleRequest for request::DocumentSymbolRequest {
     ) -> impl Future<Output = Result<Self::Result, ResponseError>> + Send + 'static {
         async move {
             let path: path::PathBuf = params.text_document.uri.path().into();
-            // Read borrow
-            {
-                let read_workspace = st.workspace.read().unwrap();
-                let file = read_workspace.files().iter().find(|&x| x.path == path);
-                if let Some(file) = file {
-                    let class = file.class();
-                    let symbol: DocumentSymbol = (class)
-                        .try_into()
-                        .expect("class conversion to document symbol");
-                    let classes = vec![symbol];
-                    return Ok(Some(DocumentSymbolResponse::Nested(classes)));
-                }
-            }
-            // Write borrow
-            {
-                let mut write_workspace = st.workspace.write().unwrap();
-                debug_assert!(write_workspace
-                    .files()
-                    .iter()
-                    .find(|&x| x.path == path)
-                    .is_none());
-
-                write_workspace.add_file(&path);
-                let class = (write_workspace
-                    .files()
-                    .iter()
-                    .find(|&file| file.path() == path))
-                .expect("Inserted processed file")
-                .class();
+            let read_workspace = st.workspace.read().unwrap();
+            let file = read_workspace.files().iter().find(|&x| x.path == path);
+            if let Some(file) = file {
+                let class = file.class();
                 let symbol: DocumentSymbol = (class)
                     .try_into()
-                    .expect("Class conversion to document symbol");
-                let document_symbols = vec![symbol];
-                return Ok(Some(DocumentSymbolResponse::Nested(document_symbols)));
+                    .expect("class conversion to document symbol");
+                let classes = vec![symbol];
+                return Ok(Some(DocumentSymbolResponse::Nested(classes)));
+            } else {
+                return Ok(None);
             }
         }
     }

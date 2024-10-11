@@ -82,8 +82,12 @@ impl TryFrom<&Location> for lsp_types::Url {
     type Error = anyhow::Error;
 
     fn try_from(value: &Location) -> std::result::Result<Self, Self::Error> {
-        Self::from_file_path(value.path.clone())
-            .map_err(|()| anyhow!("code entitites location to url"))
+        Self::from_file_path(value.path.clone()).map_err(|()| {
+            anyhow!(
+                "Fails to convert the code entitites location of path {:?} to the lsp-type Url",
+                value.path
+            )
+        })
     }
 }
 impl TryFrom<Point> for async_lsp::lsp_types::Position {
