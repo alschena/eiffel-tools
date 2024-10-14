@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::fs;
@@ -45,7 +45,7 @@ impl System {
             .context("All clusters in self.")?
             .into_iter()
         {
-            eiffel_files.append(&mut cluster.eiffel_files()?);
+            eiffel_files.append(&mut cluster.eiffel_files().context("cluster eiffel files")?);
         }
         Ok(eiffel_files)
     }
@@ -59,7 +59,8 @@ struct Target {
 struct Cluster {
     name: String,
     location: String,
-    recursive: bool,
+    recursive: Option<bool>,
+    cluster: Option<Vec<Cluster>>,
 }
 impl Cluster {
     fn eiffel_files(&self) -> Result<Vec<PathBuf>> {
@@ -74,7 +75,7 @@ impl Cluster {
 
         let mut res = Vec::new();
         match self.recursive {
-            true => {
+            Some(true) => {
                 for entry in walkdir::WalkDir::new(path).into_iter() {
                     let entry = match entry.context("Entry in recursive walk is invalid") {
                         Ok(e) => e,
@@ -86,7 +87,7 @@ impl Cluster {
                     }
                 }
             }
-            false => {
+            _ => {
                 for entry in fs::read_dir(path)?.into_iter() {
                     let entry = match entry.context("Entry in recursive walk is invalid") {
                         Ok(e) => e,
@@ -179,6 +180,28 @@ mod tests {
 	</target>
 </system>
 "#;
+    const XML_EXAMPLE_NESTED_CLUSTERS: &str = r#"<?xml version="1.0" encoding="ISO-8859-1"?>
+<system xmlns="http://www.eiffel.com/developers/xml/configuration-1-16-0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.eiffel.com/developers/xml/configuration-1-16-0 http://www.eiffel.com/developers/xml/configuration-1-16-0.xsd"
+	name="sanity-check" uuid="6BE01FDA-BFC4-43D8-9182-99C7A5EFA7E9">
+	<target name="sanity-check">
+		<root all_classes="true" />
+		<file_rule>
+			<exclude>/\.git$</exclude>
+			<exclude>/\.svn$</exclude>
+			<exclude>/CVS$</exclude>
+			<exclude>/EIFGENs$</exclude>
+		</file_rule>
+		<capability>
+			<void_safety support="all" />
+		</capability>
+		<cluster name="list_inversion" location="./list_inversion/">
+			<cluster name="nested" location="nested/"/>
+		</cluster>
+	</target>
+</system>
+"#;
     #[test]
     fn extract_cluster() {
         let system: System = serde_xml_rs::from_str(XML_EXAMPLE).unwrap();
@@ -186,7 +209,7 @@ mod tests {
         let cluster = target.cluster.first().expect("At least a cluster");
         assert_eq!(cluster.name, "list_inversion".to_string());
         assert_eq!(cluster.location, "./list_inversion/".to_string());
-        assert!(cluster.recursive);
+        assert!(cluster.recursive.is_some_and(|x| x));
     }
     #[test]
     fn extract_library() {
@@ -237,7 +260,8 @@ mod tests {
             .contains(&Cluster {
                 location: "./lib/".to_string(),
                 name: "lib".to_string(),
-                recursive: true,
+                recursive: Some(true),
+                cluster: None
             }));
         assert!(system
             .clusters()
@@ -245,7 +269,8 @@ mod tests {
             .contains(&Cluster {
                 name: "levenshtein_distance".to_string(),
                 location: "./levenshtein_distance/".to_string(),
-                recursive: true
+                recursive: Some(true),
+                cluster: None
             }));
         Ok(())
     }
@@ -265,7 +290,8 @@ mod tests {
         let c = Cluster {
             name: "test".to_string(),
             location: path,
-            recursive: false,
+            recursive: Some(false),
+            cluster: None,
         };
         let eiffel_files = c.eiffel_files().context("Cluster eiffel files")?;
         eprintln!("{:?}", eiffel_files.first());
@@ -273,6 +299,26 @@ mod tests {
         assert_eq!(
             eiffel_files.iter().next().unwrap(),
             &temp_dir.path().join(file_name_and_ext)
+        );
+        Ok(())
+    }
+    #[test]
+    fn nested_cluster() -> anyhow::Result<()> {
+        let system: System = serde_xml_rs::from_str(XML_EXAMPLE_NESTED_CLUSTERS)?;
+        let clusters = system.target.cluster;
+        assert_eq!(
+            clusters,
+            vec![Cluster {
+                name: "list_inversion".to_string(),
+                location: "./list_inversion/".to_string(),
+                recursive: None,
+                cluster: Some(vec![Cluster {
+                    name: "nested".to_string(),
+                    location: "nested/".to_string(),
+                    recursive: None,
+                    cluster: None
+                }])
+            }]
         );
         Ok(())
     }
