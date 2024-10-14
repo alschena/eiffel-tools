@@ -70,37 +70,46 @@ impl Cluster {
             Ok(path) => path,
             // For now the nested clusters are ignored.
             // TODO: Expand the location of the nested clusters from their parent's location.
-            Err(_) => return Ok(Vec::new()),
+            Err(e) => {
+                eprintln!("Path could not be canonicalized with error {:?}", e);
+                return Ok(Vec::new());
+            }
         };
 
-        let mut res = Vec::new();
-        match self.recursive {
-            Some(true) => {
-                for entry in walkdir::WalkDir::new(path).into_iter() {
-                    let entry = match entry.context("Entry in recursive walk is invalid") {
-                        Ok(e) => e,
-                        Err(_) => continue,
-                    };
-                    match entry.path().extension() {
-                        Some(ext) if ext == "e" => res.push(entry.path().to_owned()),
-                        _ => continue,
-                    }
-                }
-            }
-            _ => {
-                for entry in fs::read_dir(path)?.into_iter() {
-                    let entry = match entry.context("Entry in recursive walk is invalid") {
-                        Ok(e) => e,
-                        Err(_) => continue,
-                    };
-                    match entry.path().extension() {
-                        Some(ext) if ext == "e" => res.push(entry.path().to_owned()),
-                        _ => continue,
-                    }
-                }
+        let res = match self.recursive {
+            Some(true) => walkdir::WalkDir::new(path)
+                .into_iter()
+                .filter_map(|entry| match entry {
+                    Ok(entry) => match entry.path().extension() {
+                        Some(ext) if ext == "e" => Some(Ok(entry.path().to_owned())),
+                        _ => None,
+                    },
+                    Err(e) => Some(Err(anyhow!("Invalid path in recursive walk"))),
+                })
+                .collect::<Result<Vec<PathBuf>>>(),
+            _ => match fs::read_dir(path) {
+                Ok(entries) => entries
+                    .filter_map(|entry| {
+                        let entry = match entry.context("Entry in recursive walk is invalid") {
+                            Ok(e) => e,
+                            Err(_) => return None,
+                        };
+                        match entry.path().extension() {
+                            Some(ext) if ext == "e" => Some(Ok(entry.path().to_owned())),
+                            _ => None,
+                        }
+                    })
+                    .collect::<Result<Vec<PathBuf>>>(),
+                Err(e) => Err(anyhow!("unreadable directory path: {:?}", e)),
+            },
+        };
+        match res {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                eprintln!("We got an error: {:?}", e);
+                Ok(Vec::new())
             }
         }
-        Ok(res)
     }
 }
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
