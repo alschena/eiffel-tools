@@ -64,52 +64,87 @@ struct Cluster {
 }
 impl Cluster {
     fn eiffel_files(&self) -> Result<Vec<PathBuf>> {
-        let shell_expanded_string = shellexpand::env(&self.location)?;
-        let path = PathBuf::from(shell_expanded_string.as_ref());
-        let path = match fs::canonicalize(path) {
-            Ok(path) => path,
-            // For now the nested clusters are ignored.
-            // TODO: Expand the location of the nested clusters from their parent's location.
-            Err(e) => {
-                eprintln!("Path could not be canonicalized with error {:?}", e);
-                return Ok(Vec::new());
+        let unexpanded_paths = match self.cluster {
+            Some(ref clusters) => {
+                let mut paths: Vec<String> = clusters
+                    .iter()
+                    .map(|cluster| self.location.clone() + cluster.location.as_str())
+                    .collect();
+                paths.push(self.location.clone());
+                paths
             }
+            None => vec![self.location.clone()],
         };
-
-        let res = match self.recursive {
-            Some(true) => walkdir::WalkDir::new(path)
-                .into_iter()
-                .filter_map(|entry| match entry {
-                    Ok(entry) => match entry.path().extension() {
-                        Some(ext) if ext == "e" => Some(Ok(entry.path().to_owned())),
-                        _ => None,
-                    },
-                    Err(e) => Some(Err(anyhow!("Invalid path in recursive walk"))),
-                })
-                .collect::<Result<Vec<PathBuf>>>(),
-            _ => match fs::read_dir(path) {
-                Ok(entries) => entries
-                    .filter_map(|entry| {
-                        let entry = match entry.context("Entry in recursive walk is invalid") {
-                            Ok(e) => e,
-                            Err(_) => return None,
-                        };
-                        match entry.path().extension() {
+        let paths = unexpanded_paths
+            .iter()
+            .filter_map(|unexpanded_path| match shellexpand::env(unexpanded_path) {
+                Ok(path_as_string) => {
+                    let p = PathBuf::from(path_as_string.as_ref());
+                    if p.exists() {
+                        match fs::canonicalize(p) {
+                            Ok(p) => Some(Ok(p)),
+                            Err(e) => Some(Err(anyhow!(
+                                "Path could not be canonicalized with error {:?}",
+                                e
+                            ))),
+                        }
+                    } else {
+                        None
+                    }
+                }
+                Err(e) => Some(Err(anyhow!(
+                    "Fail to expand path with env variables. Error: {:?}",
+                    e
+                ))),
+            })
+            .collect::<Result<Vec<PathBuf>>>()?;
+        let folded_paths = paths
+            .iter()
+            .filter_map(|path| match self.recursive {
+                Some(true) => match walkdir::WalkDir::new(path)
+                    .into_iter()
+                    .filter_map(|entry| match entry {
+                        Ok(entry) => match entry.path().extension() {
                             Some(ext) if ext == "e" => Some(Ok(entry.path().to_owned())),
                             _ => None,
-                        }
+                        },
+                        Err(e) => Some(Err(anyhow!(
+                            "Invalid path in recursive walk with error {:?}",
+                            e
+                        ))),
                     })
-                    .collect::<Result<Vec<PathBuf>>>(),
-                Err(e) => Err(anyhow!("unreadable directory path: {:?}", e)),
-            },
-        };
-        match res {
-            Ok(res) => Ok(res),
-            Err(e) => {
-                eprintln!("We got an error: {:?}", e);
-                Ok(Vec::new())
-            }
-        }
+                    .collect::<Result<Vec<PathBuf>>>()
+                {
+                    v @ Ok(_) => Some(v),
+                    e @ Err(_) => Some(e),
+                },
+                _ => match fs::read_dir(path) {
+                    Ok(entries) => match entries
+                        .filter_map(|entry| match entry {
+                            Ok(v) => match v.path().extension() {
+                                Some(ext) if ext == "e" => Some(Ok(v.path().to_owned())),
+                                _ => None,
+                            },
+                            Err(e) => Some(Err(anyhow!(
+                                "Entry in recursive walk is invalid with error {:?}",
+                                e
+                            ))),
+                        })
+                        .collect::<Result<Vec<PathBuf>>>()
+                    {
+                        v @ Ok(_) => Some(v),
+                        e @ Err(_) => Some(e),
+                    },
+                    Err(e) => Some(Err(anyhow!(
+                        "unreadable directory path {:?}, with error {:?}",
+                        path,
+                        e
+                    ))),
+                },
+            })
+            .collect::<Result<Vec<Vec<PathBuf>>>>()?;
+        let flat_paths = folded_paths.into_iter().flatten().collect();
+        Ok(flat_paths)
     }
 }
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
