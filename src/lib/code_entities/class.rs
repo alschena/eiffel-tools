@@ -2,6 +2,7 @@ use super::feature::Feature;
 use super::shared::*;
 use crate::lib::tree_sitter::{self, ExtractedFrom, Node};
 use ::tree_sitter::{Parser, QueryCursor};
+use anyhow::anyhow;
 use async_lsp::lsp_types;
 use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
@@ -209,7 +210,10 @@ impl ExtractedFrom for Class {
         let mut binding = QueryCursor::new();
         let mut captures = binding.captures(&name_query, root.clone(), src.as_bytes());
 
-        let name_node = captures.next().expect("Should match").0.captures[0].node;
+        let name_node = match captures.next() {
+            Some(v) => v.0.captures[0].node,
+            None => return Err(anyhow!("fails to parse class name ")),
+        };
 
         let name = src[name_node.byte_range()].into();
         let range = name_node.range().into();

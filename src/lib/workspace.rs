@@ -28,7 +28,9 @@ impl Workspace {
     pub(crate) fn add_processed_file(&mut self, file: ProcessedFile) {
         self.files.push(file)
     }
-    pub(crate) fn init_classes(&mut self) {}
+    pub(crate) fn set_files(&mut self, files: Vec<ProcessedFile>) {
+        self.files = files
+    }
     pub(crate) fn files(&self) -> &Vec<ProcessedFile> {
         &self.files
     }

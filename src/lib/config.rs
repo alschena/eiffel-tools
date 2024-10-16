@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
-use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use walkdir::{self, DirEntryExt};
+use tracing::warn;
+use walkdir::{self};
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq)]
 struct Config {
     system: System,
@@ -20,15 +20,17 @@ impl System {
             Some(lib) => {
                 for l in lib.into_iter() {
                     let path = PathBuf::from(shellexpand::env(&l.location)?.as_ref());
-                    let path =
-                        fs::canonicalize(path).context("Fails to canonicalize cluster path")?;
-                    let xml_config = std::fs::read_to_string(path).context(format!(
+                    let xml_config = std::fs::read_to_string(path.as_path()).context(format!(
                         "Fails to read from {:?}",
                         shellexpand::env(&l.location)
                     ))?;
                     let system: System = serde_xml_rs::from_str(xml_config.as_str())
                         .context("Fails to parse the configuration file of the library")?;
-                    for c in system.target.cluster {
+                    for mut c in system.target.cluster {
+                        let lib_dir = path
+                            .parent()
+                            .context("library path is empty or terminates in a root or prefix.")?;
+                        (&mut c).prepend_path(lib_dir)?;
                         clusters.push(c);
                     }
                 }
@@ -63,23 +65,46 @@ struct Cluster {
     cluster: Option<Vec<Cluster>>,
 }
 impl Cluster {
+    fn prepend_path(&mut self, path: &Path) -> Result<()> {
+        if !Path::new(
+            shellexpand::env(&self.location)
+                .context("Fail expanding cluster location by environmental varibles")?
+                .as_ref(),
+        )
+        .is_absolute()
+        {
+            self.location = path
+                .join(Path::new(&self.location))
+                .to_str()
+                .context("Fail to convert path to UFT-8 string")?
+                .to_string();
+        }
+        Ok(())
+    }
     fn eiffel_files(&self) -> Result<Vec<PathBuf>> {
-        let unexpanded_paths = match self.cluster {
+        let cluster_paths = match self.cluster {
             Some(ref clusters) => {
-                let mut paths: Vec<String> = clusters
+                let mut paths: Vec<PathBuf> = clusters
                     .iter()
-                    .map(|cluster| self.location.clone() + cluster.location.as_str())
+                    .map(|cluster| {
+                        Path::new(&self.location).join(Path::new(cluster.location.as_str()))
+                    })
                     .collect();
-                paths.push(self.location.clone());
+                paths.push(PathBuf::from(self.location.clone()));
                 paths
             }
-            None => vec![self.location.clone()],
-        };
-        let paths = unexpanded_paths
-            .iter()
-            .filter_map(|unexpanded_path| match shellexpand::env(unexpanded_path) {
+            None => vec![PathBuf::from(self.location.clone())],
+        }
+        .iter()
+        .filter_map(|unexpanded_path| {
+            let unexpanded_path = match unexpanded_path.to_str() {
+                Some(v) => v,
+                None => return Some(Err(anyhow!("Fail to convert path to valid UFT-8"))),
+            };
+            match shellexpand::env(unexpanded_path) {
                 Ok(path_as_string) => {
-                    let p = PathBuf::from(path_as_string.as_ref());
+                    let p =
+                        PathBuf::from(path_as_string.replace(r#"\"#, r#"/"#).replace(r#"$|"#, ""));
                     if p.exists() {
                         match fs::canonicalize(p) {
                             Ok(p) => Some(Ok(p)),
@@ -89,6 +114,7 @@ impl Cluster {
                             ))),
                         }
                     } else {
+                        warn!("Tried to analyze the following inexistent path {:?}", p);
                         None
                     }
                 }
@@ -96,9 +122,10 @@ impl Cluster {
                     "Fail to expand path with env variables. Error: {:?}",
                     e
                 ))),
-            })
-            .collect::<Result<Vec<PathBuf>>>()?;
-        let folded_paths = paths
+            }
+        })
+        .collect::<Result<Vec<PathBuf>>>()?;
+        let folded_paths = cluster_paths
             .iter()
             .filter_map(|path| match self.recursive {
                 Some(true) => match walkdir::WalkDir::new(path)
@@ -158,6 +185,7 @@ mod tests {
     use anyhow::anyhow;
     use assert_fs::prelude::*;
     use assert_fs::{fixture::FileWriteStr, NamedTempFile, TempDir};
+    use tracing::Value;
     const XML_EXAMPLE: &str = r#"<?xml version="1.0" encoding="ISO-8859-1"?>
 <system xmlns="http://www.eiffel.com/developers/xml/configuration-1-16-0"
 	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -279,30 +307,41 @@ mod tests {
     }
     #[test]
     fn all_clusters() -> anyhow::Result<()> {
-        std::env::set_var("AP", std::env::temp_dir());
+        let ap_val = std::env::temp_dir();
+        std::env::set_var("AP", &ap_val);
         let system: System = serde_xml_rs::from_str(XML_EXAMPLE_WITH_LIBRARY)
             .expect("Parsable {XML_EXAMPLE_LIBRARY}");
-        match system.target.library.clone() {
-            Some(lib) => {
-                for loc in lib.iter() {
-                    let file = NamedTempFile::new(
-                        shellexpand::env(loc.location.as_str())
-                            .expect("Expand library location into valid path")
-                            .as_ref(),
-                    )
-                    .context("Create named temp file")?;
-                    file.write_str(XML_LIBRARY_CONFIG)
-                        .expect("Write to temp file");
-                }
-            }
-            None => panic!("Parsable library"),
-        }
+        let lib = system
+            .target
+            .library
+            .clone()
+            .ok_or(anyhow!("Fail to parse libraries"))?
+            .first()
+            .ok_or(anyhow!("No library parsed"))?
+            .clone();
+
+        let lib_path = lib.location.clone();
+
+        let file = NamedTempFile::new(
+            shellexpand::env(lib_path.as_str())
+                .context("Expand library location into valid path")?
+                .as_ref(),
+        )
+        .context("Create named temp file")?;
+        file.write_str(XML_LIBRARY_CONFIG)
+            .context("Write to temp file")?;
+
+        let library_path = ap_val
+            .join("./lib/")
+            .to_str()
+            .context("Generated value for env variable AP cannot be converted to string")?
+            .to_owned();
         assert!(system
             .clone()
             .clusters()
             .context("All clusters location")?
             .contains(&Cluster {
-                location: "./lib/".to_string(),
+                location: library_path,
                 name: "lib".to_string(),
                 recursive: Some(true),
                 cluster: None
