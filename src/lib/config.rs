@@ -103,8 +103,12 @@ impl Cluster {
             };
             match shellexpand::env(unexpanded_path) {
                 Ok(path_as_string) => {
-                    let p =
-                        PathBuf::from(path_as_string.replace(r#"\"#, r#"/"#).replace(r#"$|"#, ""));
+                    let p = PathBuf::from(
+                        path_as_string
+                            .replace(r#"/"#, std::path::MAIN_SEPARATOR_STR)
+                            .replace(r#"\"#, std::path::MAIN_SEPARATOR_STR)
+                            .replace(r#"$|"#, ""),
+                    );
                     if p.exists() {
                         match fs::canonicalize(p) {
                             Ok(p) => Some(Ok(p)),
