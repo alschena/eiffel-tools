@@ -1,13 +1,16 @@
 use super::common::{HandleNotification, HandleRequest, ServerState};
 use crate::lib::config;
+use crate::lib::processed_file::ProcessedFile;
 use async_lsp::lsp_types::{
     notification, request, HoverProviderCapability, InitializeResult, OneOf, ServerCapabilities,
 };
 use async_lsp::{ResponseError, Result};
+use rayon::prelude::*;
 use std::env;
 use std::fs;
 use std::future::Future;
 use std::ops::ControlFlow;
+use tracing::info;
 impl HandleRequest for request::Initialize {
     fn handle_request(
         _st: ServerState,
@@ -58,11 +61,23 @@ impl HandleNotification for notification::Initialized {
             let eiffel_files = system
                 .eiffel_files()
                 .expect("Fails to extract eiffel files from system");
-            for file in eiffel_files {
-                write_workspace
-                    .add_file(&file)
-                    .expect(format!("Fails to add file: {:?} to workspace", &file).as_str())
-            }
+            let files = eiffel_files
+                .par_iter()
+                .filter_map(|filepath| {
+                    let mut parser = tree_sitter::Parser::new();
+                    parser
+                        .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+                        .expect("Error loading Eiffel grammar");
+                    match ProcessedFile::new(&mut parser, filepath.to_owned()) {
+                        Ok(f) => Some(f),
+                        Err(_) => {
+                            info!("fails to parse: {:?}", filepath);
+                            None
+                        }
+                    }
+                })
+                .collect();
+            write_workspace.set_files(files)
         }
         ControlFlow::Continue(())
     }

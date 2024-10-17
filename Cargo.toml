@@ -16,6 +16,8 @@ async-lsp = { version = "0.2.*", features = ["client-monitor", "omni-trait", "st
 streaming-iterator = { version = "0.1.9" }
 # Asyncronous runtime (framework for lsp is built upon this)
 tokio = { version = "1.27", features = ["full"] }
+# Parallelism
+rayon = "1.10"
 # Service-based framework (framework for lsp is built upon this)
 tower = "0.5.*"
 tracing-subscriber = "0.3.*"
