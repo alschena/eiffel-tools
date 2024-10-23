@@ -1,14 +1,10 @@
 use super::common::{HandleRequest, ServerState};
 use crate::lib::code_entities::prelude::*;
-use async_lsp::lsp_types::{
-    self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand, CodeActionResponse,
-    Command, SymbolInformation,
-};
+use async_lsp::lsp_types::{self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand};
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::collections::HashMap;
 use std::future::Future;
-use std::ops::Deref;
 mod transformer;
 
 impl HandleRequest for request::CodeActionRequest {
@@ -57,10 +53,10 @@ impl HandleRequest for request::CodeActionRequest {
                                             false => {
                                                 format!(
                                                     "{}",
-                                                    ContractBlock::<Precondition> {
+                                                    contract::Block::<contract::Precondition> {
                                                         item: Some(pre),
                                                         range: range,
-                                                        keyword: ContractKeyword::Require,
+                                                        keyword: contract::Keyword::Require,
                                                     }
                                                 )
                                             }

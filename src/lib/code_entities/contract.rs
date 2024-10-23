@@ -8,22 +8,22 @@ use serde::Deserialize;
 use serde_xml_rs::debug_expect;
 use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
-trait ContractType {
+trait Type {
     const TREE_NODE_KIND: &str;
-    const DEFAULT_KEYWORD: ContractKeyword;
+    const DEFAULT_KEYWORD: Keyword;
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 /// Wraps an optional contract clause adding whereabouts informations.
 /// If the `item` is None, the range start and end coincide where the contract clause would be added.
-pub struct ContractBlock<T> {
+pub struct Block<T> {
     pub item: Option<T>,
     pub range: Range,
-    pub keyword: ContractKeyword,
+    pub keyword: Keyword,
 }
-impl<T: Indent> Indent for ContractBlock<T> {
+impl<T: Indent> Indent for Block<T> {
     const INDENTATION_LEVEL: u32 = T::INDENTATION_LEVEL - 1;
 }
-impl<T: Display + Indent> Display for ContractBlock<T> {
+impl<T: Display + Indent> Display for Block<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -38,26 +38,26 @@ impl<T: Display + Indent> Display for ContractBlock<T> {
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum ContractKeyword {
+pub enum Keyword {
     Require,
     RequireThen,
     Ensure,
     EnsureElse,
     Invariant,
 }
-impl Display for ContractKeyword {
+impl Display for Keyword {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let content = match &self {
-            ContractKeyword::Require => "require",
-            ContractKeyword::RequireThen => "require then",
-            ContractKeyword::Ensure => "ensure",
-            ContractKeyword::EnsureElse => "ensure else",
-            ContractKeyword::Invariant => "invariant",
+            Keyword::Require => "require",
+            Keyword::RequireThen => "require then",
+            Keyword::Ensure => "ensure",
+            Keyword::EnsureElse => "ensure else",
+            Keyword::Invariant => "invariant",
         };
         write!(f, "{}", content)
     }
 }
-impl<T> ContractBlock<T> {
+impl<T> Block<T> {
     pub fn item(&self) -> &Option<T> {
         &self.item
     }
@@ -66,11 +66,11 @@ impl<T> ContractBlock<T> {
     }
 }
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
-pub struct ContractClause {
+pub struct Clause {
     pub predicate: Predicate,
     pub tag: Tag,
 }
-impl Parse for ContractClause {
+impl Parse for Clause {
     type Error = anyhow::Error;
     fn parse(assertion_clause: &Node, src: &str) -> anyhow::Result<Self> {
         debug_assert_eq!(assertion_clause.kind(), "assertion_clause");
@@ -102,14 +102,14 @@ impl Parse for ContractClause {
         }
     }
 }
-impl Display for ContractClause {
+impl Display for Clause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}\n", self.tag, self.predicate)
     }
 }
-impl ContractClause {
-    pub fn new(tag: Tag, predicate: Predicate) -> ContractClause {
-        ContractClause { tag, predicate }
+impl Clause {
+    pub fn new(tag: Tag, predicate: Predicate) -> Clause {
+        Clause { tag, predicate }
     }
 }
 #[derive(Deserialize, Clone, ToResponseSchema, Debug, PartialEq, Eq)]
@@ -142,10 +142,10 @@ impl Predicate {
 }
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
 pub struct Precondition {
-    pub precondition: Vec<ContractClause>,
+    pub precondition: Vec<Clause>,
 }
-impl From<Vec<ContractClause>> for Precondition {
-    fn from(value: Vec<ContractClause>) -> Self {
+impl From<Vec<Clause>> for Precondition {
+    fn from(value: Vec<Clause>) -> Self {
         Self {
             precondition: value,
         }
@@ -154,13 +154,13 @@ impl From<Vec<ContractClause>> for Precondition {
 impl Indent for Precondition {
     const INDENTATION_LEVEL: u32 = 3;
 }
-impl ContractType for Precondition {
+impl Type for Precondition {
     const TREE_NODE_KIND: &str = "precondition";
-    const DEFAULT_KEYWORD: ContractKeyword = ContractKeyword::Require;
+    const DEFAULT_KEYWORD: Keyword = Keyword::Require;
 }
-impl<T: ContractType + From<Vec<ContractClause>>> Parse for ContractBlock<T> {
+impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
     type Error = anyhow::Error;
-    fn parse(attribute_or_routine: &Node, src: &str) -> Result<ContractBlock<T>, anyhow::Error> {
+    fn parse(attribute_or_routine: &Node, src: &str) -> Result<Block<T>, anyhow::Error> {
         debug_assert!(attribute_or_routine.kind() == "attribute_or_routine");
 
         let mut binding = QueryCursor::new();
@@ -189,34 +189,34 @@ impl<T: ContractType + From<Vec<ContractClause>>> Parse for ContractBlock<T> {
         let mut assertion_clause_matches =
             binding.matches(&query, attribute_or_routine.clone(), src.as_bytes());
 
-        let mut clauses: Vec<ContractClause> = Vec::new();
+        let mut clauses: Vec<Clause> = Vec::new();
         while let Some(mat) = assertion_clause_matches.next() {
             for cap in mat.captures {
-                clauses.push(ContractClause::parse(&cap.node, src)?)
+                clauses.push(Clause::parse(&cap.node, src)?)
             }
         }
 
         Ok(Self {
             item: Some(clauses.into()),
             range: node.range().into(),
-            keyword: ContractKeyword::Require,
+            keyword: Keyword::Require,
         })
     }
 }
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
 pub struct Postcondition {
-    pub postcondition: Vec<ContractClause>,
+    pub postcondition: Vec<Clause>,
 }
-impl From<Vec<ContractClause>> for Postcondition {
-    fn from(value: Vec<ContractClause>) -> Self {
+impl From<Vec<Clause>> for Postcondition {
+    fn from(value: Vec<Clause>) -> Self {
         Self {
             postcondition: value,
         }
     }
 }
-impl ContractType for Postcondition {
+impl Type for Postcondition {
     const TREE_NODE_KIND: &str = "postcondition";
-    const DEFAULT_KEYWORD: ContractKeyword = ContractKeyword::Ensure;
+    const DEFAULT_KEYWORD: Keyword = Keyword::Ensure;
 }
 impl Indent for Postcondition {
     const INDENTATION_LEVEL: u32 = 3;
@@ -273,10 +273,10 @@ impl Described for Postcondition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ContractClause;
+    use Clause;
 
     #[test]
-    fn extract_contract_clause() {
+    fn extract_clause() {
         let src = r#"
 class A feature
   x
@@ -305,7 +305,7 @@ end"#;
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
 
         let node = captures.next().unwrap().0.captures[0].node;
-        let clause = ContractClause::parse(&node, &src).expect("Parse feature");
+        let clause = Clause::parse(&node, &src).expect("Parse feature");
         assert_eq!(clause.tag, Tag::from(String::new()));
         assert_eq!(clause.predicate, Predicate::new("True".to_string()));
     }
@@ -336,8 +336,8 @@ end"#;
 
         let node = captures.next().unwrap().0.captures[0].node;
 
-        let precondition = <ContractBlock<Precondition>>::parse(&node, &src)
-            .expect("fails to parse precondition.");
+        let precondition =
+            <Block<Precondition>>::parse(&node, &src).expect("fails to parse precondition.");
         let predicate = Predicate::new("True".to_string());
         let tag = Tag { tag: String::new() };
         let clause = precondition
