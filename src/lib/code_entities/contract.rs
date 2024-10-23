@@ -11,6 +11,7 @@ use streaming_iterator::StreamingIterator;
 trait Type {
     const TREE_NODE_KIND: &str;
     const DEFAULT_KEYWORD: Keyword;
+    const POSITIONED: Positioned;
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 /// Wraps an optional contract clause adding whereabouts informations.
@@ -44,6 +45,11 @@ pub enum Keyword {
     Ensure,
     EnsureElse,
     Invariant,
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Positioned {
+    Prefix,
+    Postfix,
 }
 impl Display for Keyword {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -157,6 +163,7 @@ impl Indent for Precondition {
 impl Type for Precondition {
     const TREE_NODE_KIND: &str = "precondition";
     const DEFAULT_KEYWORD: Keyword = Keyword::Require;
+    const POSITIONED: Positioned = Positioned::Prefix;
 }
 impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
     type Error = anyhow::Error;
@@ -172,8 +179,10 @@ impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
         let node = match precondition_cap {
             Some(x) => x.0.captures[0].node,
             None => {
-                let point = &Point::from(attribute_or_routine.range().start_point);
-
+                let point = match T::POSITIONED {
+                    Positioned::Prefix => &Point::from(attribute_or_routine.range().start_point),
+                    Positioned::Postfix => &Point::from(attribute_or_routine.range().end_point),
+                };
                 return Ok(Self {
                     item: None,
                     range: Range {
@@ -199,7 +208,7 @@ impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
         Ok(Self {
             item: Some(clauses.into()),
             range: node.range().into(),
-            keyword: Keyword::Require,
+            keyword: T::DEFAULT_KEYWORD,
         })
     }
 }
@@ -217,6 +226,7 @@ impl From<Vec<Clause>> for Postcondition {
 impl Type for Postcondition {
     const TREE_NODE_KIND: &str = "postcondition";
     const DEFAULT_KEYWORD: Keyword = Keyword::Ensure;
+    const POSITIONED: Positioned = Positioned::Postfix;
 }
 impl Indent for Postcondition {
     const INDENTATION_LEVEL: u32 = 3;
