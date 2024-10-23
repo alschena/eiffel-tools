@@ -1,4 +1,5 @@
 use super::common::{HandleRequest, ServerState};
+use crate::lib::code_entities::prelude::*;
 use async_lsp::lsp_types::{
     self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand, CodeActionResponse,
     Command, SymbolInformation,

@@ -1,10 +1,10 @@
 use super::class::Class;
-use super::*;
+use super::contract::PreconditionDecorated;
+use super::prelude::*;
 use crate::lib::tree_sitter::{self, ExtractedFrom, Node};
 use ::tree_sitter::{Query, QueryCursor};
 use anyhow::anyhow;
 use async_lsp::lsp_types;
-use contract::PreconditionDecorated;
 use streaming_iterator::StreamingIterator;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum FeatureVisibility {

@@ -1,6 +1,5 @@
-use super::feature::Feature;
-use super::shared::*;
 use crate::lib::tree_sitter::{self, ExtractedFrom, Node};
+use super::prelude::*;
 use ::tree_sitter::{Parser, QueryCursor};
 use anyhow::anyhow;
 use async_lsp::lsp_types;

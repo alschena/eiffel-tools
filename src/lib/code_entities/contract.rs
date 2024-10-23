@@ -1,4 +1,4 @@
-use super::Point;
+use super::prelude::*;
 use crate::lib::tree_sitter::{self, ExtractedFrom, WidthFirstTraversal};
 use ::tree_sitter::{Node, Query, QueryCursor, QueryMatch};
 use anyhow::{anyhow, Context};

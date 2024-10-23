@@ -1,7 +1,6 @@
-use super::code_entities::Class;
-use super::code_entities::Feature;
-use super::code_entities::Range;
-use super::tree_sitter::ExtractedFrom;
+use super::code_entities::prelude::*;
+use super::tree_sitter::{ExtractedFrom, WidthFirstTraversal};
+use anyhow::anyhow;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use tree_sitter::{Parser, Tree};

@@ -1,4 +1,4 @@
-use crate::lib::code_entities::{self, Precondition};
+use crate::lib::code_entities::prelude as code_entities;
 use gemini;
 
 pub struct LLM(gemini::model::Config);
