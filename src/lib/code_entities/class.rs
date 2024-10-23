@@ -120,6 +120,9 @@ impl Class {
         self.path = Some(Location { path })
     }
 }
+impl Indent for Class {
+    const INDENTATION_LEVEL: u32 = 1;
+}
 impl TryFrom<&Class> for lsp_types::Location {
     type Error = anyhow::Error;
 

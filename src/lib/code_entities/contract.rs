@@ -16,6 +16,9 @@ pub struct Contract<T> {
     pub range: Range,
     pub keyword: ContractKeyword,
 }
+impl<T: Indent> Indent for Contract<T> {
+    const INDENTATION_LEVEL: u32 = T::INDENTATION_LEVEL - 1;
+}
 impl<T: Display + Indent> Display for Contract<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -137,6 +140,8 @@ impl Predicate {
 pub struct Precondition {
     pub precondition: Vec<ContractClause>,
 }
+impl Indent for Precondition {
+    const INDENTATION_LEVEL: u32 = 3;
 }
 impl Parse for Contract<Precondition> {
     type Error = anyhow::Error;
@@ -189,6 +194,9 @@ impl Parse for Contract<Precondition> {
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
 pub struct Postcondition {
     pub postcondition: Vec<ContractClause>,
+}
+impl Indent for Postcondition {
+    const INDENTATION_LEVEL: u32 = 3;
 }
 impl Display for Precondition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
