@@ -103,7 +103,17 @@ impl Parse for Feature {
             binding.captures(&query, node.clone(), src.as_bytes());
         let aor = attribute_or_routine_captures.next();
         let preconditions = match aor {
-            Some(x) => Some(ContractBlock::parse(&x.0.captures[0].node, src)?),
+            Some(x) => Some(ContractBlock::<Precondition>::parse(
+                &x.0.captures[0].node,
+                src,
+            )?),
+            None => None,
+        };
+        let postconditions = match aor {
+            Some(x) => Some(ContractBlock::<Postcondition>::parse(
+                &x.0.captures[0].node,
+                src,
+            )?),
             None => None,
         };
 
@@ -112,7 +122,7 @@ impl Parse for Feature {
             visibility: FeatureVisibility::Private,
             range: node.range().into(),
             preconditions,
-            postconditions: None,
+            postconditions,
         })
     }
 }

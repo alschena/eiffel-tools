@@ -8,6 +8,10 @@ use serde::Deserialize;
 use serde_xml_rs::debug_expect;
 use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
+trait ContractType {
+    const TREE_NODE_KIND: &str;
+    const DEFAULT_KEYWORD: ContractKeyword;
+}
 #[derive(Debug, PartialEq, Eq, Clone)]
 /// Wraps an optional contract clause adding whereabouts informations.
 /// If the `item` is None, the range start and end coincide where the contract clause would be added.
@@ -140,20 +144,28 @@ impl Predicate {
 pub struct Precondition {
     pub precondition: Vec<ContractClause>,
 }
+impl From<Vec<ContractClause>> for Precondition {
+    fn from(value: Vec<ContractClause>) -> Self {
+        Self {
+            precondition: value,
+        }
+    }
+}
 impl Indent for Precondition {
     const INDENTATION_LEVEL: u32 = 3;
 }
-impl Parse for ContractBlock<Precondition> {
+impl ContractType for Precondition {
+    const TREE_NODE_KIND: &str = "precondition";
+    const DEFAULT_KEYWORD: ContractKeyword = ContractKeyword::Require;
+}
+impl<T: ContractType + From<Vec<ContractClause>>> Parse for ContractBlock<T> {
     type Error = anyhow::Error;
-    fn parse(
-        attribute_or_routine: &Node,
-        src: &str,
-    ) -> Result<ContractBlock<Precondition>, anyhow::Error> {
+    fn parse(attribute_or_routine: &Node, src: &str) -> Result<ContractBlock<T>, anyhow::Error> {
         debug_assert!(attribute_or_routine.kind() == "attribute_or_routine");
 
         let mut binding = QueryCursor::new();
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
-        let query = Query::new(lang, "(precondition) @x").unwrap();
+        let query = Query::new(lang, format!("({}) @x", T::TREE_NODE_KIND).as_str()).unwrap();
         let mut precondition_captures =
             binding.captures(&query, attribute_or_routine.clone(), src.as_bytes());
         let precondition_cap = precondition_captures.next();
@@ -168,7 +180,7 @@ impl Parse for ContractBlock<Precondition> {
                         start: point.clone(),
                         end: point.clone(),
                     },
-                    keyword: ContractKeyword::Require,
+                    keyword: T::DEFAULT_KEYWORD,
                 });
             }
         };
@@ -177,15 +189,15 @@ impl Parse for ContractBlock<Precondition> {
         let mut assertion_clause_matches =
             binding.matches(&query, attribute_or_routine.clone(), src.as_bytes());
 
-        let mut precondition: Vec<ContractClause> = Vec::new();
+        let mut clauses: Vec<ContractClause> = Vec::new();
         while let Some(mat) = assertion_clause_matches.next() {
             for cap in mat.captures {
-                precondition.push(ContractClause::parse(&cap.node, src)?)
+                clauses.push(ContractClause::parse(&cap.node, src)?)
             }
         }
 
         Ok(Self {
-            item: Some(Precondition { precondition }),
+            item: Some(clauses.into()),
             range: node.range().into(),
             keyword: ContractKeyword::Require,
         })
@@ -194,6 +206,17 @@ impl Parse for ContractBlock<Precondition> {
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
 pub struct Postcondition {
     pub postcondition: Vec<ContractClause>,
+}
+impl From<Vec<ContractClause>> for Postcondition {
+    fn from(value: Vec<ContractClause>) -> Self {
+        Self {
+            postcondition: value,
+        }
+    }
+}
+impl ContractType for Postcondition {
+    const TREE_NODE_KIND: &str = "postcondition";
+    const DEFAULT_KEYWORD: ContractKeyword = ContractKeyword::Ensure;
 }
 impl Indent for Postcondition {
     const INDENTATION_LEVEL: u32 = 3;
