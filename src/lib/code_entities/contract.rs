@@ -350,4 +350,45 @@ end"#;
         assert_eq!(clause.predicate, predicate);
         assert_eq!(clause.tag, tag);
     }
+    #[test]
+    fn extract_postcondition() {
+        let src = r#"
+class A feature
+  x
+    do
+    ensure then
+      True
+    end
+end"#;
+        let mut parser = ::tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+        let tree = parser.parse(src, None).unwrap();
+
+        let query = ::tree_sitter::Query::new(
+            &tree_sitter_eiffel::LANGUAGE.into(),
+            "(attribute_or_routine) @x",
+        )
+        .unwrap();
+
+        let mut binding = QueryCursor::new();
+        let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
+
+        let node = captures.next().unwrap().0.captures[0].node;
+
+        let postcondition =
+            <Block<Postcondition>>::parse(&node, &src).expect("fails to parse postcondition.");
+        let predicate = Predicate::new("True".to_string());
+        let tag = Tag { tag: String::new() };
+        let clause = postcondition
+            .item
+            .clone()
+            .expect("fails to find non-empty postcondition")
+            .postcondition
+            .pop()
+            .expect("Parse clause");
+        assert_eq!(clause.predicate, predicate);
+        assert_eq!(clause.tag, tag);
+    }
 }
