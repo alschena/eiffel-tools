@@ -100,7 +100,7 @@ impl Parse for ContractClause {
 }
 impl Display for ContractClause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.tag, self.predicate)
+        write!(f, "{}: {}\n", self.tag, self.predicate)
     }
 }
 impl ContractClause {
@@ -205,7 +205,11 @@ impl Display for Precondition {
             "{}",
             self.precondition
                 .iter()
-                .fold(String::new(), |acc, elt| { format!("{acc}\n{elt}") })
+                .fold(String::from('\n'), |acc, elt| {
+                    format!("{acc}{}{elt}", Self::indentation_string())
+                        .trim_end()
+                        .to_owned()
+                })
         )
     }
 }

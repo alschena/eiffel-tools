@@ -51,6 +51,36 @@ impl Feature {
             end: point.clone(),
         })
     }
+    pub fn range_start_preconditions(&self) -> Option<Range> {
+        let point: &Point = match &self.preconditions {
+            Some(pre) => &pre.range().start,
+            None => return None,
+        };
+        Some(Range {
+            start: point.clone(),
+            end: point.clone(),
+        })
+    }
+    pub fn range_end_postconditions(&self) -> Option<Range> {
+        let point: &Point = match &self.postconditions {
+            Some(post) => &post.range().end,
+            None => return None,
+        };
+        Some(Range {
+            start: point.clone(),
+            end: point.clone(),
+        })
+    }
+    pub fn range_start_postconditions(&self) -> Option<Range> {
+        let point: &Point = match &self.postconditions {
+            Some(post) => &post.range().start,
+            None => return None,
+        };
+        Some(Range {
+            start: point.clone(),
+            end: point.clone(),
+        })
+    }
 }
 impl Indent for Feature {
     const INDENTATION_LEVEL: u32 = 1;

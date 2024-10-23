@@ -20,6 +20,9 @@ impl Workspace {
             parser,
         }
     }
+    pub(crate) fn parser(&self) -> &Parser {
+        &self.parser
+    }
     pub(crate) fn add_file(&mut self, filepath: &Path) -> Result<()> {
         let file = ProcessedFile::new(&mut self.parser, filepath.to_owned())?;
         self.files.push(file);

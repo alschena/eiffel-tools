@@ -16,7 +16,7 @@ impl LLM {
             code_entities::Precondition {
                 precondition: vec![code_entities::ContractClause {
                     tag: code_entities::Tag {
-                        tag: "Test".to_string(),
+                        tag: "test_precondition".to_string(),
                     },
                     predicate: code_entities::Predicate {
                         predicate: "True".to_string(),
@@ -26,7 +26,7 @@ impl LLM {
             code_entities::Postcondition {
                 postcondition: vec![code_entities::ContractClause {
                     tag: code_entities::Tag {
-                        tag: "Test".to_string(),
+                        tag: "test_postcondition".to_string(),
                     },
                     predicate: code_entities::Predicate {
                         predicate: "True".to_string(),
