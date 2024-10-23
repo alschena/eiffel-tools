@@ -1,7 +1,7 @@
 use super::class::Class;
 use super::contract::ContractBlock;
 use super::prelude::*;
-use crate::lib::tree_sitter::{self, Node, Parse};
+use crate::lib::tree_sitter_extension::{self, Node, Parse};
 use ::tree_sitter::{Query, QueryCursor};
 use anyhow::anyhow;
 use async_lsp::lsp_types;
@@ -136,7 +136,7 @@ impl TryFrom<&Feature> for lsp_types::DocumentSymbol {
 }
 #[cfg(test)]
 mod tests {
-    use crate::lib::tree_sitter::WidthFirstTraversal;
+    use crate::lib::tree_sitter_extension::WidthFirstTraversal;
 
     use super::*;
 

@@ -1,5 +1,5 @@
 use super::code_entities::prelude::*;
-use super::tree_sitter::{Parse, WidthFirstTraversal};
+use super::tree_sitter_extension::{Parse, WidthFirstTraversal};
 use anyhow::anyhow;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -39,5 +39,12 @@ impl ProcessedFile {
     }
     pub(crate) fn class(&self) -> &Class {
         &self.class
+    }
+    pub(crate) fn code_entity_at_point_in_src(
+        &self,
+        point: Point,
+        src: &[u8],
+    ) -> Result<Box<dyn CodeEntity>> {
+        unimplemented!();
     }
 }

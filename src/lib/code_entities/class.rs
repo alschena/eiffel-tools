@@ -1,5 +1,5 @@
 use super::prelude::*;
-use crate::lib::tree_sitter::{self, Node, Parse};
+use crate::lib::tree_sitter_extension::{self, Node, Parse};
 use ::tree_sitter::{Parser, QueryCursor};
 use anyhow::anyhow;
 use async_lsp::lsp_types;

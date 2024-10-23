@@ -1,5 +1,5 @@
 use super::prelude::*;
-use crate::lib::tree_sitter::Parse;
+use crate::lib::tree_sitter_extension::Parse;
 use ::tree_sitter::{Node, Query, QueryCursor, QueryMatch};
 use anyhow::{anyhow, Context};
 use gemini::request::config::schema::{Described, ResponseSchema, ToResponseSchema};
