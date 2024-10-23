@@ -11,15 +11,15 @@ use streaming_iterator::StreamingIterator;
 #[derive(Debug, PartialEq, Eq, Clone)]
 /// Wraps an optional contract clause adding whereabouts informations.
 /// If the `item` is None, the range start and end coincide where the contract clause would be added.
-pub struct Contract<T> {
+pub struct ContractBlock<T> {
     pub item: Option<T>,
     pub range: Range,
     pub keyword: ContractKeyword,
 }
-impl<T: Indent> Indent for Contract<T> {
+impl<T: Indent> Indent for ContractBlock<T> {
     const INDENTATION_LEVEL: u32 = T::INDENTATION_LEVEL - 1;
 }
-impl<T: Display + Indent> Display for Contract<T> {
+impl<T: Display + Indent> Display for ContractBlock<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -53,7 +53,7 @@ impl Display for ContractKeyword {
         write!(f, "{}", content)
     }
 }
-impl<T> Contract<T> {
+impl<T> ContractBlock<T> {
     pub fn item(&self) -> &Option<T> {
         &self.item
     }
@@ -143,12 +143,12 @@ pub struct Precondition {
 impl Indent for Precondition {
     const INDENTATION_LEVEL: u32 = 3;
 }
-impl Parse for Contract<Precondition> {
+impl Parse for ContractBlock<Precondition> {
     type Error = anyhow::Error;
     fn parse(
         attribute_or_routine: &Node,
         src: &str,
-    ) -> Result<Contract<Precondition>, anyhow::Error> {
+    ) -> Result<ContractBlock<Precondition>, anyhow::Error> {
         debug_assert!(attribute_or_routine.kind() == "attribute_or_routine");
 
         let mut binding = QueryCursor::new();
@@ -313,8 +313,8 @@ end"#;
 
         let node = captures.next().unwrap().0.captures[0].node;
 
-        let precondition =
-            <Contract<Precondition>>::parse(&node, &src).expect("fails to parse precondition.");
+        let precondition = <ContractBlock<Precondition>>::parse(&node, &src)
+            .expect("fails to parse precondition.");
         let predicate = Predicate::new("True".to_string());
         let tag = Tag { tag: String::new() };
         let clause = precondition

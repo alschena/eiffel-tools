@@ -1,5 +1,5 @@
 use super::class::Class;
-use super::contract::Contract;
+use super::contract::ContractBlock;
 use super::prelude::*;
 use crate::lib::tree_sitter::{self, Node, Parse};
 use ::tree_sitter::{Query, QueryCursor};
@@ -19,8 +19,8 @@ pub struct Feature {
     pub(super) visibility: FeatureVisibility,
     pub(super) range: Range,
     /// Is None only when a precondition cannot be added (for attributes without an attribute clause).
-    pub(super) preconditions: Option<Contract<Precondition>>,
-    pub(super) postconditions: Option<Contract<Postcondition>>,
+    pub(super) preconditions: Option<ContractBlock<Precondition>>,
+    pub(super) postconditions: Option<ContractBlock<Postcondition>>,
 }
 impl Feature {
     pub fn name(&self) -> &str {
@@ -29,12 +29,12 @@ impl Feature {
     pub fn range(&self) -> &Range {
         &self.range
     }
-    pub fn preconditions(&self) -> &Option<Contract<Precondition>> {
+    pub fn preconditions(&self) -> &Option<ContractBlock<Precondition>> {
         &self.preconditions
     }
     pub fn is_precondition_block_present(&self) -> bool {
         match &self.preconditions {
-            Some(Contract { item, .. }) => match item {
+            Some(ContractBlock { item, .. }) => match item {
                 Some(_) => true,
                 None => false,
             },
@@ -103,7 +103,7 @@ impl Parse for Feature {
             binding.captures(&query, node.clone(), src.as_bytes());
         let aor = attribute_or_routine_captures.next();
         let preconditions = match aor {
-            Some(x) => Some(Contract::parse(&x.0.captures[0].node, src)?),
+            Some(x) => Some(ContractBlock::parse(&x.0.captures[0].node, src)?),
             None => None,
         };
 

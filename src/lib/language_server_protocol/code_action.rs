@@ -57,7 +57,7 @@ impl HandleRequest for request::CodeActionRequest {
                                             false => {
                                                 format!(
                                                     "{}",
-                                                    Contract::<Precondition> {
+                                                    ContractBlock::<Precondition> {
                                                         item: Some(pre),
                                                         range: range,
                                                         keyword: ContractKeyword::Require,
