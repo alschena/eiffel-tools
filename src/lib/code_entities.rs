@@ -9,7 +9,7 @@ pub(crate) mod prelude {
     pub(crate) use super::call::UnqualifiedCall;
     pub(crate) use super::class::Class;
     pub(crate) use super::contract::{
-        ContractClause, Postcondition, Precondition, PreconditionDecorated, Predicate, Tag,
+        Contract, ContractClause, ContractKeyword, Postcondition, Precondition, Predicate, Tag,
     };
     pub(crate) use super::feature::Feature;
     pub(crate) use super::shared::{FindDefinition, Location, Point, Range};

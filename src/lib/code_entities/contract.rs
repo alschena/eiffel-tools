@@ -1,5 +1,5 @@
 use super::prelude::*;
-use crate::lib::tree_sitter::{self, ExtractedFrom, WidthFirstTraversal};
+use crate::lib::tree_sitter::Parse;
 use ::tree_sitter::{Node, Query, QueryCursor, QueryMatch};
 use anyhow::{anyhow, Context};
 use gemini::request::config::schema::{Described, ResponseSchema, ToResponseSchema};
@@ -8,14 +8,64 @@ use serde::Deserialize;
 use serde_xml_rs::debug_expect;
 use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
+#[derive(Debug, PartialEq, Eq, Clone)]
+/// Wraps an optional contract clause adding whereabouts informations.
+/// If the `item` is None, the range start and end coincide where the contract clause would be added.
+pub struct Contract<T> {
+    pub item: Option<T>,
+    pub range: Range,
+    pub keyword: ContractKeyword,
+}
+impl<T: Display + Indent> Display for Contract<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}\n{}",
+            &self.keyword,
+            match &self.item {
+                Some(c) => format!("{}", c),
+                None => "True".to_owned(),
+            },
+            Self::indentation_string(),
+        )
+    }
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum ContractKeyword {
+    Require,
+    RequireThen,
+    Ensure,
+    EnsureElse,
+    Invariant,
+}
+impl Display for ContractKeyword {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let content = match &self {
+            ContractKeyword::Require => "require",
+            ContractKeyword::RequireThen => "require then",
+            ContractKeyword::Ensure => "ensure",
+            ContractKeyword::EnsureElse => "ensure else",
+            ContractKeyword::Invariant => "invariant",
+        };
+        write!(f, "{}", content)
+    }
+}
+impl<T> Contract<T> {
+    pub fn item(&self) -> &Option<T> {
+        &self.item
+    }
+    pub fn range(&self) -> &Range {
+        &self.range
+    }
+}
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
 pub struct ContractClause {
     pub predicate: Predicate,
     pub tag: Tag,
 }
-impl ExtractedFrom for ContractClause {
+impl Parse for ContractClause {
     type Error = anyhow::Error;
-    fn extract_from(assertion_clause: &Node, src: &str) -> anyhow::Result<Self> {
+    fn parse(assertion_clause: &Node, src: &str) -> anyhow::Result<Self> {
         debug_assert_eq!(assertion_clause.kind(), "assertion_clause");
         debug_assert!(assertion_clause.child_count() > 0);
 
@@ -87,34 +137,13 @@ impl Predicate {
 pub struct Precondition {
     pub precondition: Vec<ContractClause>,
 }
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct PreconditionDecorated {
-    precondition: Precondition,
-    range: super::Range,
 }
-impl std::ops::Deref for PreconditionDecorated {
-    type Target = Precondition;
-
-    fn deref(&self) -> &Self::Target {
-        &self.precondition
-    }
-}
-impl std::ops::DerefMut for PreconditionDecorated {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.precondition
-    }
-}
-impl PreconditionDecorated {
-    pub fn range(&self) -> &super::Range {
-        &self.range
-    }
-}
-impl ExtractedFrom for PreconditionDecorated {
+impl Parse for Contract<Precondition> {
     type Error = anyhow::Error;
-    fn extract_from(
+    fn parse(
         attribute_or_routine: &Node,
         src: &str,
-    ) -> Result<PreconditionDecorated, anyhow::Error> {
+    ) -> Result<Contract<Precondition>, anyhow::Error> {
         debug_assert!(attribute_or_routine.kind() == "attribute_or_routine");
 
         let mut binding = QueryCursor::new();
@@ -126,16 +155,15 @@ impl ExtractedFrom for PreconditionDecorated {
         let node = match precondition_cap {
             Some(x) => x.0.captures[0].node,
             None => {
-                let point = Point::from(attribute_or_routine.range().start_point);
+                let point = &Point::from(attribute_or_routine.range().start_point);
 
                 return Ok(Self {
-                    precondition: Precondition {
-                        precondition: Vec::new(),
-                    },
-                    range: super::Range {
+                    item: None,
+                    range: Range {
                         start: point.clone(),
-                        end: point,
+                        end: point.clone(),
                     },
+                    keyword: ContractKeyword::Require,
                 });
             }
         };
@@ -147,13 +175,14 @@ impl ExtractedFrom for PreconditionDecorated {
         let mut precondition: Vec<ContractClause> = Vec::new();
         while let Some(mat) = assertion_clause_matches.next() {
             for cap in mat.captures {
-                precondition.push(ContractClause::extract_from(&cap.node, src)?)
+                precondition.push(ContractClause::parse(&cap.node, src)?)
             }
         }
 
         Ok(Self {
-            precondition: Precondition { precondition },
+            item: Some(Precondition { precondition }),
             range: node.range().into(),
+            keyword: ContractKeyword::Require,
         })
     }
 }
@@ -209,7 +238,7 @@ impl Described for Postcondition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lib::code_entities::ContractClause;
+    use ContractClause;
 
     #[test]
     fn extract_contract_clause() {
@@ -241,7 +270,7 @@ end"#;
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
 
         let node = captures.next().unwrap().0.captures[0].node;
-        let clause = ContractClause::extract_from(&node, &src).expect("Parse feature");
+        let clause = ContractClause::parse(&node, &src).expect("Parse feature");
         assert_eq!(clause.tag, Tag::from(String::new()));
         assert_eq!(clause.predicate, Predicate::new("True".to_string()));
     }
@@ -273,12 +302,13 @@ end"#;
         let node = captures.next().unwrap().0.captures[0].node;
 
         let precondition =
-            PreconditionDecorated::extract_from(&node, &src).expect("Parse precondition");
+            <Contract<Precondition>>::parse(&node, &src).expect("fails to parse precondition.");
         let predicate = Predicate::new("True".to_string());
         let tag = Tag { tag: String::new() };
         let clause = precondition
-            .precondition
+            .item
             .clone()
+            .expect("fails to find non-empty precondition")
             .precondition
             .pop()
             .expect("Parse clause");

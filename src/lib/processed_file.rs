@@ -1,5 +1,5 @@
 use super::code_entities::prelude::*;
-use super::tree_sitter::{ExtractedFrom, WidthFirstTraversal};
+use super::tree_sitter::{Parse, WidthFirstTraversal};
 use anyhow::anyhow;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -20,7 +20,7 @@ impl ProcessedFile {
             .expect("Source code must be UTF8 encoded");
         let tree = parser.parse(&src, None).unwrap();
         let mut class =
-            Class::extract_from(&tree.root_node(), src.as_str()).context("Parsing of class")?;
+            Class::parse(&tree.root_node(), src.as_str()).context("Parsing of class")?;
         class.add_location(&path);
         Ok(ProcessedFile { tree, path, class })
     }

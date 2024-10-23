@@ -40,9 +40,9 @@ impl<'a, 'b> Iterator for WidthFirstTraversal<'a, 'b> {
         }
     }
 }
-pub trait ExtractedFrom: Sized {
+pub trait Parse: Sized {
     type Error;
-    fn extract_from(node: &Node, src: &str) -> Result<Self, Self::Error>;
+    fn parse(node: &Node, src: &str) -> Result<Self, Self::Error>;
 }
 
 #[cfg(test)]

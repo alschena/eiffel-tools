@@ -104,7 +104,10 @@ impl TryFrom<async_lsp::lsp_types::Position> for Point {
 
     fn try_from(value: async_lsp::lsp_types::Position) -> std::result::Result<Self, Self::Error> {
         let row = value.line.try_into().context("row conversion")?;
-        let column = value.line.try_into().context("column conversion")?;
+        let column = value
+            .character
+            .try_into()
+            .context("fails to convert character number into column")?;
         Ok(Self { row, column })
     }
 }
