@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use async_lsp::lsp_types;
 use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Parser, QueryCursor};
+use tree_sitter::{Parser, Query, QueryCursor};
 // TODO accept only attributes of logical type in the model
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Model(pub Vec<Feature>);
@@ -22,7 +22,7 @@ impl Parse for ModelNames {
         debug_assert!(root.parent().is_none());
 
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
-        let name_query = ::tree_sitter::Query::new(
+        let name_query = Query::new(
             lang,
             "(class_declaration (notes (note_entry (tag) @tag (identifier) @id)) \
                (#eq? @tag \"model\"))",
@@ -183,13 +183,12 @@ impl Parse for Class {
     type Error = anyhow::Error;
     fn parse(root: &Node, src: &str) -> anyhow::Result<Self> {
         debug_assert!(root.parent().is_none());
+        let mut cursor = QueryCursor::new();
         // Extract class name
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
-        let name_query =
-            ::tree_sitter::Query::new(lang, "(class_declaration (class_name) @name)").unwrap();
+        let name_query = Query::new(lang, "(class_declaration (class_name) @name)").unwrap();
 
-        let mut binding = QueryCursor::new();
-        let mut captures = binding.captures(&name_query, root.clone(), src.as_bytes());
+        let mut captures = cursor.captures(&name_query, root.clone(), src.as_bytes());
 
         let name_node = match captures.next() {
             Some(v) => v.0.captures[0].node,
@@ -201,33 +200,26 @@ impl Parse for Class {
         let mut class = Self::from_name_range(name, range);
 
         // Extract ancestors
-        let ancestor_query = ::tree_sitter::Query::new(
-            lang,
-            "(inheritance (parent (class_type (class_name) @ancestor)))",
-        ).map_err(|e| anyhow!("fails to query `(inheritance (parent (class_type (class_name) @ancestor)))` with error: {:?}",e))?;
+        let ancestor_query = Query::new(lang, "(inheritance) @ancestors").map_err(|e| {
+            anyhow!(
+                "fails to query `(inheritance) @ancestors)))` with error: {:?}",
+                e
+            )
+        })?;
 
-        let mut binding = QueryCursor::new();
-        let mut matches = binding.matches(&ancestor_query, root.clone(), src.as_bytes());
+        let mut inheritance_block = cursor.matches(&ancestor_query, root.clone(), src.as_bytes());
 
         let mut ancestors = Vec::new();
-        while let Some(mat) = matches.next() {
+        while let Some(mat) = inheritance_block.next() {
             for cap in mat.captures {
-                let node = &cap.node;
-                ancestors.push(Ancestor {
-                    name: src[node.byte_range()].into(),
-                    select: Vec::new(),
-                    rename: Vec::new(),
-                    redefine: Vec::new(),
-                    undefine: Vec::new(),
-                });
+                ancestors.append(&mut <Vec<Ancestor>>::parse(&cap.node, src)?)
             }
         }
 
         // Extract features
-        let feature_query = ::tree_sitter::Query::new(lang, "(feature_declaration) @dec").unwrap();
+        let feature_query = Query::new(lang, "(feature_declaration) @dec").unwrap();
 
-        binding = QueryCursor::new();
-        let mut feature_cursor = binding.matches(&feature_query, root.clone(), src.as_bytes());
+        let mut feature_cursor = cursor.matches(&feature_query, root.clone(), src.as_bytes());
 
         let mut features: Vec<Feature> = Vec::new();
         while let Some(mat) = feature_cursor.next() {
@@ -280,6 +272,37 @@ pub struct Ancestor {
 impl Ancestor {
     fn name(&self) -> &str {
         &self.name
+    }
+}
+impl Parse for Vec<Ancestor> {
+    type Error = anyhow::Error;
+
+    fn parse(node: &Node, src: &str) -> Result<Self, Self::Error> {
+        debug_assert!(node.kind() == "inheritance");
+        let lang = &tree_sitter_eiffel::LANGUAGE.into();
+
+        let ancestor_query = Query::new(
+            lang,
+            "(parent (class_type (class_name) @ancestor))",
+        ).map_err(|e| anyhow!("fails to query `(parent (class_type (class_name) @ancestor))` with error: {:?}",e))?;
+
+        let mut binding = QueryCursor::new();
+        let mut matches = binding.matches(&ancestor_query, node.clone(), src.as_bytes());
+
+        let mut ancestors = Vec::new();
+        while let Some(mat) = matches.next() {
+            for cap in mat.captures {
+                let node = &cap.node;
+                ancestors.push(Ancestor {
+                    name: src[node.byte_range()].into(),
+                    select: Vec::new(),
+                    rename: Vec::new(),
+                    redefine: Vec::new(),
+                    undefine: Vec::new(),
+                });
+            }
+        }
+        Ok(ancestors)
     }
 }
 #[cfg(test)]
@@ -488,14 +511,14 @@ end
         assert_eq!(
             ancestors
                 .next()
-                .expect("fails to parse first ancestor")
+                .expect("fails to parse third ancestor")
                 .name(),
             "Z".to_string()
         );
         assert_eq!(
             ancestors
                 .next()
-                .expect("fails to parse first ancestor")
+                .expect("fails to parse forth ancestor")
                 .name(),
             "W".to_string()
         );
