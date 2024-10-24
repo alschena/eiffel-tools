@@ -203,6 +203,26 @@ impl Parse for Class {
         let range = name_node.range().into();
         let mut class = Self::from_name_range(name, range);
 
+        // Extract ancestors
+        let ancestor_query = ::tree_sitter::Query::new(
+            lang,
+            "(inheritance (parent (class_type (class_name) @ancestor)))",
+        ).map_err(|e| anyhow!("fails to query `(inheritance (parent (class_type (class_name) @ancestor)))` with error: {:?}",e))?;
+
+        let mut binding = QueryCursor::new();
+        let mut matches = binding.matches(&ancestor_query, root.clone(), src.as_bytes());
+
+        let mut ancestors: Vec<Class> = Vec::new();
+        while let Some(mat) = matches.next() {
+            for cap in mat.captures {
+                let node = &cap.node;
+                ancestors.push(Class::from_name_range(
+                    src[node.byte_range()].into(),
+                    node.range().into(),
+                ))
+            }
+        }
+
         // Extract features
         let feature_query = ::tree_sitter::Query::new(lang, "(feature_declaration) @dec").unwrap();
 
