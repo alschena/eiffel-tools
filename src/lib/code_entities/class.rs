@@ -1,10 +1,10 @@
 use super::prelude::*;
 use crate::lib::tree_sitter_extension::{self, Node, Parse};
-use ::tree_sitter::{Parser, QueryCursor};
 use anyhow::anyhow;
 use async_lsp::lsp_types;
 use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
+use tree_sitter::{Parser, QueryCursor};
 // TODO accept only attributes of logical type in the model
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Model(pub Vec<Feature>);
@@ -64,8 +64,7 @@ pub struct Class {
     path: Option<Location>,
     model: Model,
     features: Vec<Feature>,
-    descendants: Vec<Class>,
-    ancestors: Vec<Class>,
+    ancestors: Vec<Ancestor>,
     range: Range,
 }
 
@@ -82,6 +81,9 @@ impl Class {
     pub fn into_features(self) -> Vec<Feature> {
         self.features
     }
+    pub fn ancestors(&self) -> &Vec<Ancestor> {
+        &self.ancestors
+    }
     pub fn range(&self) -> &Range {
         &self.range
     }
@@ -92,17 +94,12 @@ impl Class {
         }
     }
     pub fn from_name_range(name: String, range: Range) -> Class {
-        let model = Model(Vec::new());
-        let features = Vec::new();
-        let descendants = Vec::new();
-        let ancestors = Vec::new();
         Class {
             name,
             path: None,
-            model,
-            features,
-            descendants,
-            ancestors,
+            model: Model(Vec::new()),
+            features: Vec::new(),
+            ancestors: Vec::new(),
             range,
         }
     }
@@ -212,14 +209,17 @@ impl Parse for Class {
         let mut binding = QueryCursor::new();
         let mut matches = binding.matches(&ancestor_query, root.clone(), src.as_bytes());
 
-        let mut ancestors: Vec<Class> = Vec::new();
+        let mut ancestors = Vec::new();
         while let Some(mat) = matches.next() {
             for cap in mat.captures {
                 let node = &cap.node;
-                ancestors.push(Class::from_name_range(
-                    src[node.byte_range()].into(),
-                    node.range().into(),
-                ))
+                ancestors.push(Ancestor {
+                    name: src[node.byte_range()].into(),
+                    select: Vec::new(),
+                    rename: Vec::new(),
+                    redefine: Vec::new(),
+                    undefine: Vec::new(),
+                });
             }
         }
 
@@ -239,6 +239,7 @@ impl Parse for Class {
         // Extract optional model
         class.model = Model::from_model_names(ModelNames::parse(root, src)?, &features);
         class.features = features;
+        class.ancestors = ancestors;
         Ok(class)
     }
 }
@@ -268,18 +269,31 @@ impl TryFrom<&Class> for lsp_types::WorkspaceSymbol {
         })
     }
 }
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Ancestor {
+    name: String,
+    select: Vec<String>,
+    rename: Vec<(String, String)>,
+    redefine: Vec<String>,
+    undefine: Vec<String>,
+}
+impl Ancestor {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::lib::processed_file;
-    use ::tree_sitter;
     use anyhow::Result;
     use std::fs::File;
     use std::io::prelude::*;
     use std::path::PathBuf;
+    use tree_sitter;
 
     #[test]
-    fn process_base_class() {
+    fn parse_base_class() {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
@@ -304,7 +318,7 @@ mod tests {
     }
 
     #[test]
-    fn process_annotated_class() {
+    fn parse_annotated_class() {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
@@ -327,7 +341,7 @@ end
         assert_eq!(class.name(), "DEMO_CLASS".to_string());
     }
     #[test]
-    fn process_procedure() {
+    fn parse_procedure() {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
@@ -349,7 +363,7 @@ end
     }
 
     #[test]
-    fn process_attribute() {
+    fn parse_attribute() {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
@@ -370,7 +384,7 @@ end
         assert_eq!(features.first().unwrap().name(), "x".to_string());
     }
     #[test]
-    fn process_model_names() {
+    fn parse_model_names() {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
@@ -394,7 +408,7 @@ end
         assert_eq!(model_names.0.first(), Some(&"seq".to_string()));
     }
     #[test]
-    fn process_model() {
+    fn parse_model() {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
@@ -423,6 +437,67 @@ end
         assert_eq!(
             (&model.0.first().expect("Parsed model")).name(),
             "seq".to_string()
+        );
+    }
+    #[test]
+    fn parse_ancestors() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+
+        let src = "
+class A
+inherit {NONE}
+  X Y Z
+
+inherit
+  W
+    undefine a
+    redefine c
+    rename e as f
+    export
+      {ANY}
+        -- Header comment
+        all
+    select g
+    end
+end
+";
+        let tree = parser.parse(src, None).unwrap();
+
+        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
+        let mut ancestors = class.ancestors().iter();
+
+        assert_eq!(class.name(), "A".to_string());
+
+        assert_eq!(
+            ancestors
+                .next()
+                .expect("fails to parse first ancestor")
+                .name(),
+            "X".to_string()
+        );
+        assert_eq!(
+            ancestors
+                .next()
+                .expect("fails to parse second ancestor")
+                .name(),
+            "Y".to_string()
+        );
+        assert_eq!(
+            ancestors
+                .next()
+                .expect("fails to parse first ancestor")
+                .name(),
+            "Z".to_string()
+        );
+        assert_eq!(
+            ancestors
+                .next()
+                .expect("fails to parse first ancestor")
+                .name(),
+            "W".to_string()
         );
     }
     #[test]
