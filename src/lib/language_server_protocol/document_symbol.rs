@@ -1,6 +1,4 @@
 use super::common::{HandleRequest, ServerState};
-use crate::lib::code_entities::Class;
-use crate::lib::processed_file::ProcessedFile;
 use async_lsp::lsp_types::{
     request, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, SymbolKind,
 };

@@ -1,7 +1,6 @@
-use super::code_entities::Class;
-use super::code_entities::Feature;
-use super::code_entities::Range;
-use super::tree_sitter::ExtractedFrom;
+use super::code_entities::prelude::*;
+use super::tree_sitter_extension::{Parse, WidthFirstTraversal};
+use anyhow::anyhow;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use tree_sitter::{Parser, Tree};
@@ -21,7 +20,7 @@ impl ProcessedFile {
             .expect("Source code must be UTF8 encoded");
         let tree = parser.parse(&src, None).unwrap();
         let mut class =
-            Class::extract_from(&tree.root_node(), src.as_str()).context("Parsing of class")?;
+            Class::parse(&tree.root_node(), src.as_str()).context("Parsing of class")?;
         class.add_location(&path);
         Ok(ProcessedFile { tree, path, class })
     }
@@ -40,5 +39,12 @@ impl ProcessedFile {
     }
     pub(crate) fn class(&self) -> &Class {
         &self.class
+    }
+    pub(crate) fn code_entity_at_point_in_src(
+        &self,
+        point: Point,
+        src: &[u8],
+    ) -> Result<Box<dyn CodeEntity>> {
+        unimplemented!();
     }
 }

@@ -1,10 +1,10 @@
 use super::class::Class;
-use super::*;
-use crate::lib::tree_sitter::{self, ExtractedFrom, Node};
+use super::contract::{Block, Postcondition, Precondition};
+use super::prelude::*;
+use crate::lib::tree_sitter_extension::{self, Node, Parse};
 use ::tree_sitter::{Query, QueryCursor};
 use anyhow::anyhow;
 use async_lsp::lsp_types;
-use contract::PreconditionDecorated;
 use streaming_iterator::StreamingIterator;
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum FeatureVisibility {
@@ -18,38 +18,76 @@ pub struct Feature {
     pub(super) name: String,
     pub(super) visibility: FeatureVisibility,
     pub(super) range: Range,
-    pub(super) preconditions: Option<PreconditionDecorated>,
-    pub(super) postconditions: Option<Postcondition>,
+    /// Is None only when a precondition cannot be added (for attributes without an attribute clause).
+    pub(super) preconditions: Option<Block<Precondition>>,
+    pub(super) postconditions: Option<Block<Postcondition>>,
 }
 impl Feature {
-    pub fn from_name_and_range(name: String, range: Range) -> Feature {
-        Feature {
-            name,
-            visibility: FeatureVisibility::Private,
-            range,
-            preconditions: None,
-            postconditions: None,
-        }
-    }
     pub fn name(&self) -> &str {
         &self.name
     }
     pub fn range(&self) -> &Range {
         &self.range
     }
-    pub fn preconditions(&self) -> &Option<PreconditionDecorated> {
+    pub fn preconditions(&self) -> &Option<Block<Precondition>> {
         &self.preconditions
     }
-    pub fn range_end_preconditions(&self) -> &Range {
+    pub fn is_precondition_block_present(&self) -> bool {
         match &self.preconditions {
-            Some(precondition) => precondition.range(),
-            None => todo!(),
+            Some(Block { item, .. }) => match item {
+                Some(_) => true,
+                None => false,
+            },
+            None => false,
         }
     }
+    pub fn range_end_preconditions(&self) -> Option<Range> {
+        let point: &Point = match &self.preconditions {
+            Some(pre) => &pre.range().end,
+            None => return None,
+        };
+        Some(Range {
+            start: point.clone(),
+            end: point.clone(),
+        })
+    }
+    pub fn range_start_preconditions(&self) -> Option<Range> {
+        let point: &Point = match &self.preconditions {
+            Some(pre) => &pre.range().start,
+            None => return None,
+        };
+        Some(Range {
+            start: point.clone(),
+            end: point.clone(),
+        })
+    }
+    pub fn range_end_postconditions(&self) -> Option<Range> {
+        let point: &Point = match &self.postconditions {
+            Some(post) => &post.range().end,
+            None => return None,
+        };
+        Some(Range {
+            start: point.clone(),
+            end: point.clone(),
+        })
+    }
+    pub fn range_start_postconditions(&self) -> Option<Range> {
+        let point: &Point = match &self.postconditions {
+            Some(post) => &post.range().start,
+            None => return None,
+        };
+        Some(Range {
+            start: point.clone(),
+            end: point.clone(),
+        })
+    }
 }
-impl ExtractedFrom for Feature {
+impl Indent for Feature {
+    const INDENTATION_LEVEL: u32 = 1;
+}
+impl Parse for Feature {
     type Error = anyhow::Error;
-    fn extract_from(node: &Node, src: &str) -> anyhow::Result<Self> {
+    fn parse(node: &Node, src: &str) -> anyhow::Result<Self> {
         debug_assert!(node.kind() == "feature_declaration");
         let mut binding = QueryCursor::new();
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
@@ -65,10 +103,11 @@ impl ExtractedFrom for Feature {
             binding.captures(&query, node.clone(), src.as_bytes());
         let aor = attribute_or_routine_captures.next();
         let preconditions = match aor {
-            Some(x) => Some(PreconditionDecorated::extract_from(
-                &x.0.captures[0].node,
-                src,
-            )?),
+            Some(x) => Some(Block::<Precondition>::parse(&x.0.captures[0].node, src)?),
+            None => None,
+        };
+        let postconditions = match aor {
+            Some(x) => Some(Block::<Postcondition>::parse(&x.0.captures[0].node, src)?),
             None => None,
         };
 
@@ -77,19 +116,8 @@ impl ExtractedFrom for Feature {
             visibility: FeatureVisibility::Private,
             range: node.range().into(),
             preconditions,
-            postconditions: None,
+            postconditions,
         })
-    }
-}
-impl TryFrom<lsp_types::DocumentSymbol> for Feature {
-    type Error = anyhow::Error;
-
-    fn try_from(value: lsp_types::DocumentSymbol) -> std::result::Result<Self, Self::Error> {
-        let name = value.name;
-        let kind = value.kind;
-        let range = value.range.try_into()?;
-        debug_assert_ne!(kind, lsp_types::SymbolKind::CLASS);
-        Ok(Feature::from_name_and_range(name, range))
     }
 }
 impl TryFrom<&Feature> for lsp_types::DocumentSymbol {
@@ -112,7 +140,7 @@ impl TryFrom<&Feature> for lsp_types::DocumentSymbol {
 }
 #[cfg(test)]
 mod tests {
-    use crate::lib::tree_sitter::WidthFirstTraversal;
+    use crate::lib::tree_sitter_extension::WidthFirstTraversal;
 
     use super::*;
 
@@ -144,10 +172,13 @@ end"#;
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
         let node = captures.next().unwrap().0.captures[0].node;
 
-        let feature = Feature::extract_from(&node, &src).expect("Parse feature");
+        let feature = Feature::parse(&node, &src).expect("Parse feature");
         assert_eq!(feature.name(), "x");
         let predicate = feature
             .preconditions()
+            .as_ref()
+            .expect("fails because feature cannot have a precondition block.")
+            .item()
             .clone()
             .expect("extracted preconditions")
             .precondition

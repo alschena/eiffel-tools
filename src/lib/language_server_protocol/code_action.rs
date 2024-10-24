@@ -1,13 +1,10 @@
 use super::common::{HandleRequest, ServerState};
-use async_lsp::lsp_types::{
-    self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand, CodeActionResponse,
-    Command, SymbolInformation,
-};
+use crate::lib::code_entities::prelude::*;
+use async_lsp::lsp_types::{self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand};
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::collections::HashMap;
 use std::future::Future;
-use std::ops::Deref;
 mod transformer;
 
 impl HandleRequest for request::CodeActionRequest {
@@ -18,87 +15,84 @@ impl HandleRequest for request::CodeActionRequest {
     {
         async move {
             let workspace = st.workspace.read().unwrap();
-            let path = params
-                .text_document
-                .uri
-                .to_file_path()
-                .expect("Path of target document of code action");
-            let processed_file = workspace
+
+            let (disabled, edit) = match workspace
                 .files()
                 .iter()
-                .find(|&x| x.path == path)
-                .expect("Code action on not yet parsed file");
-            let range = params.range.try_into().expect("Range conversion");
-            let surrounding_feature = processed_file.feature_around(range);
-
-            let title = "Add contracts to current routine".into();
-            let kind = None;
-            let diagnostics = None;
-            let command = None;
-            let is_preferred = Some(false);
-            let data = None;
-            let mut response = CodeActionResponse::new();
-            match surrounding_feature {
-                Some(feature) => {
-                    let model = transformer::LLM::default();
-                    let (pre, post) = model.add_contracts(&feature);
-                    let range = feature
-                        .range_end_preconditions()
-                        .clone()
+                .find(|&x| {
+                    x.path
+                        == params
+                            .text_document
+                            .uri
+                            .to_file_path()
+                            .expect("fails to convert uri of code action parameter in usable path.")
+                })
+                .expect("fails calling code action on not yet parsed file.")
+                .feature_around(
+                    params
+                        .range
                         .try_into()
-                        .expect("Convert range to lsp-type range");
-                    let edit = lsp_types::WorkspaceEdit::new(HashMap::from([
-                        (
-                            params.text_document.uri.clone(),
-                            vec![lsp_types::TextEdit {
-                                range,
-                                new_text: format!("{pre}"),
-                            }],
-                        ),
-                        (
-                            params.text_document.uri,
-                            vec![lsp_types::TextEdit {
-                                range,
-                                new_text: format!("{post}"),
-                            }],
-                        ),
-                    ]));
-                    let disabled = None;
-                    let code_action = CodeAction {
-                        title,
-                        kind,
-                        diagnostics,
-                        edit: Some(edit),
-                        command,
-                        is_preferred,
-                        disabled,
-                        data,
-                    };
-                    // let command = Command::new(title, "add_contracts_routine".to_string(), None);
-                    response.push(CodeActionOrCommand::CodeAction(code_action));
-                    // response.push(CodeActionOrCommand::Command(command));
-                    Ok(Some(response))
+                        .expect("fails to convert lsp-range to internal range."),
+                ) {
+                Some(feature) => {
+                    match feature.range_end_preconditions() {
+                        Some(range) => {
+                        let model = transformer::LLM::default();
+                        let (pre, post) = model.add_contracts(&feature);
+                            let range_lsp = range
+                                .clone()
+                                .try_into()
+                                .expect("fails to convert range to lsp-type range.");
+                            (None, Some(lsp_types::WorkspaceEdit::new(HashMap::from([
+                                (
+                                    params.text_document.uri.clone(),
+                                    vec![lsp_types::TextEdit {
+                                        range: range_lsp,
+                                        new_text: match feature.is_precondition_block_present() {
+                                            true => format!("{pre}"),
+                                            false => {
+                                                format!(
+                                                    "{}",
+                                                    contract::Block::<contract::Precondition> {
+                                                        item: Some(pre),
+                                                        range: range,
+                                                        keyword: contract::Keyword::Require,
+                                                    }
+                                                )
+                                            }
+                                        },
+                                    }],
+                                ),
+                                // (
+                                //     params.text_document.uri,
+                                //     vec![lsp_types::TextEdit {
+                                //         range,
+                                //         new_text: format!("{post}"),
+                                //     }],
+                                // ),
+                            ]))))
+                        }
+                        None => (Some(CodeActionDisabled {reason: String::from("The surrounding feature does not support the addition of preconditions.")}), None),
+                    }
                 }
-                None => {
-                    let disabled = Some(CodeActionDisabled {
+                None => (
+                    Some(CodeActionDisabled {
                         reason: "The cursor is not surrounded by a feature".to_string(),
-                    });
-                    let edit = None;
-                    let code_action = CodeAction {
-                        title,
-                        kind,
-                        diagnostics,
-                        edit,
-                        command,
-                        is_preferred,
-                        disabled,
-                        data,
-                    };
-                    response.push(CodeActionOrCommand::CodeAction(code_action));
-                    // response.push(CodeActionOrCommand::Command(command));
-                    Ok(Some(response))
-                }
-            }
+                    }),
+                    None,
+                ),
+            };
+
+            Ok(Some(vec![CodeActionOrCommand::CodeAction(CodeAction {
+                title: String::from("Add contracts to current routine"),
+                kind: None,
+                diagnostics: None,
+                edit,
+                command: None,
+                is_preferred: Some(false),
+                disabled,
+                data: None,
+            })]))
         }
     }
 }

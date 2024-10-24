@@ -1,6 +1,5 @@
-use super::feature::Feature;
-use super::shared::*;
-use crate::lib::tree_sitter::{self, ExtractedFrom, Node};
+use super::prelude::*;
+use crate::lib::tree_sitter_extension::{self, Node, Parse};
 use ::tree_sitter::{Parser, QueryCursor};
 use anyhow::anyhow;
 use async_lsp::lsp_types;
@@ -16,10 +15,10 @@ impl Model {
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct ModelNames(Vec<String>);
-impl ExtractedFrom for ModelNames {
+impl Parse for ModelNames {
     type Error = anyhow::Error;
 
-    fn extract_from(root: &Node, src: &str) -> Result<Self, Self::Error> {
+    fn parse(root: &Node, src: &str) -> Result<Self, Self::Error> {
         debug_assert!(root.parent().is_none());
 
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
@@ -121,6 +120,9 @@ impl Class {
         self.path = Some(Location { path })
     }
 }
+impl Indent for Class {
+    const INDENTATION_LEVEL: u32 = 1;
+}
 impl TryFrom<&Class> for lsp_types::Location {
     type Error = anyhow::Error;
 
@@ -155,24 +157,6 @@ impl TryFrom<&Class> for lsp_types::SymbolInformation {
         }
     }
 }
-impl TryFrom<lsp_types::DocumentSymbol> for Class {
-    type Error = anyhow::Error;
-
-    fn try_from(value: lsp_types::DocumentSymbol) -> std::result::Result<Self, Self::Error> {
-        let name = value.name;
-        let kind = value.kind;
-        let range = value.range.try_into()?;
-        debug_assert_eq!(kind, lsp_types::SymbolKind::CLASS);
-        let children: Vec<Feature> = match value.children {
-            Some(v) => v
-                .into_iter()
-                .map(|x| Feature::try_from(x).expect("Document symbol to feature"))
-                .collect(),
-            None => Vec::new(),
-        };
-        Ok(Class::from_name_range(name, range))
-    }
-}
 impl TryFrom<&Class> for lsp_types::DocumentSymbol {
     type Error = anyhow::Error;
 
@@ -198,9 +182,9 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
         })
     }
 }
-impl ExtractedFrom for Class {
+impl Parse for Class {
     type Error = anyhow::Error;
-    fn extract_from(root: &Node, src: &str) -> anyhow::Result<Self> {
+    fn parse(root: &Node, src: &str) -> anyhow::Result<Self> {
         debug_assert!(root.parent().is_none());
         // Extract class name
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
@@ -228,12 +212,12 @@ impl ExtractedFrom for Class {
         let mut features: Vec<Feature> = Vec::new();
         while let Some(mat) = feature_cursor.next() {
             for cap in mat.captures {
-                features.push(Feature::extract_from(&cap.node, src)?);
+                features.push(Feature::parse(&cap.node, src)?);
             }
         }
 
         // Extract optional model
-        class.model = Model::from_model_names(ModelNames::extract_from(root, src)?, &features);
+        class.model = Model::from_model_names(ModelNames::parse(root, src)?, &features);
         class.features = features;
         Ok(class)
     }
@@ -288,7 +272,7 @@ mod tests {
         ";
         let tree = parser.parse(src, None).expect("AST");
 
-        let class = Class::extract_from(&tree.root_node(), src).expect("Parse class");
+        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
 
         assert_eq!(
             class.name(),
@@ -318,7 +302,7 @@ end
     ";
         let tree = parser.parse(src, None).expect("AST");
 
-        let class = Class::extract_from(&tree.root_node(), src).expect("Parse class");
+        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
 
         assert_eq!(class.name(), "DEMO_CLASS".to_string());
     }
@@ -337,7 +321,7 @@ class A feature
 end
 ";
         let tree = parser.parse(src, None).unwrap();
-        let class = Class::extract_from(&tree.root_node(), src).expect("Parse class");
+        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
@@ -359,7 +343,7 @@ end
 ";
         let tree = parser.parse(src, None).unwrap();
 
-        let class = Class::extract_from(&tree.root_node(), src).expect("Parse class");
+        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
         let features = class.features().clone();
 
         assert_eq!(class.name(), "A".to_string());
@@ -384,7 +368,7 @@ end
         let tree = parser.parse(src, None).unwrap();
 
         let model_names =
-            ModelNames::extract_from(&tree.root_node(), src).expect("Parse model_names");
+            ModelNames::parse(&tree.root_node(), src).expect("fails to parse model names");
 
         assert!(!model_names.0.is_empty());
         assert_eq!(model_names.0.first(), Some(&"seq".to_string()));
@@ -407,7 +391,7 @@ end
 ";
         let tree = parser.parse(src, None).unwrap();
 
-        let class = Class::extract_from(&tree.root_node(), src).expect("Parse class");
+        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
         let model = class.model().clone();
         let features = class.features().clone();
 
