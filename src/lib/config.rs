@@ -279,7 +279,7 @@ mod tests {
 </system>
 "#;
     #[test]
-    fn extract_cluster() {
+    fn parse_cluster() {
         let system: System = serde_xml_rs::from_str(XML_EXAMPLE).unwrap();
         let target = system.target;
         let cluster = target.cluster.first().expect("At least a cluster");
@@ -288,7 +288,7 @@ mod tests {
         assert!(cluster.recursive.is_some_and(|x| x));
     }
     #[test]
-    fn extract_library() {
+    fn parse_library() {
         let system: System = serde_xml_rs::from_str(XML_EXAMPLE_WITH_LIBRARY).unwrap();
         let target = system.target;
         let libraries = target.library.expect("Library is present");

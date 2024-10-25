@@ -145,7 +145,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extract_feature_with_precondition() {
+    fn parse_feature_with_precondition() {
         let src = r#"
 class A feature
   x

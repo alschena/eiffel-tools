@@ -286,7 +286,7 @@ mod tests {
     use Clause;
 
     #[test]
-    fn extract_clause() {
+    fn parse_clause() {
         let src = r#"
 class A feature
   x
@@ -320,7 +320,7 @@ end"#;
         assert_eq!(clause.predicate, Predicate::new("True".to_string()));
     }
     #[test]
-    fn extract_precondition() {
+    fn parse_precondition() {
         let src = r#"
 class A feature
   x
@@ -361,7 +361,7 @@ end"#;
         assert_eq!(clause.tag, tag);
     }
     #[test]
-    fn extract_postcondition() {
+    fn parse_postcondition() {
         let src = r#"
 class A feature
   x
