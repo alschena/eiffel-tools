@@ -13,7 +13,7 @@ trait Type {
     const DEFAULT_KEYWORD: Keyword;
     const POSITIONED: Positioned;
 }
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 /// Wraps an optional contract clause adding whereabouts informations.
 /// If the `item` is None, the range start and end coincide where the contract clause would be added.
 pub struct Block<T> {
@@ -38,7 +38,7 @@ impl<T: Display + Indent> Display for Block<T> {
         )
     }
 }
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Keyword {
     Require,
     RequireThen,
@@ -71,7 +71,7 @@ impl<T> Block<T> {
         &self.range
     }
 }
-#[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
+#[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Clause {
     pub predicate: Predicate,
     pub tag: Tag,
@@ -118,7 +118,7 @@ impl Clause {
         Clause { tag, predicate }
     }
 }
-#[derive(Deserialize, Clone, ToResponseSchema, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Clone, ToResponseSchema, Debug, PartialEq, Eq, Hash)]
 pub struct Tag {
     pub tag: String,
 }
@@ -132,7 +132,7 @@ impl From<String> for Tag {
         Tag { tag: value }
     }
 }
-#[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
+#[derive(Hash, Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
 pub struct Predicate {
     pub predicate: String,
 }
@@ -146,7 +146,7 @@ impl Predicate {
         Predicate { predicate: s }
     }
 }
-#[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
+#[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Precondition {
     pub precondition: Vec<Clause>,
 }
@@ -212,7 +212,7 @@ impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
         })
     }
 }
-#[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
+#[derive(Hash, Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
 pub struct Postcondition {
     pub postcondition: Vec<Clause>,
 }

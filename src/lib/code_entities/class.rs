@@ -7,7 +7,7 @@ use streaming_iterator::StreamingIterator;
 use tracing::instrument;
 use tree_sitter::{Parser, Query, QueryCursor};
 // TODO accept only attributes of logical type in the model
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Model(pub Vec<Feature>);
 impl Model {
     fn new() -> Model {
@@ -59,7 +59,7 @@ impl Model {
         )
     }
 }
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Class {
     name: String,
     path: Option<Location>,
@@ -263,7 +263,7 @@ impl TryFrom<&Class> for lsp_types::WorkspaceSymbol {
         })
     }
 }
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Ancestor {
     name: String,
     select: Vec<String>,

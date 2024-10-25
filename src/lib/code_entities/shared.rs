@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context};
 use async_lsp::lsp_types;
 use std::cmp::{Ordering, PartialOrd};
 use std::path;
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Point {
     pub row: usize,
     pub column: usize,
@@ -25,7 +25,7 @@ impl PartialOrd for Point {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Range {
     pub start: Point,
     pub end: Point,
@@ -40,7 +40,7 @@ impl PartialOrd for Range {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Location {
     pub path: path::PathBuf,
 }
