@@ -28,10 +28,10 @@ impl ProcessedFile {
     pub(crate) fn tree(&self) -> &Tree {
         &self.tree
     }
-    pub(crate) fn feature_around(&self, range: Range) -> Option<Feature> {
-        let mut features = self.class().features().iter();
+    pub(crate) fn feature_around(&self, range: Range) -> Option<&Feature> {
+        let mut features = self.class().features().into_iter();
         match features.find(|x| range <= *x.range()) {
-            Some(f) => Some(f.clone()),
+            Some(f) => Some(f),
             None => None,
         }
     }
