@@ -106,7 +106,6 @@ impl Router<ServerState> {
     }
     pub fn set_tick_event(&mut self) {
         self.0.event::<TickEvent>(|st, _| {
-            info!("tick");
             st.counter += 1;
             ControlFlow::Continue(())
         });

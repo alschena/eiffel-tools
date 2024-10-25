@@ -9,6 +9,7 @@ use eiffel_tools::lib::language_server_protocol::common::{Router, TickEvent};
 use std::time::Duration;
 use tower::ServiceBuilder;
 use tracing::{info, Level};
+use tracing_subscriber::fmt::{fmt, format::FmtSpan};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
@@ -48,8 +49,9 @@ async fn main() -> anyhow::Result<()> {
             .service::<router::Router<_>>(router.into())
     });
 
-    tracing_subscriber::fmt()
+    fmt()
         .with_max_level(Level::INFO)
+        .with_span_events(FmtSpan::CLOSE)
         .with_ansi(false)
         .with_writer(std::io::stderr)
         .init();

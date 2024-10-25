@@ -7,6 +7,7 @@ use anyhow::anyhow;
 use async_lsp::lsp_types;
 use streaming_iterator::StreamingIterator;
 #[derive(Debug, PartialEq, Eq, Clone)]
+use tracing::instrument;
 pub enum FeatureVisibility {
     Private,
     Some(Box<Class>),
@@ -87,6 +88,7 @@ impl Indent for Feature {
 }
 impl Parse for Feature {
     type Error = anyhow::Error;
+    #[instrument(skip_all)]
     fn parse(node: &Node, src: &str) -> anyhow::Result<Self> {
         debug_assert!(node.kind() == "feature_declaration");
         let mut binding = QueryCursor::new();

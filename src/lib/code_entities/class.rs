@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use async_lsp::lsp_types;
 use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
+use tracing::instrument;
 use tree_sitter::{Parser, Query, QueryCursor};
 // TODO accept only attributes of logical type in the model
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -181,6 +182,7 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
 }
 impl Parse for Class {
     type Error = anyhow::Error;
+    #[instrument(skip_all)]
     fn parse(root: &Node, src: &str) -> anyhow::Result<Self> {
         debug_assert!(root.parent().is_none());
         let mut cursor = QueryCursor::new();
@@ -277,6 +279,7 @@ impl Ancestor {
 impl Parse for Vec<Ancestor> {
     type Error = anyhow::Error;
 
+    #[instrument(skip_all)]
     fn parse(node: &Node, src: &str) -> Result<Self, Self::Error> {
         debug_assert!(node.kind() == "inheritance");
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
