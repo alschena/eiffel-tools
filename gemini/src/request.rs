@@ -189,8 +189,17 @@ mod test {
     use super::*;
     #[test]
     fn serialize_simple_request() {
-        let req =
-            Request::from("Write a story about turles from the prospective of a frog.".to_string());
-        eprintln!("{:?}", serde_json::to_string(&req));
+        let str_req = "Write a story about turles from the prospective of a frog.";
+        let req = Request::from(str_req.to_string());
+        assert_eq!(
+            req.contents.parts.first().map(|p| p.text.clone()),
+            Some(str_req.to_string())
+        );
+        assert!(req.tools.is_none());
+        assert!(req.tool_config.is_none());
+        assert!(req.safety_settings.is_none());
+        assert!(req.system_instruction.is_none());
+        assert!(req.generation_config.is_none());
+        assert!(req.cached_content.is_none());
     }
 }

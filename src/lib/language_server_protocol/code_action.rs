@@ -35,19 +35,27 @@ impl HandleRequest for request::CodeActionRequest {
                         .expect("fails to convert lsp-range to internal range."),
                 ) {
                 Some(feature) => {
-                    match feature.range_end_preconditions() {
-                        Some(range) => {
+                    match (feature.range_end_preconditions(), feature.range_end_postconditions()) {
+                        (Some(precondition_range_end), Some(postcondition_range_end)) => {
                         let model = transformer::LLM::default();
                         let (pre, post) = model.add_contracts(&feature);
-                            let range_lsp = range
-                                .clone()
-                                .try_into()
-                                .expect("fails to convert range to lsp-type range.");
-                            (None, Some(lsp_types::WorkspaceEdit::new(HashMap::from([
-                                (
-                                    params.text_document.uri.clone(),
-                                    vec![lsp_types::TextEdit {
-                                        range: range_lsp,
+                            (None, Some(lsp_types::WorkspaceEdit::new(HashMap::from([ (params.text_document.uri, vec![
+                                    lsp_types::TextEdit {
+                                        range: postcondition_range_end.clone().try_into().expect("fails to convert range to lsp-type range."),
+                                        new_text: match feature.is_postcondition_block_present() {
+                                            true =>  format!("{post}"),
+                                            false => {format!(
+                                                    "{}",
+                                                    contract::Block::<contract::Postcondition> {
+                                                        item: Some(post),
+                                                        range: postcondition_range_end,
+                                                        keyword: contract::Keyword::Ensure,
+                                                    }
+                                                )}
+                                        }
+                                    },
+                                    lsp_types::TextEdit {
+                                        range: precondition_range_end.clone().try_into().expect("fails to convert range to lsp-type range."),
                                         new_text: match feature.is_precondition_block_present() {
                                             true => format!("{pre}"),
                                             false => {
@@ -55,24 +63,18 @@ impl HandleRequest for request::CodeActionRequest {
                                                     "{}",
                                                     contract::Block::<contract::Precondition> {
                                                         item: Some(pre),
-                                                        range: range,
+                                                        range: precondition_range_end,
                                                         keyword: contract::Keyword::Require,
                                                     }
                                                 )
                                             }
                                         },
-                                    }],
-                                ),
-                                // (
-                                //     params.text_document.uri,
-                                //     vec![lsp_types::TextEdit {
-                                //         range,
-                                //         new_text: format!("{post}"),
-                                //     }],
-                                // ),
+                                    },
+                            ])
                             ]))))
                         }
-                        None => (Some(CodeActionDisabled {reason: String::from("The surrounding feature does not support the addition of preconditions.")}), None),
+                        (None, None) => (Some(CodeActionDisabled {reason: String::from("The surrounding feature does not support the addition of pre and post conditions.")}), None),
+                        _ => unreachable!()
                     }
                 }
                 None => (
