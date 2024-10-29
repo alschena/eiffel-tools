@@ -6,14 +6,15 @@ use ::tree_sitter::{Query, QueryCursor};
 use anyhow::anyhow;
 use async_lsp::lsp_types;
 use streaming_iterator::StreamingIterator;
-#[derive(Debug, PartialEq, Eq, Clone)]
+use tracing::instrument;
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum FeatureVisibility {
     Private,
     Some(Box<Class>),
     Public,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Feature {
     pub(super) name: String,
     pub(super) visibility: FeatureVisibility,
@@ -87,6 +88,7 @@ impl Indent for Feature {
 }
 impl Parse for Feature {
     type Error = anyhow::Error;
+    #[instrument(skip_all)]
     fn parse(node: &Node, src: &str) -> anyhow::Result<Self> {
         debug_assert!(node.kind() == "feature_declaration");
         let mut binding = QueryCursor::new();

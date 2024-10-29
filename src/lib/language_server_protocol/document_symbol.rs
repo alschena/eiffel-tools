@@ -15,7 +15,7 @@ impl HandleRequest for request::DocumentSymbolRequest {
         async move {
             let path: path::PathBuf = params.text_document.uri.path().into();
             let read_workspace = st.workspace.read().unwrap();
-            let file = read_workspace.files().iter().find(|&x| x.path == path);
+            let file = read_workspace.files().into_iter().find(|&x| x.path == path);
             if let Some(file) = file {
                 let class = file.class();
                 let symbol: DocumentSymbol = (class)

@@ -1,12 +1,14 @@
 use super::prelude::*;
 use crate::lib::tree_sitter_extension::{self, Node, Parse};
+use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use async_lsp::lsp_types;
 use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
+use tracing::instrument;
 use tree_sitter::{Parser, Query, QueryCursor};
 // TODO accept only attributes of logical type in the model
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Model(pub Vec<Feature>);
 impl Model {
     fn new() -> Model {
@@ -58,7 +60,7 @@ impl Model {
         )
     }
 }
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Class {
     name: String,
     path: Option<Location>,
@@ -75,6 +77,13 @@ impl Class {
     pub fn model(&self) -> &Model {
         &self.model
     }
+    pub fn full_model<'a, 'b: 'a>(&'b self, classes: &'a [&'a Class]) -> Vec<&'a Model> {
+        self.ancestors_classes(classes)
+            .iter()
+            .map(|c| c.model())
+            .chain(std::iter::once(self.model()))
+            .collect()
+    }
     pub fn features(&self) -> &Vec<Feature> {
         &self.features
     }
@@ -83,6 +92,12 @@ impl Class {
     }
     pub fn ancestors(&self) -> &Vec<Ancestor> {
         &self.ancestors
+    }
+    pub fn ancestors_classes<'a, 'b>(&'b self, classes: &'a [&'a Class]) -> Vec<&'a Class> {
+        self.ancestors()
+            .into_iter()
+            .filter_map(|a| (classes.iter().find(|class| class.name() == a.name())).map(|&c| c))
+            .collect()
     }
     pub fn range(&self) -> &Range {
         &self.range
@@ -181,6 +196,7 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
 }
 impl Parse for Class {
     type Error = anyhow::Error;
+    #[instrument(skip_all)]
     fn parse(root: &Node, src: &str) -> anyhow::Result<Self> {
         debug_assert!(root.parent().is_none());
         let mut cursor = QueryCursor::new();
@@ -261,7 +277,7 @@ impl TryFrom<&Class> for lsp_types::WorkspaceSymbol {
         })
     }
 }
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Ancestor {
     name: String,
     select: Vec<String>,
@@ -277,6 +293,7 @@ impl Ancestor {
 impl Parse for Vec<Ancestor> {
     type Error = anyhow::Error;
 
+    #[instrument(skip_all)]
     fn parse(node: &Node, src: &str) -> Result<Self, Self::Error> {
         debug_assert!(node.kind() == "inheritance");
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
@@ -490,7 +507,7 @@ end
         let tree = parser.parse(src, None).unwrap();
 
         let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
-        let mut ancestors = class.ancestors().iter();
+        let mut ancestors = class.ancestors().into_iter();
 
         assert_eq!(class.name(), "A".to_string());
 
@@ -543,6 +560,91 @@ end
         let class = (&file).class();
         let symbol = <lsp_types::WorkspaceSymbol>::try_from(class);
         assert!(symbol.is_ok());
+        Ok(())
+    }
+    #[test]
+    fn ancestor_classes() -> Result<()> {
+        let src_child = "
+    class A
+    inherit {NONE}
+      X Y Z
+
+    inherit
+      W
+        undefine a
+        redefine c
+        rename e as f
+        export
+          {ANY}
+            -- Header comment
+            all
+        select g
+        end
+    end
+    ";
+        let src_parent = "
+    note
+        model: seq
+    class W
+    feature
+        x: INTEGER
+        seq: MML_SEQUENCE [INTEGER]
+    end
+    ";
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+        let tree_child = parser.parse(src_child, None).unwrap();
+        let tree_parent = parser.parse(src_parent, None).unwrap();
+
+        let child = Class::parse(&tree_child.root_node(), src_child).expect("fails to parse class");
+        let parent =
+            Class::parse(&tree_parent.root_node(), src_parent).expect("fails to parse class");
+        let classes = vec![&child, &parent];
+        let a = child.ancestors_classes(&classes);
+        let a = a
+            .first()
+            .ok_or(anyhow!("fails to capture ancestor class."))?;
+        assert_eq!(a, &&parent);
+        Ok(())
+    }
+    #[test]
+    fn full_model() -> Result<()> {
+        let src_child = "
+    note
+        model: seq
+    class A
+    inherit
+      W
+    feature seq: MML_SEQUENCE[G]
+    end
+    ";
+        let src_parent = "
+    note
+        model: seq
+    class W
+    feature
+        x: INTEGER
+        seq: MML_SEQUENCE [INTEGER]
+    end
+    ";
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+        let tree_child = parser.parse(src_child, None).unwrap();
+        let tree_parent = parser.parse(src_parent, None).unwrap();
+
+        let child = Class::parse(&tree_child.root_node(), src_child).expect("fails to parse class");
+        let parent =
+            Class::parse(&tree_parent.root_node(), src_parent).expect("fails to parse class");
+        let classes = vec![&child, &parent];
+        let a = std::collections::HashSet::from_iter(child.full_model(&classes).into_iter());
+        assert_eq!(
+            a,
+            std::collections::HashSet::from([child.model(), parent.model()])
+        );
         Ok(())
     }
 }
