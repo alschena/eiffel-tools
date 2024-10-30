@@ -57,6 +57,14 @@ impl Default for GenerationConfig {
         }
     }
 }
+impl From<schema::ResponseSchema> for GenerationConfig {
+    fn from(value: schema::ResponseSchema) -> Self {
+        Self {
+            response_schema: Some(value),
+            ..Default::default()
+        }
+    }
+}
 impl GenerationConfig {
     pub fn set_stop_sequences(&mut self, stop_sequences: Option<StopSequence>) {
         self.stop_sequences = stop_sequences
@@ -123,4 +131,17 @@ pub enum ResponseMimeType {
     Json,
     #[serde(rename(serialize = "text/plain"))]
     Text,
+}
+
+#[cfg(test)]
+mod test {
+    use schema::ToResponseSchema;
+
+    use super::*;
+    #[test]
+    fn generation_config_from_schema() {
+        let schema = String::to_response_schema();
+        let generation_config = GenerationConfig::from(schema.clone());
+        assert_eq!(generation_config.response_schema, Some(schema))
+    }
 }

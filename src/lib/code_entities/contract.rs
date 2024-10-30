@@ -2,7 +2,7 @@ use super::prelude::*;
 use crate::lib::tree_sitter_extension::Parse;
 use ::tree_sitter::{Node, Query, QueryCursor};
 use anyhow::anyhow;
-use gemini::request::config::schema::{Described, ResponseSchema, ToResponseSchema};
+use gemini::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
 use std::fmt::Display;
@@ -290,7 +290,7 @@ impl Described for Postcondition {
 mod tests {
     use super::*;
     use anyhow::Result;
-    use gemini::request::config::schema::SchemaType;
+    use gemini::SchemaType;
     use Clause;
 
     #[test]

@@ -1,5 +1,5 @@
 use super::code_entities::prelude::*;
-use super::tree_sitter_extension::{Parse, WidthFirstTraversal};
+use super::tree_sitter_extension::Parse;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use tracing::instrument;
@@ -28,9 +28,11 @@ impl ProcessedFile {
     pub(crate) fn tree(&self) -> &Tree {
         &self.tree
     }
-    pub(crate) fn feature_around(&self, range: Range) -> Option<&Feature> {
-        let mut features = self.class().features().into_iter();
-        match features.find(|x| range <= *x.range()) {
+    pub(crate) fn feature_around_point(&self, point: Point) -> Option<&Feature> {
+        let mut features = self.class().features().iter();
+        match features
+            .find(|feature| point >= feature.range().start && point <= feature.range().end)
+        {
             Some(f) => Some(f),
             None => None,
         }
@@ -40,12 +42,5 @@ impl ProcessedFile {
     }
     pub(crate) fn class(&self) -> &Class {
         &self.class
-    }
-    pub(crate) fn code_entity_at_point_in_src(
-        &self,
-        point: Point,
-        src: &[u8],
-    ) -> Result<Box<dyn CodeEntity>> {
-        unimplemented!();
     }
 }

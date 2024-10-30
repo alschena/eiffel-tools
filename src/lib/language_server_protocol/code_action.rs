@@ -1,6 +1,10 @@
 use super::common::{HandleRequest, ServerState};
 use crate::lib::code_entities::prelude::*;
-use async_lsp::lsp_types::{self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand};
+use crate::lib::processed_file::ProcessedFile;
+use anyhow::Context;
+use async_lsp::lsp_types::{
+    self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand, WorkspaceEdit,
+};
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::collections::HashMap;
@@ -16,29 +20,28 @@ impl HandleRequest for request::CodeActionRequest {
         async move {
             let workspace = st.workspace.read().unwrap();
 
+            let path = params
+                .text_document
+                .uri
+                .to_file_path()
+                .expect("fails to convert uri of code action parameter in usable path.");
+
             let (disabled, edit) = match workspace
-                .files()
-                .iter()
-                .find(|&x| {
-                    x.path
-                        == params
-                            .text_document
-                            .uri
-                            .to_file_path()
-                            .expect("fails to convert uri of code action parameter in usable path.")
-                })
+                .find_file(&path)
                 .expect("fails calling code action on not yet parsed file.")
-                .feature_around(
+                .feature_around_point(
                     params
                         .range
+                        .end
                         .try_into()
-                        .expect("fails to convert lsp-range to internal range."),
+                        .expect("fails to convert lsp position to eiffel point."),
                 ) {
                 Some(feature) => {
                     match (feature.range_end_preconditions(), feature.range_end_postconditions()) {
                         (Some(precondition_range_end), Some(postcondition_range_end)) => {
                         let model = transformer::LLM::default();
-                        let (pre, post) = model.add_contracts(&feature);
+                        let src = std::fs::read(params.text_document.uri.path()).expect("fails to read from file.");
+                        let (pre, post) = model.add_contracts(String::from_utf8(src).expect("fails to convert byte vector to string").as_ref()).expect("llm fails to produce contracts");
                             (None, Some(lsp_types::WorkspaceEdit::new(HashMap::from([ (params.text_document.uri, vec![
                                     lsp_types::TextEdit {
                                         range: postcondition_range_end.clone().try_into().expect("fails to convert range to lsp-type range."),

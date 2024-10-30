@@ -1,5 +1,7 @@
 use super::model;
 use super::response;
+use anyhow::{anyhow, Context, Result};
+use config::GenerationConfig;
 use reqwest;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -30,6 +32,11 @@ impl From<String> for Contents {
 #[derive(Deserialize, Serialize, Debug)]
 pub(super) struct Part {
     text: String,
+}
+impl Part {
+    pub fn text(&self) -> &str {
+        &self.text
+    }
 }
 impl FromStr for Part {
     type Err = ();
@@ -105,29 +112,40 @@ pub struct Request {
     cached_content: Option<CachedContent>,
 }
 impl Request {
-    pub async fn process(&self, config: &model::Config) -> response::Response {
-        let web_client = reqwest::Client::new();
-        let json_req = web_client.post(config.end_point().clone()).json(&self);
+    pub fn set_config(&mut self, config: GenerationConfig) {
+        self.generation_config = Some(config)
+    }
+}
+impl Request {
+    pub fn new_blocking_client() -> reqwest::blocking::Client {
+        reqwest::blocking::Client::new()
+    }
+    pub fn process_with_blocking_client(
+        &self,
+        config: &model::Config,
+        client: &reqwest::blocking::Client,
+    ) -> Result<response::Response> {
+        let json_req = client.post(config.end_point().clone()).json(&self);
         eprintln!("{:?}", json_req);
-        match json_req.send().await {
-            Ok(res) => {
-                let response = res
-                    .json::<response::Response>()
-                    .await
-                    .expect("Decode response from Gemini");
-                response
-            }
-            Err(_) => {
-                panic!("Response of Gemini")
-            }
-        }
+        let res = json_req
+            .send()
+            .map_err(|e| anyhow!("fails to retrieve response from gemini with error: {}", e))?;
+        let response = res
+            .json::<response::Response>()
+            .expect("Decode response from Gemini");
+        Ok(response)
     }
 }
 impl FromStr for Request {
-    type Err = ();
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let contents = s.parse().expect("Parse string to LSP-type contents");
+        let contents = s.parse().map_err(|e| {
+            anyhow!(
+                "fails to parse string to LSP-type contents with error: {:#?}",
+                e
+            )
+        })?;
         Ok(Self {
             contents,
             tools: None,
@@ -187,6 +205,8 @@ enum Role {
 #[cfg(test)]
 mod test {
     use super::*;
+    use anyhow::Result;
+    use config::schema::ToResponseSchema;
     #[test]
     fn serialize_simple_request() {
         let str_req = "Write a story about turles from the prospective of a frog.";
@@ -201,5 +221,25 @@ mod test {
         assert!(req.system_instruction.is_none());
         assert!(req.generation_config.is_none());
         assert!(req.cached_content.is_none());
+    }
+    #[test]
+    fn set_request_config() -> Result<()> {
+        let mut req = Request::from_str("Tell me about the stars.")?;
+        req.set_config(GenerationConfig::from(String::to_response_schema()));
+        assert!(req.generation_config.is_some());
+        assert_eq!(
+            req.generation_config
+                .map(|ref c| c.response_schema().clone()),
+            Some(Some(String::to_response_schema()))
+        );
+        Ok(())
+    }
+    #[test]
+    fn process_with_blocking_client() -> Result<()> {
+        let model_config = model::Config::default();
+        let client = Request::new_blocking_client();
+        let req = Request::from_str("Tell me about the night.")?;
+        let _ = req.process_with_blocking_client(&model_config, &client);
+        Ok(())
     }
 }
