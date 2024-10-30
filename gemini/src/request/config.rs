@@ -61,6 +61,7 @@ impl From<schema::ResponseSchema> for GenerationConfig {
     fn from(value: schema::ResponseSchema) -> Self {
         Self {
             response_schema: Some(value),
+            response_mime_type: Some(ResponseMimeType::Json),
             ..Default::default()
         }
     }

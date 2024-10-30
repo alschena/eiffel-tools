@@ -205,8 +205,11 @@ enum Role {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate as gemini;
+    use crate::{Described, ResponseSchema};
     use anyhow::Result;
     use config::schema::ToResponseSchema;
+    use gemini_macro_derive::ToResponseSchema;
     #[test]
     fn serialize_simple_request() {
         let str_req = "Write a story about turles from the prospective of a frog.";
@@ -239,7 +242,32 @@ mod test {
         let model_config = model::Config::default();
         let client = Request::new_blocking_client();
         let req = Request::from_str("Tell me about the night.")?;
-        let _ = req.process_with_blocking_client(&model_config, &client);
+        let _ = req.process_with_blocking_client(&model_config, &client)?;
+        Ok(())
+    }
+    #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Clone, Hash)]
+    struct NightStory {
+        today: String,
+        tomorrow: String,
+    }
+    impl Described for NightStory {
+        fn description() -> String {
+            String::from("A story of the night")
+        }
+    }
+    #[test]
+    fn parse_res_with_custom_schema() -> Result<()> {
+        let model_config = model::Config::default();
+        let client = Request::new_blocking_client();
+        let mut req = Request::from_str("Tell me about the night for today and tomorrow.")?;
+        req.set_config(GenerationConfig::from(NightStory::to_response_schema()));
+        let res = req.process_with_blocking_client(&model_config, &client)?;
+        for r in res.parsable_content() {
+            let n = serde_json::from_str::<NightStory>(r)?;
+            eprintln!("{:#?}", n);
+            assert!(!n.today.is_empty());
+            assert!(!n.tomorrow.is_empty());
+        }
         Ok(())
     }
 }

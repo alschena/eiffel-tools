@@ -1,7 +1,10 @@
 use super::code_entities::prelude::*;
 use super::tree_sitter_extension::Parse;
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
+use std::{
+    io::BufRead,
+    path::{Path, PathBuf},
+};
 use tracing::instrument;
 use tree_sitter::{Parser, Tree};
 
@@ -42,5 +45,16 @@ impl ProcessedFile {
     }
     pub(crate) fn class(&self) -> &Class {
         &self.class
+    }
+    pub fn feature_src(&self, feature: &Feature) -> Result<String> {
+        let src = String::from_utf8(std::fs::read(self.path())?)?;
+        let range = feature.range();
+        let start = range.start();
+        let end = range.end();
+        Ok(src
+            .lines()
+            .skip(start.row)
+            .take(end.row - start.row)
+            .collect())
     }
 }

@@ -238,9 +238,10 @@ impl Display for Precondition {
             self.precondition
                 .iter()
                 .fold(String::from('\n'), |mut acc, elt| {
-                    acc.push_str(format!("{}{}", Self::indentation_string(), elt).trim_end());
+                    acc.push_str(format!("{}{}", Self::indentation_string(), elt).as_str());
                     acc
                 })
+                .trim_end()
         )
     }
 }
@@ -252,9 +253,10 @@ impl Display for Postcondition {
             self.postcondition
                 .iter()
                 .fold(String::from('\n'), |mut acc, elt| {
-                    acc.push_str(format!("{}{}", Self::indentation_string(), elt).trim_end());
+                    acc.push_str(format!("{}{}", Self::indentation_string(), elt).as_str());
                     acc
                 })
+                .trim_end()
         )
     }
 }

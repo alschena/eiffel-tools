@@ -30,6 +30,14 @@ pub struct Range {
     pub start: Point,
     pub end: Point,
 }
+impl Range {
+    pub fn start(&self) -> &Point {
+        &self.start
+    }
+    pub fn end(&self) -> &Point {
+        &self.end
+    }
+}
 impl PartialOrd for Range {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {

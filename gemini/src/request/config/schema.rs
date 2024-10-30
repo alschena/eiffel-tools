@@ -133,7 +133,7 @@ pub trait Described {
 }
 #[cfg(test)]
 mod tests {
-    use super::{SchemaType, ToResponseSchema};
+    use super::*;
 
     #[test]
     fn response_schema_string() {

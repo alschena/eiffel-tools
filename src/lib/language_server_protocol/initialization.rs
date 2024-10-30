@@ -18,7 +18,6 @@ impl HandleRequest for request::Initialize {
     ) -> impl Future<Output = Result<<Self as request::Request>::Result, ResponseError>> + Send + 'static
     {
         async move {
-            eprintln!("Initialize with {params:?}");
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
                     hover_provider: Some(HoverProviderCapability::Simple(true)),

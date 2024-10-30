@@ -1,9 +1,8 @@
 use crate::lib::code_entities::prelude::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use contract::{Postcondition, Precondition};
 use gemini;
 use gemini::ToResponseSchema;
-use rayon::iter::IntoParallelRefIterator;
 
 pub struct LLM(gemini::Config);
 impl LLM {
@@ -30,8 +29,12 @@ impl LLM {
         ));
         let client = gemini::Request::new_blocking_client();
         let (precondition_response, postcondition_response) = (
-            request_precondition.process_with_blocking_client(&self.config(), &client)?,
-            request_postcondition.process_with_blocking_client(&self.config(), &client)?,
+            request_precondition
+                .process_with_blocking_client(&self.config(), &client)
+                .context("request precondition by llm agent")?,
+            request_postcondition
+                .process_with_blocking_client(&self.config(), &client)
+                .context("request postcondition by llm agent")?,
         );
         let mut all_pre = precondition_response
             .parsable_content()
@@ -41,11 +44,11 @@ impl LLM {
             .map(|x| serde_json::from_str::<Postcondition>(x));
         // Select the first output for both the pre and post conditions agents.
         let pre = match all_pre.next() {
-            Some(p) => p?,
+            Some(p) => p.context("no precondition produced")?,
             None => Precondition::from(Vec::new()),
         };
         let post = match all_post.next() {
-            Some(p) => p?,
+            Some(p) => p.context("no postconditions produced")?,
             None => Postcondition::from(Vec::new()),
         };
         Ok((pre, post))

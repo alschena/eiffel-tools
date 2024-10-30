@@ -26,22 +26,25 @@ impl HandleRequest for request::CodeActionRequest {
                 .to_file_path()
                 .expect("fails to convert uri of code action parameter in usable path.");
 
-            let (disabled, edit) = match workspace
+            let file = workspace
                 .find_file(&path)
-                .expect("fails calling code action on not yet parsed file.")
-                .feature_around_point(
-                    params
-                        .range
-                        .end
-                        .try_into()
-                        .expect("fails to convert lsp position to eiffel point."),
-                ) {
+                .expect("fails calling code action on not yet parsed file.");
+
+            let (disabled, edit) = match file.feature_around_point(
+                params
+                    .range
+                    .end
+                    .try_into()
+                    .expect("fails to convert lsp position to eiffel point."),
+            ) {
                 Some(feature) => {
                     match (feature.range_end_preconditions(), feature.range_end_postconditions()) {
                         (Some(precondition_range_end), Some(postcondition_range_end)) => {
+                        let feature_src = file
+                            .feature_src(&feature)
+                            .expect("fails to find source code of feature in the file");
                         let model = transformer::LLM::default();
-                        let src = std::fs::read(params.text_document.uri.path()).expect("fails to read from file.");
-                        let (pre, post) = model.add_contracts(String::from_utf8(src).expect("fails to convert byte vector to string").as_ref()).expect("llm fails to produce contracts");
+                        let (pre, post) = model.add_contracts(&feature_src).expect("llm fails to produce contracts");
                             (None, Some(lsp_types::WorkspaceEdit::new(HashMap::from([ (params.text_document.uri, vec![
                                     lsp_types::TextEdit {
                                         range: postcondition_range_end.clone().try_into().expect("fails to convert range to lsp-type range."),
@@ -76,7 +79,7 @@ impl HandleRequest for request::CodeActionRequest {
                             ])
                             ]))))
                         }
-                        (None, None) => (Some(CodeActionDisabled {reason: String::from("The surrounding feature does not support the addition of pre and post conditions.")}), None),
+                        (None, None) => (Some(CodeActionDisabled {reason: String::from("The surrounding feature does not support adding pre or post conditions.")}), None),
                         _ => unreachable!()
                     }
                 }
@@ -87,7 +90,6 @@ impl HandleRequest for request::CodeActionRequest {
                     None,
                 ),
             };
-
             Ok(Some(vec![CodeActionOrCommand::CodeAction(CodeAction {
                 title: String::from("Add contracts to current routine"),
                 kind: None,
