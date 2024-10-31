@@ -35,7 +35,7 @@ impl Display for Model {
         }
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Config {
     token: String,
     mode: Mode,

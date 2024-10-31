@@ -1,6 +1,10 @@
-mod code_action;
-pub mod common;
-mod document_symbol;
-mod hover;
-mod initialization;
-mod workspace_document_symbol;
+mod notifications;
+pub mod prelude {
+    pub use super::notifications::HandleNotification;
+    pub use super::requests::HandleRequest;
+    pub use super::router::Router;
+    pub use super::server_state::ServerState;
+}
+mod requests;
+mod router;
+mod server_state;
