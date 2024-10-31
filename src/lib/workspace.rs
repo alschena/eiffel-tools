@@ -26,4 +26,7 @@ impl Workspace {
     pub(crate) fn classes(&self) -> Vec<&Class> {
         self.files().iter().map(|f| f.class()).collect()
     }
+    pub fn find_file(&self, path: &Path) -> Option<&ProcessedFile> {
+        self.files.iter().find(|&x| x.path == path)
+    }
 }

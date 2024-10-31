@@ -26,18 +26,19 @@ fn impl_to_response_schema(ast: &syn::DeriveInput) -> TokenStream {
                 .collect();
             quote! {
                 impl ToResponseSchema for #struct_name {
-                    fn to_response_schema() -> gemini::request::config::schema::ResponseSchema {
+                    fn to_response_schema() -> gemini::ResponseSchema {
+                        let description = #struct_name::description();
                         ResponseSchema {
-                            schema_type: gemini::request::config::schema::SchemaType::Object,
+                            schema_type: gemini::SchemaType::Object,
                             format: None,
-                            description: None,
+                            description: if description.is_empty() {None} else {Some(description)},
                             nullable: None,
                             possibilities: None,
                             max_items: None,
                             properties: Some(std::collections::HashMap::from([
                                 #((stringify!(#names).to_string(), <#types>::to_response_schema())),*
                             ])),
-                            required: Some(vec![#(stringify!({#names}).to_string()),*]),
+                            required: Some(vec![#(stringify!(#names).to_string()),*]),
                             items: None,
                         }
                     }

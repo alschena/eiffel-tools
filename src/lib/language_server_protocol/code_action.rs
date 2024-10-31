@@ -1,6 +1,10 @@
 use super::common::{HandleRequest, ServerState};
 use crate::lib::code_entities::prelude::*;
-use async_lsp::lsp_types::{self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand};
+use crate::lib::processed_file::ProcessedFile;
+use anyhow::Context;
+use async_lsp::lsp_types::{
+    self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand, WorkspaceEdit,
+};
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::collections::HashMap;
@@ -16,38 +20,48 @@ impl HandleRequest for request::CodeActionRequest {
         async move {
             let workspace = st.workspace.read().unwrap();
 
-            let (disabled, edit) = match workspace
-                .files()
-                .iter()
-                .find(|&x| {
-                    x.path
-                        == params
-                            .text_document
-                            .uri
-                            .to_file_path()
-                            .expect("fails to convert uri of code action parameter in usable path.")
-                })
-                .expect("fails calling code action on not yet parsed file.")
-                .feature_around(
-                    params
-                        .range
-                        .try_into()
-                        .expect("fails to convert lsp-range to internal range."),
-                ) {
+            let path = params
+                .text_document
+                .uri
+                .to_file_path()
+                .expect("fails to convert uri of code action parameter in usable path.");
+
+            let file = workspace
+                .find_file(&path)
+                .expect("fails calling code action on not yet parsed file.");
+
+            let (disabled, edit) = match file.feature_around_point(
+                params
+                    .range
+                    .end
+                    .try_into()
+                    .expect("fails to convert lsp position to eiffel point."),
+            ) {
                 Some(feature) => {
-                    match feature.range_end_preconditions() {
-                        Some(range) => {
+                    match (feature.range_end_preconditions(), feature.range_end_postconditions()) {
+                        (Some(precondition_range_end), Some(postcondition_range_end)) => {
+                        let feature_src = file
+                            .feature_src(&feature)
+                            .expect("fails to find source code of feature in the file");
                         let model = transformer::LLM::default();
-                        let (pre, post) = model.add_contracts(&feature);
-                            let range_lsp = range
-                                .clone()
-                                .try_into()
-                                .expect("fails to convert range to lsp-type range.");
-                            (None, Some(lsp_types::WorkspaceEdit::new(HashMap::from([
-                                (
-                                    params.text_document.uri.clone(),
-                                    vec![lsp_types::TextEdit {
-                                        range: range_lsp,
+                        let (pre, post) = model.add_contracts(&feature_src).expect("llm fails to produce contracts");
+                            (None, Some(lsp_types::WorkspaceEdit::new(HashMap::from([ (params.text_document.uri, vec![
+                                    lsp_types::TextEdit {
+                                        range: postcondition_range_end.clone().try_into().expect("fails to convert range to lsp-type range."),
+                                        new_text: match feature.is_postcondition_block_present() {
+                                            true =>  format!("{post}"),
+                                            false => {format!(
+                                                    "{}",
+                                                    contract::Block::<contract::Postcondition> {
+                                                        item: Some(post),
+                                                        range: postcondition_range_end,
+                                                        keyword: contract::Keyword::Ensure,
+                                                    }
+                                                )}
+                                        }
+                                    },
+                                    lsp_types::TextEdit {
+                                        range: precondition_range_end.clone().try_into().expect("fails to convert range to lsp-type range."),
                                         new_text: match feature.is_precondition_block_present() {
                                             true => format!("{pre}"),
                                             false => {
@@ -55,24 +69,18 @@ impl HandleRequest for request::CodeActionRequest {
                                                     "{}",
                                                     contract::Block::<contract::Precondition> {
                                                         item: Some(pre),
-                                                        range: range,
+                                                        range: precondition_range_end,
                                                         keyword: contract::Keyword::Require,
                                                     }
                                                 )
                                             }
                                         },
-                                    }],
-                                ),
-                                // (
-                                //     params.text_document.uri,
-                                //     vec![lsp_types::TextEdit {
-                                //         range,
-                                //         new_text: format!("{post}"),
-                                //     }],
-                                // ),
+                                    },
+                            ])
                             ]))))
                         }
-                        None => (Some(CodeActionDisabled {reason: String::from("The surrounding feature does not support the addition of preconditions.")}), None),
+                        (None, None) => (Some(CodeActionDisabled {reason: String::from("The surrounding feature does not support adding pre or post conditions.")}), None),
+                        _ => unreachable!()
                     }
                 }
                 None => (
@@ -82,7 +90,6 @@ impl HandleRequest for request::CodeActionRequest {
                     None,
                 ),
             };
-
             Ok(Some(vec![CodeActionOrCommand::CodeAction(CodeAction {
                 title: String::from("Add contracts to current routine"),
                 kind: None,

@@ -1,6 +1,7 @@
 use super::model;
 use super::request;
 use serde::{Deserialize, Serialize};
+use std::iter::Iterator;
 
 #[derive(Deserialize, Debug)]
 pub struct Response {
@@ -9,6 +10,22 @@ pub struct Response {
     prompt_feedback: PromptFeedback,
     #[serde(skip_deserializing)]
     usage_metadata: UsageMetadata,
+}
+impl Response {
+    pub fn parsable_content<'a>(&'a self) -> impl Iterator<Item = &str> + 'a {
+        self.candidates
+            .0
+            .iter()
+            .filter_map(|c| {
+                let content = &c.content;
+                match content.role {
+                    Some(model::Role::User) => None,
+                    Some(model::Role::Model) => Some(content.text_parts()),
+                    None => None,
+                }
+            })
+            .flatten()
+    }
 }
 /// Returns the prompt's feedback related to the content filters.
 #[derive(Deserialize, Debug, Default)]
@@ -46,6 +63,11 @@ struct Content {
     parts: Vec<request::Part>,
     role: Option<model::Role>,
 }
+impl Content {
+    pub fn text_parts<'a>(&'a self) -> impl Iterator<Item = &str> + 'a {
+        self.parts.iter().map(|p| p.text())
+    }
+}
 /// Optional. Output only. The reason why the model stopped generating tokens. If empty, the model has not stopped generating tokens.
 #[derive(Deserialize, Debug)]
 enum FinishReason {}
@@ -70,32 +92,6 @@ mod test {
     use super::super::model;
     use super::super::request::{self, config};
     use super::*;
-
-    #[tokio::test]
-    #[ignore]
-    async fn text_response() {
-        let req = request::Request::from(
-            "Write a story about turles from the prospective of a frog.".to_string(),
-        );
-        let config = model::Config::default();
-        let web_client = reqwest::Client::new();
-        let json_req = web_client.post(config.end_point().clone()).json(&req);
-        eprintln!("{:?}", json_req);
-        let res = match json_req.send().await {
-            Ok(res) => res.text().await.expect("Decode response from Gemini"),
-            Err(_) => {
-                panic!("Response of Gemini")
-            }
-        };
-        eprintln!("{:?}", res);
-    }
-    #[tokio::test]
-    #[ignore]
-    async fn simple_json_response() {
-        let req = request::Request::from(
-            "Write a story about turtles from the prospective of a frog.".to_string(),
-        );
-        let config = model::Config::default();
-        let res = req.process(&config).await;
-    }
+    use anyhow::Result;
+    use std::str::FromStr;
 }

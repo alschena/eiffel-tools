@@ -1,11 +1,10 @@
 use super::prelude::*;
 use crate::lib::tree_sitter_extension::Parse;
-use ::tree_sitter::{Node, Query, QueryCursor, QueryMatch};
-use anyhow::{anyhow, Context};
-use gemini::request::config::schema::{Described, ResponseSchema, ToResponseSchema};
+use ::tree_sitter::{Node, Query, QueryCursor};
+use anyhow::anyhow;
+use gemini::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
-use serde_xml_rs::debug_expect;
 use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
 trait Type {
@@ -238,11 +237,11 @@ impl Display for Precondition {
             "{}",
             self.precondition
                 .iter()
-                .fold(String::from('\n'), |acc, elt| {
-                    format!("{acc}{}{elt}", Self::indentation_string())
-                        .trim_end()
-                        .to_owned()
+                .fold(String::from('\n'), |mut acc, elt| {
+                    acc.push_str(format!("{}{}", Self::indentation_string(), elt).as_str());
+                    acc
                 })
+                .trim_end()
         )
     }
 }
@@ -253,8 +252,17 @@ impl Display for Postcondition {
             "{}",
             self.postcondition
                 .iter()
-                .fold(String::new(), |acc, elt| { format!("{acc}\n{elt}") })
+                .fold(String::from('\n'), |mut acc, elt| {
+                    acc.push_str(format!("{}{}", Self::indentation_string(), elt).as_str());
+                    acc
+                })
+                .trim_end()
         )
+    }
+}
+impl Described for Clause {
+    fn description() -> String {
+        String::from("A valid contract clause of the eiffel programming language.")
     }
 }
 impl Described for Tag {
@@ -283,6 +291,8 @@ impl Described for Postcondition {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
+    use gemini::SchemaType;
     use Clause;
 
     #[test]
@@ -400,5 +410,119 @@ end"#;
             .expect("Parse clause");
         assert_eq!(clause.predicate, predicate);
         assert_eq!(clause.tag, tag);
+    }
+    // For gemini completions.
+    // When the LSP grows in maturity, gemini will be decoupled and these tests will be moved to a compatibility layer.
+    #[test]
+    fn precondition_response_schema() -> Result<()> {
+        let response_schema = Precondition::to_response_schema();
+        let oracle_response = ResponseSchema {
+            schema_type: SchemaType::Object,
+            format: None,
+            description: Some(Precondition::description()),
+            nullable: None,
+            possibilities: None,
+            max_items: None,
+            properties: Some(std::collections::HashMap::from([(
+                String::from("precondition"),
+                <Vec<Clause>>::to_response_schema(),
+            )])),
+            required: Some(vec![String::from("precondition")]),
+            items: None,
+        };
+        assert_eq!(response_schema, oracle_response);
+        Ok(())
+    }
+    #[test]
+    fn postcondition_response_schema() -> Result<()> {
+        let response_schema = Postcondition::to_response_schema();
+        let oracle_response = ResponseSchema {
+            schema_type: SchemaType::Object,
+            format: None,
+            description: Some(Postcondition::description()),
+            nullable: None,
+            possibilities: None,
+            max_items: None,
+            properties: Some(std::collections::HashMap::from([(
+                String::from("postcondition"),
+                <Vec<Clause>>::to_response_schema(),
+            )])),
+            required: Some(vec![String::from("postcondition")]),
+            items: None,
+        };
+        assert_eq!(response_schema, oracle_response);
+        Ok(())
+    }
+    #[test]
+    fn clause_response_schema() -> Result<()> {
+        let response_schema = Clause::to_response_schema();
+        let oracle_schema_type = SchemaType::Object;
+        let oracle_format = None;
+        let oracle_description = Some(Clause::description());
+        let oracle_nullable = None;
+        let oracle_possibilities = None;
+        let oracle_max_items = None;
+        let oracle_properties = Some(std::collections::HashMap::from([
+            (String::from("tag"), Tag::to_response_schema()),
+            (String::from("predicate"), Predicate::to_response_schema()),
+        ]));
+        let oracle_required = Some(vec![String::from("tag"), String::from("predicate")]);
+        let oracle_items = None;
+        assert_eq!(response_schema.schema_type, oracle_schema_type);
+        assert_eq!(response_schema.format, oracle_format);
+        assert_eq!(response_schema.description, oracle_description);
+        assert_eq!(response_schema.nullable, oracle_nullable);
+        assert_eq!(response_schema.possibilities, oracle_possibilities);
+        assert_eq!(response_schema.max_items, oracle_max_items);
+        assert_eq!(response_schema.properties, oracle_properties);
+        assert_eq!(
+            response_schema.required.map(|r| r
+                .clone()
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>()),
+            oracle_required.map(|r| { r.clone().into_iter().collect() })
+        );
+        assert_eq!(response_schema.items, oracle_items);
+        Ok(())
+    }
+    #[test]
+    fn tag_response_schema() -> Result<()> {
+        let response_schema = Tag::to_response_schema();
+        let oracle_response = ResponseSchema {
+            schema_type: SchemaType::Object,
+            format: None,
+            description: Some(Tag::description()),
+            nullable: None,
+            possibilities: None,
+            max_items: None,
+            properties: Some(std::collections::HashMap::from([(
+                String::from("tag"),
+                String::to_response_schema(),
+            )])),
+            required: Some(vec![String::from("tag")]),
+            items: None,
+        };
+        assert_eq!(response_schema, oracle_response);
+        Ok(())
+    }
+    #[test]
+    fn predicate_response_schema() -> Result<()> {
+        let response_schema = Predicate::to_response_schema();
+        let oracle_response = ResponseSchema {
+            schema_type: SchemaType::Object,
+            format: None,
+            description: Some(Predicate::description()),
+            nullable: None,
+            possibilities: None,
+            max_items: None,
+            properties: Some(std::collections::HashMap::from([(
+                String::from("predicate"),
+                String::to_response_schema(),
+            )])),
+            required: Some(vec![String::from("predicate")]),
+            items: None,
+        };
+        assert_eq!(response_schema, oracle_response);
+        Ok(())
     }
 }

@@ -42,6 +42,15 @@ impl Feature {
             None => false,
         }
     }
+    pub fn is_postcondition_block_present(&self) -> bool {
+        match &self.postconditions {
+            Some(Block { item, .. }) => match item {
+                Some(_) => true,
+                None => false,
+            },
+            None => false,
+        }
+    }
     pub fn range_end_preconditions(&self) -> Option<Range> {
         let point: &Point = match &self.preconditions {
             Some(pre) => &pre.range().end,
