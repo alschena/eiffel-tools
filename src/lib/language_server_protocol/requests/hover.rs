@@ -1,4 +1,4 @@
-use super::prelude::{HandleRequest, ServerState};
+use super::super::prelude::{HandleRequest, ServerState};
 use async_lsp::lsp_types::{
     notification, request, Hover, HoverContents, MarkedString, MessageType, ShowMessageParams,
 };

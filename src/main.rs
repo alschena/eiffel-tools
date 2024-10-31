@@ -5,7 +5,7 @@ use async_lsp::router;
 use async_lsp::server::LifecycleLayer;
 use async_lsp::tracing::TracingLayer;
 use async_lsp::{client_monitor::ClientProcessMonitorLayer, lsp_types::notification};
-use eiffel_tools::lib::language_server_protocol::prelude::Router;
+use eiffel_tools::lib::language_server_protocol::prelude::*;
 use std::time::Duration;
 use tower::ServiceBuilder;
 use tracing::{info, Level};

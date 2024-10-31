@@ -1,14 +1,9 @@
-use super::prelude::{HandleRequest, ServerState};
 use crate::lib::code_entities::prelude::*;
-use crate::lib::processed_file::ProcessedFile;
-use anyhow::Context;
-use async_lsp::lsp_types::{
-    self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand, WorkspaceEdit,
-};
+use crate::lib::language_server_protocol::prelude::{HandleRequest, ServerState};
+use async_lsp::lsp_types::{self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand};
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::collections::HashMap;
-use std::future::Future;
 mod transformer;
 
 impl HandleRequest for request::CodeActionRequest {
@@ -21,9 +16,7 @@ impl HandleRequest for request::CodeActionRequest {
             .uri
             .to_file_path()
             .expect("fails to convert uri of code action parameter in usable path.");
-        let file = st
-            .find_file(&path)
-            .expect("fails to search file in server state.");
+        let file = st.find_file(&path).await;
 
         let (disabled, edit) = match file {
             Some(file) => match file.feature_around_point(
