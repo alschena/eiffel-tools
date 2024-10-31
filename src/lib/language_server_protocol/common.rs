@@ -14,7 +14,6 @@ pub struct ServerState {
     pub(super) workspace: Arc<RwLock<Workspace>>,
     pub(super) counter: i32,
 }
-pub struct TickEvent;
 pub trait HandleRequest: request::Request {
     fn handle_request(
         st: ServerState,
@@ -103,11 +102,5 @@ impl Router<ServerState> {
     pub fn set_handler_notification<T: HandleNotification + 'static>(&mut self) {
         self.0
             .notification::<T>(|st, params| T::handle_notification(st.clone(), params));
-    }
-    pub fn set_tick_event(&mut self) {
-        self.0.event::<TickEvent>(|st, _| {
-            st.counter += 1;
-            ControlFlow::Continue(())
-        });
     }
 }

@@ -5,7 +5,7 @@ use async_lsp::router;
 use async_lsp::server::LifecycleLayer;
 use async_lsp::tracing::TracingLayer;
 use async_lsp::{client_monitor::ClientProcessMonitorLayer, lsp_types::notification};
-use eiffel_tools::lib::language_server_protocol::common::{Router, TickEvent};
+use eiffel_tools::lib::language_server_protocol::common::Router;
 use std::time::Duration;
 use tower::ServiceBuilder;
 use tracing::{info, Level};
@@ -14,19 +14,6 @@ use tracing_subscriber::fmt::{fmt, format::FmtSpan};
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     let (server, _) = async_lsp::MainLoop::new_server(|client| {
-        tokio::spawn({
-            let client = client.clone();
-            async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(1));
-                loop {
-                    interval.tick().await;
-                    if client.emit(TickEvent).is_err() {
-                        break;
-                    }
-                }
-            }
-        });
-
         let mut router = Router::new(&client);
         router.set_handler_request::<request::Initialize>();
         router.set_handler_request::<request::HoverRequest>();
@@ -38,7 +25,6 @@ async fn main() -> anyhow::Result<()> {
         router.set_handler_notification::<notification::DidOpenTextDocument>();
         router.set_handler_notification::<notification::DidChangeTextDocument>();
         router.set_handler_notification::<notification::DidCloseTextDocument>();
-        router.set_tick_event();
 
         ServiceBuilder::new()
             .layer(TracingLayer::default())
@@ -49,11 +35,17 @@ async fn main() -> anyhow::Result<()> {
             .service::<router::Router<_>>(router.into())
     });
 
+    let log_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .append(true)
+        .open(".eiffel-lsp.log")?;
+
     fmt()
         .with_max_level(Level::INFO)
         .with_span_events(FmtSpan::CLOSE)
         .with_ansi(false)
-        .with_writer(std::io::stderr)
+        .with_writer(log_file)
         .init();
 
     // Prefer truly asynchronous piped stdin/stdout without blocking tasks.
