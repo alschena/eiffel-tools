@@ -117,6 +117,23 @@ impl Request {
     }
 }
 impl Request {
+    pub fn new_async_client() -> reqwest::Client {
+        reqwest::Client::new()
+    }
+    pub async fn process_with_async_client(
+        self,
+        config: model::Config,
+        client: reqwest::Client,
+    ) -> Result<response::Response> {
+        let json_req = client.post(config.end_point()).json(&self);
+        let res = json_req
+            .send()
+            .await
+            .map_err(|e| anyhow!("fails to send response to gemini with error: {}", e))?;
+        res.json::<response::Response>()
+            .await
+            .map_err(|e| anyhow!("fails to retrieve response from gemini with error: {}", e))
+    }
     pub fn new_blocking_client() -> reqwest::blocking::Client {
         reqwest::blocking::Client::new()
     }
@@ -243,6 +260,14 @@ mod test {
         let client = Request::new_blocking_client();
         let req = Request::from_str("Tell me about the night.")?;
         let _ = req.process_with_blocking_client(&model_config, &client)?;
+        Ok(())
+    }
+    #[tokio::test]
+    async fn process_with_async_client() -> Result<()> {
+        let model_config = model::Config::default();
+        let client = Request::new_async_client();
+        let req = Request::from_str("Tell me about the night.")?;
+        let _ = req.process_with_async_client(model_config, client).await?;
         Ok(())
     }
     #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Clone, Hash)]

@@ -1,6 +1,6 @@
 mod code_action;
-pub mod common;
 mod document_symbol;
 mod hover;
 mod initialization;
+pub mod prelude;
 mod workspace_document_symbol;

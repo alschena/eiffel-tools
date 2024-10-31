@@ -1,4 +1,4 @@
-use super::common::{HandleRequest, ServerState};
+use super::prelude::{HandleRequest, ServerState};
 use async_lsp::lsp_types::{request, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse};
 use async_lsp::ResponseError;
 use async_lsp::Result;

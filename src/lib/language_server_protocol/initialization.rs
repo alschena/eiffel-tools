@@ -1,4 +1,4 @@
-use super::common::{HandleNotification, HandleRequest, ServerState};
+use super::prelude::{HandleNotification, HandleRequest, ServerState};
 use crate::lib::config;
 use crate::lib::processed_file::ProcessedFile;
 use async_lsp::lsp_types::{

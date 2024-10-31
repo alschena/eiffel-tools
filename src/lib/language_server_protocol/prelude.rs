@@ -1,18 +1,30 @@
+use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
+use anyhow::anyhow;
 use async_lsp::lsp_types::{notification, request};
 use async_lsp::router;
 use async_lsp::ClientSocket;
 use async_lsp::Result;
 use async_lsp::{lsp_types, ResponseError};
+use std::borrow::Cow;
 use std::future::Future;
 use std::ops::ControlFlow;
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use tracing::info;
 #[derive(Clone)]
 pub struct ServerState {
     pub(super) client: ClientSocket,
     pub(super) workspace: Arc<RwLock<Workspace>>,
-    pub(super) counter: i32,
+}
+impl ServerState {
+    pub fn find_file(&self, path: &Path) -> anyhow::Result<Option<ProcessedFile>> {
+        let ws = self
+            .workspace
+            .read()
+            .map_err(|e| anyhow!("fails to obtain read lock of workspace with error: {}", e))?;
+        Ok(ws.find_file(path).map(|f| f.to_owned()))
+    }
 }
 pub trait HandleRequest: request::Request {
     fn handle_request(
@@ -91,7 +103,6 @@ impl Router<ServerState> {
         let kernel = router::Router::new(ServerState {
             client: client.clone(),
             workspace: Arc::new(RwLock::new(Workspace::new())),
-            counter: 0,
         });
         Router(kernel)
     }

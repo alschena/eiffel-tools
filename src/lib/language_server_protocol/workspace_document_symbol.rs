@@ -1,4 +1,4 @@
-use super::common::{HandleRequest, ServerState};
+use super::prelude::{HandleRequest, ServerState};
 use crate::lib::code_entities::prelude::Class;
 use async_lsp::lsp_types::{request, SymbolInformation, WorkspaceSymbolResponse};
 use async_lsp::ResponseError;

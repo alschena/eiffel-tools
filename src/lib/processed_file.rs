@@ -9,7 +9,8 @@ use tracing::instrument;
 use tree_sitter::{Parser, Tree};
 
 /// Stores all the information of a file
-pub(crate) struct ProcessedFile {
+#[derive(Debug, Clone)]
+pub struct ProcessedFile {
     /// Treesitter abstract syntax tree, stored for incremental parsing.
     pub(super) tree: Tree,
     /// Path of the file
