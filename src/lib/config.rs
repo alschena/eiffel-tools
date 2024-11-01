@@ -2,6 +2,8 @@ use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use tracing::info;
 use tracing::warn;
 use walkdir::{self};
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq)]
@@ -13,40 +15,50 @@ pub struct System {
     target: Target,
 }
 impl System {
-    /// All clusters the ones defined in the target and the ones defined in the library.
-    fn clusters(self) -> Result<Vec<Cluster>> {
-        let mut clusters: Vec<Cluster> = self.target.cluster;
-        match self.target.library {
-            Some(lib) => {
-                for l in lib.into_iter() {
-                    let path = PathBuf::from(shellexpand::env(&l.location)?.as_ref());
-                    let xml_config = std::fs::read_to_string(path.as_path()).context(format!(
-                        "Fails to read from {:?}",
-                        shellexpand::env(&l.location)
-                    ))?;
-                    let system: System = serde_xml_rs::from_str(xml_config.as_str())
-                        .context("Fails to parse the configuration file of the library")?;
-                    for mut c in system.target.cluster {
-                        let lib_dir = path
-                            .parent()
-                            .context("library path is empty or terminates in a root or prefix.")?;
-                        (&mut c).prepend_path(lib_dir)?;
-                        clusters.push(c);
-                    }
+    fn parse_from_file(file: &Path) -> Option<System> {
+        match std::fs::read_to_string(file) {
+            Ok(v) => match serde_xml_rs::from_str(v.as_str()) {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    info!("fails to parse the configuration file of the library with error {e:?}");
+                    return None;
                 }
-                Ok(clusters)
+            },
+            Err(e) => {
+                info!("fails reading from {file:?} with error {e:?}");
+                return None;
             }
-            None => Ok(clusters),
         }
+    }
+    /// All clusters defined locally or in the library.
+    fn clusters(self) -> Vec<Cluster> {
+        let mut clusters = self.target.cluster;
+
+        let Some(libraries) = self.target.library else {
+            return clusters;
+        };
+
+        for lib in libraries {
+            let Some(path) = lib.location_path() else {
+                continue;
+            };
+            let Some(mut system) = System::parse_from_file(&path) else {
+                return clusters;
+            };
+            let Some(lib_dir) = lib.parent_directory() else {
+                continue;
+            };
+            for lib_cluster in &mut system.target.cluster {
+                lib_cluster.optionally_prepend_to_location(&lib_dir);
+            }
+            clusters.append(&mut system.target.cluster);
+        }
+        clusters
     }
     /// All eiffel files present in the system.
     pub fn eiffel_files(self) -> Result<Vec<PathBuf>> {
         let mut eiffel_files: Vec<PathBuf> = Vec::new();
-        for cluster in self
-            .clusters()
-            .context("All clusters in self.")?
-            .into_iter()
-        {
+        for cluster in self.clusters() {
             eiffel_files.append(&mut cluster.eiffel_files().context("cluster eiffel files")?);
         }
         Ok(eiffel_files)
@@ -65,21 +77,24 @@ struct Cluster {
     cluster: Option<Vec<Cluster>>,
 }
 impl Cluster {
-    fn prepend_path(&mut self, path: &Path) -> Result<()> {
-        if !Path::new(
-            shellexpand::env(&self.location)
-                .context("Fail expanding cluster location by environmental varibles")?
-                .as_ref(),
-        )
-        .is_absolute()
-        {
-            self.location = path
-                .join(Path::new(&self.location))
-                .to_str()
-                .context("Fail to convert path to UFT-8 string")?
-                .to_string();
+    fn is_location_valid_absolute_path(&self) -> bool {
+        match shellexpand::env(&self.location) {
+            Ok(v) => Path::new(v.as_ref()).is_absolute(),
+            Err(e) => {
+                info! {"fails to expand cluster location with environmental variables with error {e:?}"};
+                false
+            }
         }
-        Ok(())
+    }
+    fn optionally_prepend_to_location(&mut self, path: &Path) {
+        if !self.is_location_valid_absolute_path() {
+            match path.join(Path::new(&self.location)).to_str() {
+                Some(s) => self.location = s.to_string(),
+                None => {
+                    info!("fails to convert path to UFT-8 string")
+                }
+            }
+        }
     }
     fn eiffel_files(&self) -> Result<Vec<PathBuf>> {
         let cluster_paths = match self.cluster {
@@ -182,6 +197,40 @@ impl Cluster {
 struct Library {
     name: String,
     location: String,
+}
+impl Library {
+    fn location_path(&self) -> Option<PathBuf> {
+        let location = &self.location;
+        match shellexpand::env(location) {
+            Ok(expanded_location) => {
+                let clean_location = expanded_location
+                    .replace(r#"/"#, std::path::MAIN_SEPARATOR_STR)
+                    .replace(r#"\"#, std::path::MAIN_SEPARATOR_STR)
+                    .replace(r#"$|"#, "");
+                match PathBuf::from_str(&clean_location) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        info!("fails to convert {clean_location:?} into an owned path with error {e:?}");
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                info!("fails to expand library location {location:?} by env variables with error: {e:?}");
+                None
+            }
+        }
+    }
+    fn parent_directory(&self) -> Option<PathBuf> {
+        let path = self.location_path()?;
+        match path.parent() {
+            Some(parent) => Some(parent.to_owned()),
+            None => {
+                info!("fails to retrieve library parent directory.");
+                return None;
+            }
+        }
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -340,25 +389,18 @@ mod tests {
             .to_str()
             .context("Generated value for env variable AP cannot be converted to string")?
             .to_owned();
-        assert!(system
-            .clone()
-            .clusters()
-            .context("All clusters location")?
-            .contains(&Cluster {
-                location: library_path,
-                name: "lib".to_string(),
-                recursive: Some(true),
-                cluster: None
-            }));
-        assert!(system
-            .clusters()
-            .context("All clusters location")?
-            .contains(&Cluster {
-                name: "levenshtein_distance".to_string(),
-                location: "./levenshtein_distance/".to_string(),
-                recursive: Some(true),
-                cluster: None
-            }));
+        assert!(system.clone().clusters().contains(&Cluster {
+            location: library_path,
+            name: "lib".to_string(),
+            recursive: Some(true),
+            cluster: None
+        }));
+        assert!(system.clusters().contains(&Cluster {
+            name: "levenshtein_distance".to_string(),
+            location: "./levenshtein_distance/".to_string(),
+            recursive: Some(true),
+            cluster: None
+        }));
         Ok(())
     }
     #[test]
