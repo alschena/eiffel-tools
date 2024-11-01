@@ -30,7 +30,6 @@ serde = "1.0.*"
 # Eiffel configuration
 walkdir = "2"
 shellexpand = {version = "3.1"}
-serde-xml-rs = { version = "0.6" }
 quick-xml = {version = "0.37", features = ["serialize", "overlapped-lists"]}
 # Gemini
 reqwest = {version = "0.12.*", features = ["json", "blocking"]}
