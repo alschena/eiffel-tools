@@ -15,9 +15,9 @@ pub struct System {
     target: Target,
 }
 impl System {
-    fn parse_from_file(file: &Path) -> Option<System> {
+    pub fn parse_from_file(file: &Path) -> Option<System> {
         match std::fs::read_to_string(file) {
-            Ok(v) => match serde_xml_rs::from_str(v.as_str()) {
+            Ok(v) => match quick_xml::de::from_str(v.as_str()) {
                 Ok(v) => Some(v),
                 Err(e) => {
                     info!("fails to parse the configuration file of the library with error {e:?}");
@@ -70,9 +70,29 @@ struct Target {
     library: Option<Vec<Library>>,
 }
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
+enum Name {
+    #[serde(rename = "@name")]
+    Attribute(String),
+    #[serde(rename = "name")]
+    Field(String),
+}
+impl std::ops::Deref for Name {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Name::Attribute(s) => s,
+            Name::Field(s) => s,
+        }
+    }
+}
+#[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
 struct Cluster {
-    name: String,
+    #[serde(flatten)]
+    name: Name,
+    #[serde(rename = "@location")]
     location: String,
+    #[serde(rename = "@recursive")]
     recursive: Option<bool>,
     cluster: Option<Vec<Cluster>>,
 }
@@ -195,7 +215,9 @@ impl Cluster {
 }
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
 struct Library {
-    name: String,
+    #[serde(flatten)]
+    name: Name,
+    #[serde(rename = "@location")]
     location: String,
 }
 impl Library {
@@ -329,20 +351,20 @@ mod tests {
 "#;
     #[test]
     fn parse_cluster() {
-        let system: System = serde_xml_rs::from_str(XML_EXAMPLE).unwrap();
+        let system: System = quick_xml::de::from_str(XML_EXAMPLE).unwrap();
         let target = system.target;
         let cluster = target.cluster.first().expect("At least a cluster");
-        assert_eq!(cluster.name, "list_inversion".to_string());
+        assert_eq!(*cluster.name, "list_inversion".to_string());
         assert_eq!(cluster.location, "./list_inversion/".to_string());
         assert!(cluster.recursive.is_some_and(|x| x));
     }
     #[test]
     fn parse_library() {
-        let system: System = serde_xml_rs::from_str(XML_EXAMPLE_WITH_LIBRARY).unwrap();
+        let system: System = quick_xml::de::from_str(XML_EXAMPLE_WITH_LIBRARY).unwrap();
         let target = system.target;
         let libraries = target.library.expect("Library is present");
         let library = libraries.first().expect("At least a library");
-        assert_eq!(library.name, "base".to_string());
+        assert_eq!(*library.name, "base".to_string());
         assert_eq!(library.location, "$AP/library_config.ecf".to_string());
     }
     #[test]
@@ -362,7 +384,7 @@ mod tests {
     fn all_clusters() -> anyhow::Result<()> {
         let ap_val = std::env::temp_dir();
         std::env::set_var("AP", &ap_val);
-        let system: System = serde_xml_rs::from_str(XML_EXAMPLE_WITH_LIBRARY)
+        let system: System = quick_xml::de::from_str(XML_EXAMPLE_WITH_LIBRARY)
             .expect("Parsable {XML_EXAMPLE_LIBRARY}");
         let lib = system
             .target
@@ -391,12 +413,12 @@ mod tests {
             .to_owned();
         assert!(system.clone().clusters().contains(&Cluster {
             location: library_path,
-            name: "lib".to_string(),
+            name: Name::Attribute("lib".to_string()),
             recursive: Some(true),
             cluster: None
         }));
         assert!(system.clusters().contains(&Cluster {
-            name: "levenshtein_distance".to_string(),
+            name: Name::Attribute("levenshtein_distance".to_string()),
             location: "./levenshtein_distance/".to_string(),
             recursive: Some(true),
             cluster: None
@@ -417,7 +439,7 @@ mod tests {
             .ok_or(anyhow!("failed conversion of path to string"))?
             .to_owned();
         let c = Cluster {
-            name: "test".to_string(),
+            name: Name::Attribute("test".to_string()),
             location: path,
             recursive: Some(false),
             cluster: None,
@@ -433,22 +455,57 @@ mod tests {
     }
     #[test]
     fn nested_cluster() -> anyhow::Result<()> {
-        let system: System = serde_xml_rs::from_str(XML_EXAMPLE_NESTED_CLUSTERS)?;
+        let system: System = quick_xml::de::from_str(XML_EXAMPLE_NESTED_CLUSTERS)?;
         let clusters = system.target.cluster;
         assert_eq!(
             clusters,
             vec![Cluster {
-                name: "list_inversion".to_string(),
+                name: Name::Attribute("list_inversion".to_string()),
                 location: "./list_inversion/".to_string(),
                 recursive: None,
                 cluster: Some(vec![Cluster {
-                    name: "nested".to_string(),
+                    name: Name::Attribute("nested".to_string()),
                     location: "nested/".to_string(),
                     recursive: None,
                     cluster: None
                 }])
             }]
         );
+        Ok(())
+    }
+    #[test]
+    fn xml_out_of_order_library_parsing() -> anyhow::Result<()> {
+        let xml_with_out_of_order_library_entries: &str = r#"<?xml version="1.0" encoding="ISO-8859-1"?>
+    <system xmlns="http://www.eiffel.com/developers/xml/configuration-1-16-0"
+    	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    	xsi:schemaLocation="http://www.eiffel.com/developers/xml/configuration-1-16-0 http://www.eiffel.com/developers/xml/configuration-1-16-0.xsd"
+    	name="sanity-check" uuid="6BE01FDA-BFC4-43D8-9182-99C7A5EFA7E9">
+    	<target name="sanity-check">
+    		<root all_classes="true" />
+    		<file_rule>
+    			<exclude>/\.git$</exclude>
+    			<exclude>/\.svn$</exclude>
+    			<exclude>/CVS$</exclude>
+    			<exclude>/EIFGENs$</exclude>
+    		</file_rule>
+    		<capability> <void_safety support="all" /> </capability>
+    		<library name="base" location="$AP/library_config.ecf" />
+    		<cluster name="list_inversion" location="./list_inversion/" recursive="true" />
+    		<library name="base32" location="$AP/another/library_config.ecf" />
+    		<cluster name="levenshtein_distance" location="./levenshtein_distance/" recursive="true" />
+    	</target>
+    </system>
+    "#;
+        let sys: System = quick_xml::de::from_str(xml_with_out_of_order_library_entries)
+            .map_err(|e| anyhow!("fails to parse out of order xml with error: {e:?}"))?;
+        let Some(libraries) = sys.target.library else {
+            return Err(anyhow!(
+                "fails to find any library in xml with out of order libraries"
+            ));
+        };
+        let mut libs = libraries.iter();
+        assert!(libs.next().is_some());
+        assert!(libs.next().is_some());
         Ok(())
     }
 }

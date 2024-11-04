@@ -1,4 +1,4 @@
-use crate::lib::config;
+use crate::lib::config::{self, System};
 use crate::lib::language_server_protocol::prelude::*;
 use crate::lib::processed_file::ProcessedFile;
 use async_lsp::lsp_types::notification::{Initialized, Notification};
@@ -27,10 +27,9 @@ impl HandleNotification for Initialized {
         let config_file = config_files
             .first()
             .expect("Fails to find configuration in current working directory");
-        let src_config =
-            fs::read_to_string(config_file.path()).expect("Fails to read configuration file");
-        let system: config::System =
-            serde_xml_rs::from_str(&src_config).expect("Fails to parse configuration source");
+        let Some(system) = System::parse_from_file(&config_file.path()) else {
+            panic!("fails to read config file")
+        };
         let eiffel_files = system
             .eiffel_files()
             .expect("Fails to extract eiffel files from system");
