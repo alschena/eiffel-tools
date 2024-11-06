@@ -18,64 +18,26 @@ impl HandleRequest for request::CodeActionRequest {
             .expect("fails to convert uri of code action parameter in usable path.");
         let file = st.find_file(&path).await;
 
-        let (disabled, edit) = match file {
-            Some(file) => match file.feature_around_point(
-                params
+        let (edit, disabled) = match file {
+            Some(file) => {
+                let point = params
                     .range
                     .end
                     .try_into()
-                    .expect("fails to convert lsp position to eiffel point."),
-            ) {
-                Some(feature) => {
-                    match (feature.range_end_preconditions(), feature.range_end_postconditions()) {
-                        (Some(precondition_range_end), Some(postcondition_range_end)) => {
-                        let model = transformer::LLM::default();
-                        let feature_src = file.feature_src(&feature).expect("file should contain feature");
-                        let (pre, post) = model.add_contracts_async(feature_src).await.expect("llm fails to produce contracts");
-                            (None, Some(lsp_types::WorkspaceEdit::new(HashMap::from([ (params.text_document.uri, vec![
-                                    lsp_types::TextEdit {
-                                        range: postcondition_range_end.clone().try_into().expect("range should convert to lsp-type range."),
-                                        new_text: if feature.is_postcondition_block_present() {
-                                            format!("{post}")} else {format!(
-                                                    "{}",
-                                                    contract::Block::<contract::Postcondition> {
-                                                        item: Some(post),
-                                                        range: postcondition_range_end,
-                                                        keyword: contract::Keyword::Ensure,
-                                                    }
-                                                )}
-                                    },
-                                    lsp_types::TextEdit {
-                                        range: precondition_range_end.clone().try_into().expect("range should convert to lsp-type range."),
-                                        new_text: if feature.is_precondition_block_present() {
-                                            format!("{pre}")} else {format!(
-                                                    "{}",
-                                                    contract::Block::<contract::Precondition> {
-                                                        item: Some(pre),
-                                                        range: precondition_range_end,
-                                                        keyword: contract::Keyword::Require,
-                                                    }
-                                                )}
-                                    },
-                            ])
-                            ]))))
-                        }
-                        (None, None) => (Some(CodeActionDisabled {reason: String::from("The surrounding feature does not support adding pre or post conditions.")}), None),
-                        _ => unreachable!()
-                    }
+                    .expect("fails to convert lsp-point to eiffel point");
+                let model = transformer::LLM::default();
+                match model.add_contracts_at_point(point, &file).await {
+                    (None, None) => {
+                        (None, Some(CodeActionDisabled{reason: String::from("fails for internal errors with the llm processing. For more information read the log file")}))
+                    },
+                    a @ _ => a,
                 }
-                None => (
-                    Some(CodeActionDisabled {
-                        reason: "The cursor is not surrounded by a feature".to_string(),
-                    }),
-                    None,
-                ),
-            },
+            }
             None => (
+                None,
                 Some(CodeActionDisabled {
                     reason: "The current file has not been parsed yet.".to_string(),
                 }),
-                None,
             ),
         };
         Ok(Some(vec![CodeActionOrCommand::CodeAction(CodeAction {

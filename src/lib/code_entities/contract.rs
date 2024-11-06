@@ -215,6 +215,11 @@ impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
 pub struct Postcondition {
     pub postcondition: Vec<Clause>,
 }
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
+pub struct RoutineSpecification {
+    pub precondition: Precondition,
+    pub postcondition: Postcondition,
+}
 impl From<Vec<Clause>> for Postcondition {
     fn from(value: Vec<Clause>) -> Self {
         Self {
@@ -286,6 +291,11 @@ impl Described for Postcondition {
         Postconditions are two-states predicates.
         They can refer to the prestate of the routine by calling the feature `old_` on any object which existed before the execution of the routine.
         Equivalently, you can use the keyword `old` before a feature to access its prestate.".to_string()
+    }
+}
+impl Described for RoutineSpecification {
+    fn description() -> String {
+        String::new()
     }
 }
 #[cfg(test)]
