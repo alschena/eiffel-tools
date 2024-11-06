@@ -5,6 +5,7 @@ use std::{
     io::BufRead,
     path::{Path, PathBuf},
 };
+use tracing::info;
 use tracing::instrument;
 use tree_sitter::{Parser, Tree};
 
@@ -20,14 +21,19 @@ pub struct ProcessedFile {
 }
 impl ProcessedFile {
     #[instrument(skip(parser))]
-    pub(crate) fn new(parser: &mut Parser, path: PathBuf) -> Result<ProcessedFile> {
-        let src: String = String::from_utf8(std::fs::read(&path).expect("Failed to read file."))
-            .expect("Source code must be UTF8 encoded");
+    pub(crate) async fn new(parser: &mut Parser, path: PathBuf) -> Option<ProcessedFile> {
+        let src: String =
+            String::from_utf8(tokio::fs::read(&path).await.expect("Failed to read file."))
+                .expect("Source code must be UTF8 encoded");
         let tree = parser.parse(&src, None).unwrap();
-        let mut class =
-            Class::parse(&tree.root_node(), src.as_str()).context("Parsing of class")?;
+        let Ok(mut class) =
+            Class::parse(&tree.root_node(), src.as_str()).context("Parsing of class")
+        else {
+            info!("fails to parse {:?}", &path);
+            return None;
+        };
         class.add_location(&path);
-        Ok(ProcessedFile { tree, path, class })
+        Some(ProcessedFile { tree, path, class })
     }
     pub(crate) fn tree(&self) -> &Tree {
         &self.tree

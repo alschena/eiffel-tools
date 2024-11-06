@@ -7,8 +7,8 @@ use tracing::info;
 use tracing::warn;
 use walkdir::{self};
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq)]
-struct Config {
-    system: System,
+pub struct Config {
+    pub system: System,
 }
 #[derive(Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct System {
