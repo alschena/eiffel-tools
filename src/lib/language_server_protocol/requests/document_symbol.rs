@@ -12,7 +12,7 @@ impl HandleRequest for request::DocumentSymbolRequest {
     ) -> impl Future<Output = Result<Self::Result, ResponseError>> + Send + 'static {
         async move {
             let path: path::PathBuf = params.text_document.uri.path().into();
-            let read_workspace = st.workspace.read().expect("workspace must be readable");
+            let read_workspace = st.workspace.read().await;
             let file = read_workspace.files().into_iter().find(|&x| x.path == path);
             if let Some(file) = file {
                 let class = file.class();

@@ -4,8 +4,8 @@ use crate::lib::workspace::Workspace;
 use async_lsp::ClientSocket;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::RwLock;
 use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 
 #[derive(Clone)]
@@ -31,7 +31,7 @@ impl ServerState {
         }
     }
     pub async fn find_file(&self, path: &Path) -> Option<ProcessedFile> {
-        let ws = self.workspace.read().expect("workspace must be readable.");
+        let ws = self.workspace.read().await;
         ws.find_file(path).map(|f| f.to_owned())
     }
     pub async fn process_task(&mut self) {
@@ -58,9 +58,7 @@ impl ServerState {
                     .filter_map(|file| file)
                     .collect();
                 let ws = self.workspace.clone();
-                let mut ws = ws
-                    .write()
-                    .expect("fails expecting the workspace to be writable");
+                let mut ws = ws.write().await;
                 ws.set_files(files);
             }
         }
