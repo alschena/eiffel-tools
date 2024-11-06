@@ -1,6 +1,5 @@
 use super::prelude::*;
 use async_lsp::router;
-use async_lsp::ClientSocket;
 
 pub struct Router<T>(router::Router<T>);
 
@@ -17,8 +16,8 @@ impl<T> From<Router<T>> for router::Router<T> {
 }
 
 impl Router<ServerState> {
-    pub fn new(client: &ClientSocket) -> Router<ServerState> {
-        let kernel = router::Router::new(ServerState::new(client.clone()));
+    pub fn new(server_state: ServerState) -> Router<ServerState> {
+        let kernel = router::Router::new(server_state);
         Router(kernel)
     }
     pub fn set_handler_request<T: HandleRequest + 'static>(&mut self) {

@@ -3,8 +3,10 @@ use crate::lib::tree_sitter_extension::{self, Node, Parse};
 use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use async_lsp::lsp_types;
+use rayon::prelude::*;
 use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
+use tracing::info;
 use tracing::instrument;
 use tree_sitter::{Parser, Query, QueryCursor};
 // TODO accept only attributes of logical type in the model
@@ -540,8 +542,8 @@ end
             "W".to_string()
         );
     }
-    #[test]
-    fn class_to_workspacesymbol() -> Result<()> {
+    #[tokio::test]
+    async fn class_to_workspacesymbol() -> Result<()> {
         let path = "/tmp/eiffel_tool_test_class_to_workspacesymbol.e";
         let path = PathBuf::from(path);
         let src = "
@@ -556,7 +558,9 @@ end
         parser
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
-        let file = processed_file::ProcessedFile::new(&mut parser, path.clone())?;
+        let Some(file) = processed_file::ProcessedFile::new(&mut parser, path.clone()).await else {
+            return Err(anyhow!("fails to process file"));
+        };
         let class = (&file).class();
         let symbol = <lsp_types::WorkspaceSymbol>::try_from(class);
         assert!(symbol.is_ok());

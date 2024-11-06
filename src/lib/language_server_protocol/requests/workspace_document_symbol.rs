@@ -11,7 +11,7 @@ impl HandleRequest for request::WorkspaceSymbolRequest {
     ) -> impl Future<Output = Result<<Self as request::Request>::Result, ResponseError>> + Send + 'static
     {
         async move {
-            let read_workspace = st.workspace.read().expect("workspace must be readable");
+            let read_workspace = st.workspace.read().await;
             let files = read_workspace.files();
             let classes: Vec<&Class> = files.iter().map(|x| x.class()).collect();
             let symbol_information: Vec<SymbolInformation> = classes

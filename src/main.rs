@@ -11,10 +11,23 @@ use tower::ServiceBuilder;
 use tracing::{info, Level};
 use tracing_subscriber::fmt::{fmt, format::FmtSpan};
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
     let (server, _) = async_lsp::MainLoop::new_server(|client| {
-        let mut router = Router::new(&client);
+        let server_state = ServerState::new(client.clone());
+
+        tokio::spawn({
+            let mut server = server_state.clone();
+            async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(1));
+                loop {
+                    interval.tick().await;
+                    server.process_task().await
+                }
+            }
+        });
+
+        let mut router = Router::new(server_state);
         router.set_handler_request::<request::Initialize>();
         router.set_handler_request::<request::HoverRequest>();
         router.set_handler_request::<request::GotoDefinition>();
@@ -39,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
     let log_file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
-        .append(true)
+        .append(false)
         .open(".eiffel-lsp.log")?;
 
     fmt()
