@@ -54,15 +54,8 @@ impl LLM {
             info!("fails to process llm request");
             return (None, None);
         };
-        let mut specification = response_specification.parsable_content().filter_map(|x| {
-            match serde_json::from_str::<RoutineSpecification>(x) {
-                Ok(v) => Some(v),
-                Err(e) => {
-                    warn!("fails to deserialize response from llm with error {e:?}");
-                    None
-                }
-            }
-        });
+
+        let mut specification = response_specification.parsed();
 
         let RoutineSpecification {
             precondition: pre,

@@ -1,3 +1,6 @@
+use crate::ToResponseSchema;
+use tracing::warn;
+
 use super::model;
 use super::request;
 use serde::{Deserialize, Serialize};
@@ -25,6 +28,21 @@ impl Response {
                 }
             })
             .flatten()
+    }
+    pub fn parsed<'a, 'de, T: ToResponseSchema + Deserialize<'de>>(
+        &'a self,
+    ) -> impl Iterator<Item = T> + 'a
+    where
+        'a: 'de,
+    {
+        self.parsable_content()
+            .filter_map(|item| match serde_json::from_str::<T>(item) {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    warn!("fails to parse {item:?} with error: {e:?}");
+                    None
+                }
+            })
     }
 }
 /// Returns the prompt's feedback related to the content filters.
