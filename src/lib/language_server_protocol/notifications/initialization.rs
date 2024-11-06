@@ -13,21 +13,28 @@ impl HandleNotification for Initialized {
         st: ServerState,
         params: <Self as Notification>::Params,
     ) -> ControlFlow<Result<()>, ()> {
-        let cwd = env::current_dir().expect("Fails to retrieve current working directory");
-        let config_files: Result<Vec<fs::DirEntry>, std::io::Error> = fs::read_dir(cwd)
-            .expect("Fails to interate over current directory contents")
-            .filter(|file| {
-                file.as_ref()
-                    .is_ok_and(|file| file.path().extension().is_some_and(|ext| ext == "ecf"))
-            })
-            .collect();
-        debug_assert!(config_files.is_ok());
-        let config_files = config_files.unwrap();
-        debug_assert_eq!(config_files.len(), 1);
-        let config_file = config_files
-            .first()
-            .expect("Fails to find configuration in current working directory");
-        let Some(system) = System::parse_from_file(&config_file.path()) else {
+        let mut write_workspace = st.workspace.write().expect("workspace must be writable");
+        let config_file_path = match write_workspace.ecf_path().clone() {
+            Some(s) => s,
+            None => {
+                let cwd = env::current_dir().expect("Fails to retrieve current working directory");
+                let config_files: Result<Vec<fs::DirEntry>, std::io::Error> = fs::read_dir(cwd)
+                    .expect("Fails to interate over current directory contents")
+                    .filter(|file| {
+                        file.as_ref()
+                            .is_ok_and(|file| file.path().extension().is_some_and(|ext| ext == "ecf"))
+                    })
+                    .collect();
+                debug_assert!(config_files.is_ok());
+                let config_files = config_files.unwrap();
+                debug_assert_eq!(config_files.len(), 1);
+                config_files
+                    .first()
+                    .expect("Fails to find configuration in current working directory")
+                    .path()
+            }
+        };
+        let Some(system) = System::parse_from_file(config_file_path.as_path()) else {
             panic!("fails to read config file")
         };
         let eiffel_files = system
@@ -49,7 +56,6 @@ impl HandleNotification for Initialized {
                 }
             })
             .collect();
-        let mut write_workspace = st.workspace.write().expect("workspace must be writable");
         write_workspace.set_files(files);
         ControlFlow::Continue(())
     }

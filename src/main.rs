@@ -25,6 +25,7 @@ async fn main() -> anyhow::Result<()> {
         router.set_handler_notification::<notification::DidOpenTextDocument>();
         router.set_handler_notification::<notification::DidChangeTextDocument>();
         router.set_handler_notification::<notification::DidCloseTextDocument>();
+        router.set_handler_notification::<notification::DidChangeConfiguration>();
 
         ServiceBuilder::new()
             .layer(TracingLayer::default())
