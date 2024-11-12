@@ -1,10 +1,8 @@
-use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
-use std::fs;
+use std::fs::{self, canonicalize};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use tracing::info;
-use tracing::warn;
+use tracing::{info, warn};
 use walkdir::{self};
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq)]
 pub struct Config {
@@ -30,38 +28,38 @@ impl System {
             }
         }
     }
-    /// All clusters defined locally or in the library.
-    fn clusters(self) -> Vec<Cluster> {
-        let mut clusters = self.target.cluster;
+    /// All eiffel files present in the system.
+    pub fn eiffel_files(&self) -> impl IntoIterator<Item = PathBuf> {
+        let eiffel_files = self
+            .target
+            .cluster
+            .iter()
+            .filter_map(|cluster| cluster.eiffel_files())
+            .flatten()
+            .collect::<Vec<PathBuf>>();
 
-        let Some(libraries) = self.target.library else {
-            return clusters;
+        let Some(ref libraries) = self.target.library else {
+            return eiffel_files;
         };
 
-        for lib in libraries {
-            let Some(path) = lib.location_path() else {
-                continue;
+        let eiffel_files = libraries.iter().fold(eiffel_files, |mut acc, library| {
+            let Some(path) = library.path() else {
+                return acc;
             };
-            let Some(mut system) = System::parse_from_file(&path) else {
-                return clusters;
+            let Some(system) = System::parse_from_file(&path) else {
+                info!("fails to parse library system at {path:?}");
+                return acc;
             };
-            let Some(lib_dir) = lib.parent_directory() else {
-                continue;
-            };
-            for lib_cluster in &mut system.target.cluster {
-                lib_cluster.optionally_prepend_to_location(&lib_dir);
-            }
-            clusters.append(&mut system.target.cluster);
-        }
-        clusters
-    }
-    /// All eiffel files present in the system.
-    pub fn eiffel_files(self) -> Result<Vec<PathBuf>> {
-        let mut eiffel_files: Vec<PathBuf> = Vec::new();
-        for cluster in self.clusters() {
-            eiffel_files.append(&mut cluster.eiffel_files().context("cluster eiffel files")?);
-        }
-        Ok(eiffel_files)
+            library
+                .eiffel_files(&system.target.cluster)
+                .for_each(|file| acc.push(file));
+            acc
+        });
+        let mut init = eiffel_files.clone();
+        init.sort();
+        init.dedup();
+        assert_eq!(init.len(), eiffel_files.len());
+        eiffel_files
     }
 }
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
@@ -97,120 +95,117 @@ struct Cluster {
     cluster: Option<Vec<Cluster>>,
 }
 impl Cluster {
-    fn is_location_valid_absolute_path(&self) -> bool {
+    fn recursive(&self) -> bool {
+        match self.recursive {
+            Some(true) => true,
+            _ => false,
+        }
+    }
+    fn path(&self) -> Option<PathBuf> {
         match shellexpand::env(&self.location) {
-            Ok(v) => Path::new(v.as_ref()).is_absolute(),
+            Ok(v) => Some(PathBuf::from(
+                v.replace(r#"/"#, std::path::MAIN_SEPARATOR_STR)
+                    .replace(r#"\"#, std::path::MAIN_SEPARATOR_STR)
+                    .replace(r#"$|"#, ""),
+            )),
             Err(e) => {
                 info! {"fails to expand cluster location with environmental variables with error {e:?}"};
-                false
+                None
             }
         }
     }
-    fn optionally_prepend_to_location(&mut self, path: &Path) {
-        if !self.is_location_valid_absolute_path() {
-            match path.join(Path::new(&self.location)).to_str() {
-                Some(s) => self.location = s.to_string(),
-                None => {
-                    info!("fails to convert path to UFT-8 string")
-                }
-            }
-        }
-    }
-    fn eiffel_files(&self) -> Result<Vec<PathBuf>> {
-        let cluster_paths = match self.cluster {
-            Some(ref clusters) => {
-                let mut paths: Vec<PathBuf> = clusters
-                    .iter()
-                    .map(|cluster| {
-                        Path::new(&self.location).join(Path::new(cluster.location.as_str()))
-                    })
-                    .collect();
-                paths.push(PathBuf::from(self.location.clone()));
-                paths
-            }
-            None => vec![PathBuf::from(self.location.clone())],
-        }
-        .iter()
-        .filter_map(|unexpanded_path| {
-            let unexpanded_path = match unexpanded_path.to_str() {
-                Some(v) => v,
-                None => return Some(Err(anyhow!("Fail to convert path to valid UFT-8"))),
+    fn paths<'a>(&'a self) -> Option<impl IntoIterator<Item = (PathBuf, bool)> + 'a> {
+        let Some(base_path) = self.path() else {
+            return None;
+        };
+        let mut paths = vec![(base_path.clone(), self.recursive())];
+        let Some(clusters) = self.cluster.as_ref() else {
+            return Some(paths);
+        };
+        clusters.iter().for_each(|inner_cluster| {
+            let Some(inner_path) = inner_cluster.path() else {
+                return;
             };
-            match shellexpand::env(unexpanded_path) {
-                Ok(path_as_string) => {
-                    let p = PathBuf::from(
-                        path_as_string
-                            .replace(r#"/"#, std::path::MAIN_SEPARATOR_STR)
-                            .replace(r#"\"#, std::path::MAIN_SEPARATOR_STR)
-                            .replace(r#"$|"#, ""),
-                    );
-                    if p.exists() {
-                        match fs::canonicalize(p) {
-                            Ok(p) => Some(Ok(p)),
-                            Err(e) => Some(Err(anyhow!(
-                                "Path could not be canonicalized with error {:?}",
-                                e
-                            ))),
-                        }
-                    } else {
-                        warn!("Tried to analyze the following inexistent path {:?}", p);
-                        None
-                    }
+            paths.push((base_path.join(inner_path), inner_cluster.recursive()))
+        });
+        Some(paths)
+    }
+    fn in_library_paths<'a, 'b>(
+        &'a self,
+        lib: &'b Library,
+    ) -> Option<impl Iterator<Item = (PathBuf, bool)> + 'b>
+    where
+        'a: 'b,
+    {
+        self.paths().map(|paths| {
+            paths.into_iter().filter_map(|(path, recursive)| {
+                if path.is_absolute() {
+                    Some((path, recursive))
+                } else {
+                    lib.parent_directory()
+                        .map(|lib_dir| (lib_dir.join(path), recursive))
                 }
-                Err(e) => Some(Err(anyhow!(
-                    "Fail to expand path with env variables. Error: {:?}",
-                    e
-                ))),
-            }
-        })
-        .collect::<Result<Vec<PathBuf>>>()?;
-        let folded_paths = cluster_paths
-            .iter()
-            .filter_map(|path| match self.recursive {
-                Some(true) => match walkdir::WalkDir::new(path)
-                    .into_iter()
-                    .filter_map(|entry| match entry {
-                        Ok(entry) => match entry.path().extension() {
-                            Some(ext) if ext == "e" => Some(Ok(entry.path().to_owned())),
-                            _ => None,
-                        },
-                        Err(e) => Some(Err(anyhow!(
-                            "Invalid path in recursive walk with error {:?}",
-                            e
-                        ))),
-                    })
-                    .collect::<Result<Vec<PathBuf>>>()
-                {
-                    v @ Ok(_) => Some(v),
-                    e @ Err(_) => Some(e),
-                },
-                _ => match fs::read_dir(path) {
-                    Ok(entries) => match entries
-                        .filter_map(|entry| match entry {
-                            Ok(v) => match v.path().extension() {
-                                Some(ext) if ext == "e" => Some(Ok(v.path().to_owned())),
-                                _ => None,
-                            },
-                            Err(e) => Some(Err(anyhow!(
-                                "Entry in recursive walk is invalid with error {:?}",
-                                e
-                            ))),
-                        })
-                        .collect::<Result<Vec<PathBuf>>>()
-                    {
-                        v @ Ok(_) => Some(v),
-                        e @ Err(_) => Some(e),
-                    },
-                    Err(e) => Some(Err(anyhow!(
-                        "unreadable directory path {:?}, with error {:?}",
-                        path,
-                        e
-                    ))),
-                },
             })
-            .collect::<Result<Vec<Vec<PathBuf>>>>()?;
-        let flat_paths = folded_paths.into_iter().flatten().collect();
-        Ok(flat_paths)
+        })
+    }
+    fn eiffel_files_from_paths(
+        paths: impl Iterator<Item = (PathBuf, bool)>,
+    ) -> impl IntoIterator<Item = PathBuf> {
+        paths
+            .filter_map(|(path, recursive)| match canonicalize(&path) {
+                Ok(path) => Some((path, recursive)),
+                Err(e) => {
+                    info!("fails to canonicalize path {path:?} with error {e:?}");
+                    None
+                }
+            })
+            .fold(Vec::new(), |mut acc: Vec<PathBuf>, (path, recursive)| {
+                assert!(path.is_absolute());
+                if recursive {
+                    walkdir::WalkDir::new(path)
+                        .into_iter()
+                        .filter_map(|entry| {
+                            let Ok(entry) = entry else {
+                                return None;
+                            };
+                            let path = entry.path();
+                            if path.extension().is_some_and(|ext| ext == "e") {
+                                Some(path.to_owned())
+                            } else {
+                                None
+                            }
+                        })
+                        .for_each(|path| acc.push(path));
+                } else {
+                    let entries = match fs::read_dir(&path) {
+                        Ok(v) => v,
+                        Err(ref e) => {
+                            info!(
+                                "fails to read entries of directory at {path:?} with error {e:?}"
+                            );
+                            return acc;
+                        }
+                    };
+                    entries
+                        .filter_map(|entry| match entry {
+                            Ok(v) if (v.path()).extension().is_some_and(|ext| ext == "e") => {
+                                Some(v.path().to_owned())
+                            }
+                            Ok(_) => return None,
+                            Err(ref e) => {
+                                info!("fails to read entry {entry:?} with error {e:?}");
+                                return None;
+                            }
+                        })
+                        .for_each(|path| acc.push(path));
+                }
+                acc
+            })
+    }
+
+    fn eiffel_files<'a>(&'a self) -> Option<impl IntoIterator<Item = PathBuf> + 'a> {
+        self.paths()
+            .map(|paths| Cluster::eiffel_files_from_paths(paths.into_iter()))
     }
 }
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
@@ -221,7 +216,7 @@ struct Library {
     location: String,
 }
 impl Library {
-    fn location_path(&self) -> Option<PathBuf> {
+    fn path(&self) -> Option<PathBuf> {
         let location = &self.location;
         match shellexpand::env(location) {
             Ok(expanded_location) => {
@@ -244,7 +239,7 @@ impl Library {
         }
     }
     fn parent_directory(&self) -> Option<PathBuf> {
-        let path = self.location_path()?;
+        let path = self.path()?;
         match path.parent() {
             Some(parent) => Some(parent.to_owned()),
             None => {
@@ -252,6 +247,20 @@ impl Library {
                 return None;
             }
         }
+    }
+    fn eiffel_files<'a, 'b: 'a>(
+        &'a self,
+        clusters: &'b [Cluster],
+    ) -> impl Iterator<Item = PathBuf> + 'a {
+        clusters
+            .iter()
+            .filter_map(move |cluster| {
+                let Some(paths) = cluster.in_library_paths(&self) else {
+                    return None;
+                };
+                Some(Cluster::eiffel_files_from_paths(paths))
+            })
+            .flatten()
     }
 }
 #[cfg(test)]
@@ -381,77 +390,92 @@ mod tests {
         )
     }
     #[test]
-    fn all_clusters() -> anyhow::Result<()> {
+    fn all_clusters() {
         let ap_val = std::env::temp_dir();
         std::env::set_var("AP", &ap_val);
         let system: System = quick_xml::de::from_str(XML_EXAMPLE_WITH_LIBRARY)
             .expect("Parsable {XML_EXAMPLE_LIBRARY}");
-        let lib = system
-            .target
-            .library
-            .clone()
-            .ok_or(anyhow!("Fail to parse libraries"))?
-            .first()
-            .ok_or(anyhow!("No library parsed"))?
-            .clone();
+        let Some(libraries) = system.target.library else {
+            panic!("fails to parse libraries from {:?}", system.target.library)
+        };
+        let Some(library) = libraries.first() else {
+            panic!("fails to register valid library from {libraries:?}")
+        };
+        let Some(library_path) = library.path() else {
+            panic!("fails to retrieve path from library {library:?}")
+        };
+        assert_eq!(
+            library_path,
+            PathBuf::from(ap_val.join("library_config.ecf"))
+        );
 
-        let lib_path = lib.location.clone();
-
-        let file = NamedTempFile::new(
-            shellexpand::env(lib_path.as_str())
-                .context("Expand library location into valid path")?
-                .as_ref(),
-        )
-        .context("Create named temp file")?;
+        let file = NamedTempFile::new(&library_path).expect("fails to create named temp file");
         file.write_str(XML_LIBRARY_CONFIG)
-            .context("Write to temp file")?;
-
-        let library_path = ap_val
-            .join("./lib/")
-            .to_str()
-            .context("Generated value for env variable AP cannot be converted to string")?
-            .to_owned();
-        assert!(system.clone().clusters().contains(&Cluster {
-            location: library_path,
-            name: Name::Attribute("lib".to_string()),
-            recursive: Some(true),
-            cluster: None
-        }));
-        assert!(system.clusters().contains(&Cluster {
-            name: Name::Attribute("levenshtein_distance".to_string()),
-            location: "./levenshtein_distance/".to_string(),
-            recursive: Some(true),
-            cluster: None
-        }));
-        Ok(())
+            .expect("fails to write to temp file");
+        let mut local_clusters = system.target.cluster.iter();
+        assert_eq!(
+            local_clusters.next(),
+            Some(&Cluster {
+                name: Name::Attribute("list_inversion".to_string()),
+                location: "./list_inversion/".to_string(),
+                recursive: Some(true),
+                cluster: None
+            })
+        );
+        assert_eq!(
+            local_clusters.next(),
+            Some(&Cluster {
+                name: Name::Attribute("levenshtein_distance".to_string()),
+                location: "./levenshtein_distance/".to_string(),
+                recursive: Some(true),
+                cluster: None
+            })
+        );
+        let Some(library_system) = System::parse_from_file(&library_path) else {
+            panic!("fails to parse library system")
+        };
+        let remote_clusters = library_system.target.cluster;
+        let Some(first_remote) = remote_clusters.first() else {
+            panic!("fails to find any remote cluster.")
+        };
+        assert_eq!(
+            first_remote,
+            &Cluster {
+                location: "./lib/".to_string(),
+                name: Name::Attribute("lib".to_string()),
+                recursive: Some(true),
+                cluster: None
+            }
+        );
     }
     #[test]
-    fn cluster_eiffel_files() -> anyhow::Result<()> {
-        let temp_dir = TempDir::new().context("failed to create temp dir")?;
-        let file_name_and_ext = "test.e";
-        temp_dir
-            .child(file_name_and_ext)
+    fn local_eiffel_files() {
+        let temp_dir = TempDir::new().expect("fails to create temporary directory.");
+        let filepath = temp_dir.child("test.e");
+        filepath
             .touch()
-            .context("failed to create empty file in temp directory")?;
-        let path = temp_dir
-            .path()
-            .to_str()
-            .ok_or(anyhow!("failed conversion of path to string"))?
-            .to_owned();
+            .expect("fails to create empty file in temp directory");
+        assert!(filepath.exists());
+        let location: String = temp_dir.to_string_lossy().into();
+        eprintln!("location: {location:?}");
         let c = Cluster {
             name: Name::Attribute("test".to_string()),
-            location: path,
+            location,
             recursive: Some(false),
             cluster: None,
         };
-        let eiffel_files = c.eiffel_files().context("Cluster eiffel files")?;
-        eprintln!("{:?}", eiffel_files.first());
-        assert_eq!(eiffel_files.len(), 1);
-        assert_eq!(
-            eiffel_files.iter().next().unwrap(),
-            &temp_dir.path().join(file_name_and_ext)
+        let Some(eiffel_files) = c.eiffel_files() else {
+            panic!("fails to find eiffel files");
+        };
+        let mut iterator = eiffel_files.into_iter();
+        let Some(first_file) = iterator.next() else {
+            panic!("fails to retrieve first eiffel file")
+        };
+        assert!(
+            iterator.next().is_none(),
+            "there should be exaclty one eiffel file."
         );
-        Ok(())
+        assert_eq!(first_file, temp_dir.path().join("test.e"));
     }
     #[test]
     fn nested_cluster() -> anyhow::Result<()> {
