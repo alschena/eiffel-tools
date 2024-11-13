@@ -40,9 +40,7 @@ impl ServerState {
         let Some(task) = tasks.pop() else { return };
         match task {
             Task::LoadConfig(system) => {
-                let eiffel_files = system
-                    .eiffel_files()
-                    .expect("Fails to extract eiffel files from system");
+                let eiffel_files = system.eiffel_files();
                 let mut set = JoinSet::new();
                 eiffel_files.into_iter().for_each(|filepath| {
                     let mut parser = tree_sitter::Parser::new();
