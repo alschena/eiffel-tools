@@ -42,7 +42,7 @@ impl System {
             return eiffel_files;
         };
 
-        let eiffel_files = libraries.iter().fold(eiffel_files, |mut acc, library| {
+        libraries.iter().fold(eiffel_files, |mut acc, library| {
             let Some(path) = library.path() else {
                 return acc;
             };
@@ -54,12 +54,7 @@ impl System {
                 .eiffel_files(&system.target.cluster)
                 .for_each(|file| acc.push(file));
             acc
-        });
-        let mut init = eiffel_files.clone();
-        init.sort();
-        init.dedup();
-        assert_eq!(init.len(), eiffel_files.len());
-        eiffel_files
+        })
     }
 }
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq, Hash)]
