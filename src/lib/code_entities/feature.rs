@@ -20,8 +20,8 @@ pub struct Feature {
     pub(super) visibility: FeatureVisibility,
     pub(super) range: Range,
     /// Is None only when a precondition cannot be added (for attributes without an attribute clause).
-    pub(super) preconditions: Option<Block<Precondition>>,
-    pub(super) postconditions: Option<Block<Postcondition>>,
+    preconditions: Option<Block<Precondition>>,
+    postconditions: Option<Block<Postcondition>>,
 }
 impl Feature {
     pub fn name(&self) -> &str {
@@ -30,66 +30,47 @@ impl Feature {
     pub fn range(&self) -> &Range {
         &self.range
     }
-    pub fn preconditions(&self) -> &Option<Block<Precondition>> {
-        &self.preconditions
-    }
-    pub fn is_precondition_block_present(&self) -> bool {
+    pub fn preconditions(&self) -> Option<&Precondition> {
         match &self.preconditions {
-            Some(Block { item, .. }) => match item {
-                Some(_) => true,
-                None => false,
-            },
-            None => false,
+            Some(pre) => pre.item(),
+            None => None,
         }
     }
-    pub fn is_postcondition_block_present(&self) -> bool {
+    pub fn postconditions(&self) -> Option<&Postcondition> {
         match &self.postconditions {
-            Some(Block { item, .. }) => match item {
-                Some(_) => true,
-                None => false,
-            },
-            None => false,
+            Some(post) => post.item(),
+            None => None,
         }
     }
-    pub fn range_end_preconditions(&self) -> Option<Range> {
-        let point: &Point = match &self.preconditions {
-            Some(pre) => &pre.range().end,
-            None => return None,
-        };
-        Some(Range {
-            start: point.clone(),
-            end: point.clone(),
-        })
+    pub fn has_precondition(&self) -> bool {
+        self.preconditions().is_some()
     }
-    pub fn range_start_preconditions(&self) -> Option<Range> {
-        let point: &Point = match &self.preconditions {
-            Some(pre) => &pre.range().start,
-            None => return None,
-        };
-        Some(Range {
-            start: point.clone(),
-            end: point.clone(),
-        })
+    pub fn has_postcondition(&self) -> bool {
+        self.postconditions().is_some()
     }
-    pub fn range_end_postconditions(&self) -> Option<Range> {
-        let point: &Point = match &self.postconditions {
-            Some(post) => &post.range().end,
+    pub fn point_end_preconditions(&self) -> Option<&Point> {
+        match &self.preconditions {
+            Some(pre) => Some(pre.range().end()),
             None => return None,
-        };
-        Some(Range {
-            start: point.clone(),
-            end: point.clone(),
-        })
+        }
     }
-    pub fn range_start_postconditions(&self) -> Option<Range> {
-        let point: &Point = match &self.postconditions {
-            Some(post) => &post.range().start,
+    pub fn point_start_preconditions(&self) -> Option<&Point> {
+        match &self.preconditions {
+            Some(pre) => Some(pre.range().start()),
             None => return None,
-        };
-        Some(Range {
-            start: point.clone(),
-            end: point.clone(),
-        })
+        }
+    }
+    pub fn point_end_postconditions(&self) -> Option<&Point> {
+        match &self.postconditions {
+            Some(post) => Some(post.range().end()),
+            None => None,
+        }
+    }
+    pub fn point_start_postconditions(&self) -> Option<&Point> {
+        match &self.postconditions {
+            Some(post) => Some(post.range().start()),
+            None => None,
+        }
     }
 }
 impl Indent for Feature {
@@ -187,9 +168,6 @@ end"#;
         assert_eq!(feature.name(), "x");
         let predicate = feature
             .preconditions()
-            .as_ref()
-            .expect("fails because feature cannot have a precondition block.")
-            .item()
             .clone()
             .expect("extracted preconditions")
             .precondition

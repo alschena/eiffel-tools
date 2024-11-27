@@ -25,7 +25,7 @@ impl LLM {
         point: Point,
         file: &ProcessedFile,
     ) -> (Option<WorkspaceEdit>, Option<CodeActionDisabled>) {
-        let Some(feature) = file.feature_around_point(point) else {
+        let Some(feature) = file.feature_around_point(&point) else {
             return (
                 None,
                 Some(CodeActionDisabled {
@@ -62,9 +62,9 @@ impl LLM {
             postcondition: post,
         } = specification
             .next()
-            .expect("No specification for routine have been produced");
+            .expect("No specification for routine was produced");
 
-        let Some(precondition_range_end) = feature.range_end_preconditions() else {
+        let Some(precondition_point_end) = feature.point_end_preconditions() else {
             return (
                 None,
                 Some(CodeActionDisabled {
@@ -72,7 +72,10 @@ impl LLM {
                 }),
             );
         };
-        let Some(postcondition_range_end) = feature.range_end_postconditions() else {
+        let mut precondition_insert_point = precondition_point_end.clone();
+        precondition_insert_point.reset_column();
+
+        let Some(postcondition_point_end) = feature.point_end_postconditions() else {
             return (
                 None,
                 Some(CodeActionDisabled {
@@ -80,50 +83,52 @@ impl LLM {
                 }),
             );
         };
+        let mut postcondition_insert_point = postcondition_point_end.clone();
+        postcondition_insert_point.reset_column();
 
         let Ok(url) = Url::from_file_path(file.path()) else {
             warn!("fails to transform path into lsp_types::Url");
             return (None, None);
+        };
+        let postcondition_text = if feature.has_postcondition() {
+            format!("{post}")
+        } else {
+            format!(
+                "{}",
+                contract::Block::<contract::Postcondition> {
+                    item: Some(post),
+                    range: Range::new_collapsed(postcondition_insert_point),
+                    keyword: contract::Keyword::Ensure,
+                }
+            )
+        };
+        let precondition_text = if feature.has_precondition() {
+            format!("{pre}")
+        } else {
+            format!(
+                "{}",
+                contract::Block::<contract::Precondition> {
+                    item: Some(pre),
+                    range: Range::new_collapsed(precondition_insert_point),
+                    keyword: contract::Keyword::Require,
+                }
+            )
         };
         (
             Some(WorkspaceEdit::new(HashMap::from([(
                 url,
                 vec![
                     TextEdit {
-                        range: postcondition_range_end
-                            .clone()
+                        range: Range::new_collapsed(postcondition_point_end.clone())
                             .try_into()
                             .expect("range should convert to lsp-type range."),
-                        new_text: if feature.is_postcondition_block_present() {
-                            format!("{post}")
-                        } else {
-                            format!(
-                                "{}",
-                                contract::Block::<contract::Postcondition> {
-                                    item: Some(post),
-                                    range: postcondition_range_end,
-                                    keyword: contract::Keyword::Ensure,
-                                }
-                            )
-                        },
+                        new_text: postcondition_text,
                     },
                     TextEdit {
-                        range: precondition_range_end
-                            .clone()
+                        range: Range::new_collapsed(precondition_point_end.clone())
                             .try_into()
                             .expect("range should convert to lsp-type range."),
-                        new_text: if feature.is_precondition_block_present() {
-                            format!("{pre}")
-                        } else {
-                            format!(
-                                "{}",
-                                contract::Block::<contract::Precondition> {
-                                    item: Some(pre),
-                                    range: precondition_range_end,
-                                    keyword: contract::Keyword::Require,
-                                }
-                            )
-                        },
+                        new_text: precondition_text,
                     },
                 ],
             )]))),

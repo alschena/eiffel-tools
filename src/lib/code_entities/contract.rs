@@ -63,8 +63,11 @@ impl Display for Keyword {
     }
 }
 impl<T> Block<T> {
-    pub fn item(&self) -> &Option<T> {
-        &self.item
+    pub fn item(&self) -> Option<&T> {
+        match &self.item {
+            Some(ref item) => Some(item),
+            None => None,
+        }
     }
     pub fn range(&self) -> &Range {
         &self.range
@@ -179,15 +182,17 @@ impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
             Some(x) => x.0.captures[0].node,
             None => {
                 let point = match T::POSITIONED {
-                    Positioned::Prefix => &Point::from(attribute_or_routine.range().start_point),
-                    Positioned::Postfix => &Point::from(attribute_or_routine.range().end_point),
+                    Positioned::Prefix => Point::from(attribute_or_routine.range().start_point),
+                    Positioned::Postfix => {
+                        let mut point = Point::from(attribute_or_routine.range().end_point);
+                        // This compensates the keyword `end`.
+                        point.shift_left(3);
+                        point
+                    }
                 };
                 return Ok(Self {
                     item: None,
-                    range: Range {
-                        start: point.clone(),
-                        end: point.clone(),
-                    },
+                    range: Range::new_collapsed(point),
                     keyword: T::DEFAULT_KEYWORD,
                 });
             }

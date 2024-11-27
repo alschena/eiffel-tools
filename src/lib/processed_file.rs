@@ -38,10 +38,10 @@ impl ProcessedFile {
     pub(crate) fn tree(&self) -> &Tree {
         &self.tree
     }
-    pub(crate) fn feature_around_point(&self, point: Point) -> Option<&Feature> {
+    pub(crate) fn feature_around_point(&self, point: &Point) -> Option<&Feature> {
         let mut features = self.class().features().iter();
         match features
-            .find(|feature| point >= feature.range().start && point <= feature.range().end)
+            .find(|&feature| point >= feature.range().start() && point <= feature.range().end())
         {
             Some(f) => Some(f),
             None => None,
