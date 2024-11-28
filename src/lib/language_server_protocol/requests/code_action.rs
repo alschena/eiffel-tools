@@ -1,10 +1,50 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::language_server_protocol::prelude::{HandleRequest, ServerState};
-use async_lsp::lsp_types::{self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand};
+use crate::lib::processed_file::ProcessedFile;
+use async_lsp::lsp_types::TextEdit;
+use async_lsp::lsp_types::{request, CodeAction, CodeActionDisabled, CodeActionOrCommand};
+use async_lsp::lsp_types::{Url, WorkspaceEdit};
 use async_lsp::ResponseError;
 use async_lsp::Result;
+use contract::{Postcondition, Precondition, RoutineSpecification};
+use gemini;
+use gemini::ToResponseSchema;
 use std::collections::HashMap;
+use std::fmt::Display;
+use tracing::{info, warn};
 mod transformer;
+mod utils;
+use utils::*;
+
+#[derive(Debug)]
+enum Error<'a> {
+    CodeActionDisabled(&'a str),
+    PassThroughError(&'a str),
+}
+impl<'a> Error<'a> {
+    fn resolve(&self) -> Option<CodeActionDisabled> {
+        match self {
+            Self::CodeActionDisabled(reason) => Some(CodeActionDisabled {
+                reason: reason.to_string(),
+            }),
+            Self::PassThroughError(reason) => {
+                warn!("{reason}");
+                None
+            }
+        }
+    }
+}
+impl<'a> Display for Error<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::CodeActionDisabled(s) => write!(f, "{s}"),
+            Error::PassThroughError(s) => write!(
+                f,
+                "fails with {s}, but the process can continue. Look at log file for more information."
+            ),
+        }
+    }
+}
 
 impl HandleRequest for request::CodeActionRequest {
     async fn handle_request(
@@ -20,17 +60,18 @@ impl HandleRequest for request::CodeActionRequest {
 
         let (edit, disabled) = match file {
             Some(file) => {
-                let point = params
+                let model = transformer::LLM::new(&file);
+                let point: Point = params
                     .range
                     .end
                     .try_into()
                     .expect("fails to convert lsp-point to eiffel point");
-                let model = transformer::LLM::default();
-                match model.add_contracts_at_point(point, &file).await {
-                    (None, None) => {
-                        (None, Some(CodeActionDisabled{reason: String::from("fails for internal errors with the llm processing. For more information read the log file")}))
-                    },
-                    a @ _ => a,
+                match model.add_contracts_at_point(&point).await {
+                    Ok(edit) => (Some(edit), None),
+                    Err(e) => (
+                        None,
+                        Some(e.resolve().expect("all failures disable the code action.")),
+                    ),
                 }
             }
             None => (

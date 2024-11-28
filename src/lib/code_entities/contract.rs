@@ -7,7 +7,7 @@ use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
 use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
-trait Type {
+pub trait Type {
     const TREE_NODE_KIND: &str;
     const DEFAULT_KEYWORD: Keyword;
     const POSITIONED: Positioned;
@@ -19,6 +19,31 @@ pub struct Block<T> {
     pub item: Option<T>,
     pub range: Range,
     pub keyword: Keyword,
+}
+impl<T: Type> Block<T> {
+    pub fn item(&self) -> Option<&T> {
+        match &self.item {
+            Some(ref item) => Some(item),
+            None => None,
+        }
+    }
+    pub fn range(&self) -> &Range {
+        &self.range
+    }
+    pub fn new(item: T, range: Range) -> Self {
+        Self {
+            item: Some(item),
+            range,
+            keyword: T::DEFAULT_KEYWORD,
+        }
+    }
+    pub fn new_empty(point: Point) -> Self {
+        Self {
+            item: None,
+            range: Range::new_collapsed(point),
+            keyword: T::DEFAULT_KEYWORD,
+        }
+    }
 }
 impl<T: Indent> Indent for Block<T> {
     const INDENTATION_LEVEL: u32 = T::INDENTATION_LEVEL - 1;
@@ -60,17 +85,6 @@ impl Display for Keyword {
             Keyword::Invariant => "invariant",
         };
         write!(f, "{}", content)
-    }
-}
-impl<T> Block<T> {
-    pub fn item(&self) -> Option<&T> {
-        match &self.item {
-            Some(ref item) => Some(item),
-            None => None,
-        }
-    }
-    pub fn range(&self) -> &Range {
-        &self.range
     }
 }
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone, Hash)]
@@ -190,11 +204,7 @@ impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
                         point
                     }
                 };
-                return Ok(Self {
-                    item: None,
-                    range: Range::new_collapsed(point),
-                    keyword: T::DEFAULT_KEYWORD,
-                });
+                return Ok(Self::new_empty(point));
             }
         };
 
@@ -209,11 +219,7 @@ impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
             }
         }
 
-        Ok(Self {
-            item: Some(clauses.into()),
-            range: node.range().into(),
-            keyword: T::DEFAULT_KEYWORD,
-        })
+        Ok(Self::new(clauses.into(), node.range().into()))
     }
 }
 #[derive(Hash, Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]

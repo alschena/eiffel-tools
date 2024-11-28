@@ -9,7 +9,7 @@ pub mod config;
 /// The content of the current conversation with the model.
 /// For single-turn queries, this is a single instance.
 /// For multi-turn queries like chat, this is a repeated field that contains the conversation history and the latest request.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct Contents {
     parts: Vec<Part>,
 }
@@ -29,7 +29,7 @@ impl From<String> for Contents {
 }
 /// For single-turn queries, it is the user's latest written request.
 /// For multi-turn queries like chat, each part collects a snapshot of the conversation history or the latest request.
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub(super) struct Part {
     text: String,
 }
@@ -58,11 +58,11 @@ impl From<String> for Part {
 /// A Tool is a piece of code that enables the system to interact with external systems to perform an action, or set of actions, outside of knowledge and scope of the Model.
 /// Supported Tools are Function and codeExecution.
 /// Refer to the Function calling and the Code execution guides to learn more.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct Tools;
 /// Tool configuration for any Tool specified in the request.
 /// Refer to the Function calling guide for a usage example.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct ToolConfig;
 /// A list of unique SafetySetting instances for blocking unsafe content.
 /// This will be enforced on the GenerateContentRequest.
@@ -75,11 +75,11 @@ pub struct ToolConfig;
 /// Harm categories HARM_CATEGORY_HATE_SPEECH, HARM_CATEGORY_SEXUALLY_EXPLICIT, HARM_CATEGORY_DANGEROUS_CONTENT, HARM_CATEGORY_HARASSMENT are supported.
 /// Refer to the guide for detailed information on available safety settings.
 /// Also refer to the Safety guidance to learn how to incorporate safety considerations in your AI applications.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct SafetySetting;
 /// Developer set system instruction(s).
 /// Currently, text only.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct SystemInstruction {
     content: Content,
 }
@@ -92,9 +92,9 @@ impl FromStr for SystemInstruction {
     }
 }
 /// The name of the content cached to use as context to serve the prediction. Format: cachedContents/{cachedContent}
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct CachedContent;
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
     contents: Contents,
@@ -121,9 +121,9 @@ impl Request {
         reqwest::Client::new()
     }
     pub async fn process_with_async_client(
-        self,
-        config: model::Config,
-        client: reqwest::Client,
+        &self,
+        config: &model::Config,
+        client: &reqwest::Client,
     ) -> Result<response::Response> {
         let json_req = client.post(config.end_point()).json(&self);
         let res = json_req
@@ -188,7 +188,7 @@ impl From<String> for Request {
         }
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct Content {
     parts: Vec<Part>,
     role: Option<Role>,
@@ -211,7 +211,7 @@ impl FromStr for Content {
         })
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 enum Role {
     #[serde(rename(deserialize = "user"))]
     User,
@@ -267,7 +267,9 @@ mod test {
         let model_config = model::Config::default();
         let client = Request::new_async_client();
         let req = Request::from_str("Tell me about the night.")?;
-        let _ = req.process_with_async_client(model_config, client).await?;
+        let _ = req
+            .process_with_async_client(&model_config, &client)
+            .await?;
         Ok(())
     }
     #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Clone, Hash)]

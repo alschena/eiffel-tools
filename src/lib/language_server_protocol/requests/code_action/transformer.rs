@@ -1,138 +1,106 @@
-use crate::lib::code_entities::prelude::*;
-use crate::lib::processed_file::ProcessedFile;
-use anyhow::{Context, Result};
-use async_lsp::lsp_types::{CodeActionDisabled, TextEdit, Url, WorkspaceEdit};
-use contract::{Postcondition, Precondition, RoutineSpecification};
-use gemini;
-use gemini::ToResponseSchema;
-use std::collections::HashMap;
-use tracing::{info, warn};
+use super::*;
 
-pub struct LLM(gemini::Config);
-impl LLM {
-    fn config(&self) -> &gemini::Config {
-        &self.0
+pub struct LLM<'a> {
+    model_config: gemini::Config,
+    client: reqwest::Client,
+    file: &'a ProcessedFile,
+}
+impl<'a> LLM<'a> {
+    pub fn new(file: &'a ProcessedFile) -> LLM {
+        Self {
+            model_config: gemini::Config::default(),
+            client: reqwest::Client::new(),
+            file,
+        }
+    }
+    fn change_file(&mut self, file: &'a ProcessedFile) {
+        self.file = file;
+    }
+    fn model_config(&self) -> &gemini::Config {
+        &self.model_config
+    }
+    fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+    fn target_url(&self) -> Result<Url, super::Error<'static>> {
+        Url::from_file_path(self.file.path()).map_err(|_| {
+            super::Error::PassThroughError("fails to transform path into lsp_types::Url")
+        })
     }
 }
-impl Default for LLM {
-    fn default() -> Self {
-        Self(gemini::Config::default())
-    }
-}
-impl LLM {
-    pub async fn add_contracts_at_point(
+impl<'a> LLM<'a> {
+    fn feature_at_point_with_src(
         &self,
-        point: Point,
-        file: &ProcessedFile,
-    ) -> (Option<WorkspaceEdit>, Option<CodeActionDisabled>) {
-        let Some(feature) = file.feature_around_point(&point) else {
-            return (
-                None,
-                Some(CodeActionDisabled {
-                    reason: String::from("There is no feature surrounding the cursor"),
-                }),
-            );
-        };
-        let Ok(feature_src) = file.feature_src(&feature) else {
-            warn!("fails to extract feature source from file");
-            return (None, None);
-        };
-
-        let mut request_specification = gemini::Request::from(format!(
+        point: &Point,
+    ) -> Result<(&'a Feature, String), super::Error<'static>> {
+        match self.file.feature_around_point(&point) {
+            Some(feature) => match self.file.feature_src(&feature) {
+                Ok(src) => Ok((feature, src)),
+                Err(_) => Err(super::Error::PassThroughError(
+                    "fails to extract feature source from file",
+                )),
+            },
+            None => Err(super::Error::CodeActionDisabled(
+                "There is no feature surrounding the cursor",
+            )),
+        }
+    }
+    async fn request_specification(
+        &self,
+        feature: &Feature,
+        feature_src: &str,
+    ) -> Result<RoutineSpecification, super::Error<'static>> {
+        let mut request = gemini::Request::from(format!(
             "Add preconditions and postconditions to the following routine. DO NOT ADD CONTRACT CLAUSES ALREADY PRESENT.\n{}",
             feature_src
         ));
-        request_specification.set_config(gemini::GenerationConfig::from(
+        request.set_config(gemini::GenerationConfig::from(
             RoutineSpecification::to_response_schema(),
         ));
-        let client = gemini::Request::new_async_client();
-        let config = self.config();
-        let Ok(response_specification) = request_specification
-            .process_with_async_client(config.to_owned(), client)
+
+        match request
+            .process_with_async_client(self.model_config(), self.client())
             .await
-        else {
-            info!("fails to process llm request");
-            return (None, None);
+        {
+            Ok(response) => {
+                info!("Request to llm: {request:?}\nResponse from llm: {response:?}");
+                match response.parsed().next() {
+                    Some(spec) => Ok(spec),
+                    None => Err(super::Error::PassThroughError(
+                        "No specification for routine was produced",
+                    )),
+                }
+            }
+            Err(_) => Err(super::Error::PassThroughError(
+                "fails to process llm request",
+            )),
+        }
+    }
+    pub async fn add_contracts_at_point(
+        &self,
+        point: &Point,
+    ) -> Result<WorkspaceEdit, super::Error<'static>> {
+        let (feature, feature_src) = self.feature_at_point_with_src(point)?;
+        let Some(precondition_insert_point) = feature.point_end_preconditions() else {
+            return Err(super::Error::CodeActionDisabled(
+                "Only attributes with an attribute block and routines support adding preconditions",
+            ));
         };
-
-        let mut specification = response_specification.parsed();
-
+        let Some(postcondition_insert_point) = feature.point_end_postconditions() else {
+            return Err(super::Error::CodeActionDisabled("Only attributes with an attribute block and routines support adding postconditions"));
+        };
         let RoutineSpecification {
             precondition: pre,
             postcondition: post,
-        } = specification
-            .next()
-            .expect("No specification for routine was produced");
+        } = self.request_specification(feature, &feature_src).await?;
 
-        let Some(precondition_point_end) = feature.point_end_preconditions() else {
-            return (
-                None,
-                Some(CodeActionDisabled {
-                    reason: String::from("Only attributes with an attribute block and routines support adding preconditions"),
-                }),
-            );
-        };
-        let mut precondition_insert_point = precondition_point_end.clone();
-        precondition_insert_point.reset_column();
-
-        let Some(postcondition_point_end) = feature.point_end_postconditions() else {
-            return (
-                None,
-                Some(CodeActionDisabled {
-                    reason: String::from("Only attributes with an attribute block and routines support adding postconditions"),
-                }),
-            );
-        };
-        let mut postcondition_insert_point = postcondition_point_end.clone();
-        postcondition_insert_point.reset_column();
-
-        let Ok(url) = Url::from_file_path(file.path()) else {
-            warn!("fails to transform path into lsp_types::Url");
-            return (None, None);
-        };
-        let postcondition_text = if feature.has_postcondition() {
-            format!("{post}")
-        } else {
-            format!(
-                "{}",
-                contract::Block::<contract::Postcondition> {
-                    item: Some(post),
-                    range: Range::new_collapsed(postcondition_insert_point),
-                    keyword: contract::Keyword::Ensure,
-                }
-            )
-        };
-        let precondition_text = if feature.has_precondition() {
-            format!("{pre}")
-        } else {
-            format!(
-                "{}",
-                contract::Block::<contract::Precondition> {
-                    item: Some(pre),
-                    range: Range::new_collapsed(precondition_insert_point),
-                    keyword: contract::Keyword::Require,
-                }
-            )
-        };
-        (
-            Some(WorkspaceEdit::new(HashMap::from([(
-                url,
-                vec![
-                    TextEdit {
-                        range: Range::new_collapsed(postcondition_point_end.clone())
-                            .try_into()
-                            .expect("range should convert to lsp-type range."),
-                        new_text: postcondition_text,
-                    },
-                    TextEdit {
-                        range: Range::new_collapsed(precondition_point_end.clone())
-                            .try_into()
-                            .expect("range should convert to lsp-type range."),
-                        new_text: precondition_text,
-                    },
-                ],
-            )]))),
-            None,
-        )
+        let url = self.target_url()?;
+        Ok(WorkspaceEdit::new(HashMap::from([(
+            url,
+            vec![
+                text_edit_add_precondition(&feature, precondition_insert_point.clone(), pre),
+                text_edit_add_postcondition(&feature, postcondition_insert_point.clone(), post),
+            ],
+        )])))
     }
 }
