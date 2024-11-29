@@ -1,4 +1,4 @@
-pub use tree_sitter::{Node, Tree, TreeCursor};
+use tree_sitter::{Node, Tree, TreeCursor};
 
 pub(crate) struct WidthFirstTraversal<'a, 'b> {
     cursor: &'b mut TreeCursor<'a>,

@@ -1,12 +1,4 @@
-use super::prelude::*;
-use crate::lib::tree_sitter_extension::Parse;
-use ::tree_sitter::{Node, Query, QueryCursor};
-use anyhow::anyhow;
-use gemini::{Described, ResponseSchema, ToResponseSchema};
-use gemini_macro_derive::ToResponseSchema;
-use serde::Deserialize;
-use std::fmt::Display;
-use streaming_iterator::StreamingIterator;
+use super::*;
 pub trait Type {
     const TREE_NODE_KIND: &str;
     const DEFAULT_KEYWORD: Keyword;

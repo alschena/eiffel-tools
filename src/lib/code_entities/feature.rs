@@ -1,12 +1,4 @@
-use super::class::Class;
-use super::contract::{Block, Postcondition, Precondition};
-use super::prelude::*;
-use crate::lib::tree_sitter_extension::{self, Node, Parse};
-use ::tree_sitter::{Query, QueryCursor};
-use anyhow::anyhow;
-use async_lsp::lsp_types;
-use streaming_iterator::StreamingIterator;
-use tracing::instrument;
+use super::*;
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum FeatureVisibility {
     Private,

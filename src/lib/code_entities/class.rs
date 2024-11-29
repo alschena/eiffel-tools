@@ -1,14 +1,4 @@
-use super::prelude::*;
-use crate::lib::tree_sitter_extension::{self, Node, Parse};
-use crate::lib::workspace::Workspace;
-use anyhow::anyhow;
-use async_lsp::lsp_types;
-use rayon::prelude::*;
-use std::path::PathBuf;
-use streaming_iterator::StreamingIterator;
-use tracing::info;
-use tracing::instrument;
-use tree_sitter::{Parser, Query, QueryCursor};
+use super::*;
 // TODO accept only attributes of logical type in the model
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Model(pub Vec<Feature>);
