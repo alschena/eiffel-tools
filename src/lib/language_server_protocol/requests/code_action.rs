@@ -1,6 +1,7 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::language_server_protocol::prelude::{HandleRequest, ServerState};
 use crate::lib::processed_file::ProcessedFile;
+use crate::lib::workspace::Workspace;
 use async_lsp::lsp_types::TextEdit;
 use async_lsp::lsp_types::{request, CodeAction, CodeActionDisabled, CodeActionOrCommand};
 use async_lsp::lsp_types::{Url, WorkspaceEdit};
@@ -51,22 +52,24 @@ impl HandleRequest for request::CodeActionRequest {
         st: ServerState,
         params: <Self as request::Request>::Params,
     ) -> Result<<Self as request::Request>::Result, ResponseError> {
+        let ws = st.workspace.read().await;
         let path = params
             .text_document
             .uri
             .to_file_path()
             .expect("fails to convert uri of code action parameter in usable path.");
-        let file = st.find_file(&path).await;
+        let file = ws.find_file(&path);
 
         let (edit, disabled) = match file {
             Some(file) => {
-                let model = transformer::LLM::new(&file);
+                let mut model = transformer::LLM::default();
+                model.set_file(&file);
                 let point: Point = params
                     .range
                     .end
                     .try_into()
                     .expect("fails to convert lsp-point to eiffel point");
-                match model.add_contracts_at_point(&point).await {
+                match model.add_contracts_at_point(&point, &ws).await {
                     Ok(edit) => (Some(edit), None),
                     Err(e) => (
                         None,

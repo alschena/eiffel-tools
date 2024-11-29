@@ -1,3 +1,4 @@
+use crate::lib::code_entities::prelude::*;
 use crate::lib::processed_file::ProcessedFile;
 use std::path::Path;
 
@@ -22,5 +23,8 @@ impl Workspace {
     }
     pub fn find_file(&self, path: &Path) -> Option<&ProcessedFile> {
         self.files.iter().find(|&x| x.path == path)
+    }
+    pub fn system_classes(&self) -> impl Iterator<Item = &Class> {
+        self.files().into_iter().map(|file| file.class())
     }
 }

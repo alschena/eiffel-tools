@@ -1,20 +1,14 @@
 use super::*;
 
-pub struct LLM<'a> {
+pub struct LLM<'a, 'b> {
     model_config: gemini::Config,
     client: reqwest::Client,
-    file: &'a ProcessedFile,
+    file: Option<&'a ProcessedFile>,
+    workspace: Option<&'b Workspace>,
 }
-impl<'a> LLM<'a> {
-    pub fn new(file: &'a ProcessedFile) -> LLM {
-        Self {
-            model_config: gemini::Config::default(),
-            client: reqwest::Client::new(),
-            file,
-        }
-    }
-    fn change_file(&mut self, file: &'a ProcessedFile) {
-        self.file = file;
+impl<'a, 'b> LLM<'a, 'b> {
+    pub fn set_file(&mut self, file: &'a ProcessedFile) {
+        self.file = Some(file);
     }
     fn model_config(&self) -> &gemini::Config {
         &self.model_config
@@ -23,18 +17,24 @@ impl<'a> LLM<'a> {
         &self.client
     }
     fn target_url(&self) -> Result<Url, super::Error<'static>> {
-        Url::from_file_path(self.file.path()).map_err(|_| {
+        let Some(file) = self.file else {
+            panic!("target file must be set in LLM.")
+        };
+        Url::from_file_path(file.path()).map_err(|_| {
             super::Error::PassThroughError("fails to transform path into lsp_types::Url")
         })
     }
 }
-impl<'a> LLM<'a> {
+impl<'a, 'b> LLM<'a, 'b> {
     fn feature_at_point_with_src(
         &self,
         point: &Point,
     ) -> Result<(&'a Feature, String), super::Error<'static>> {
-        match self.file.feature_around_point(&point) {
-            Some(feature) => match self.file.feature_src(&feature) {
+        let Some(file) = self.file else {
+            panic!("target file must be set in LLM.")
+        };
+        match file.feature_around_point(&point) {
+            Some(feature) => match file.feature_src(&feature) {
                 Ok(src) => Ok((feature, src)),
                 Err(_) => Err(super::Error::PassThroughError(
                     "fails to extract feature source from file",
@@ -50,6 +50,13 @@ impl<'a> LLM<'a> {
         feature: &Feature,
         feature_src: &str,
     ) -> Result<RoutineSpecification, super::Error<'static>> {
+        let Some(file) = self.file else {
+            panic!("target file must be set in LLM.")
+        };
+        let Some(workspace) = self.workspace else {
+            panic!("workspace must be set in LLM")
+        };
+        let target_model = file.class().full_model(workspace.system_classes());
         let mut request = gemini::Request::from(format!(
             "Add preconditions and postconditions to the following routine. DO NOT ADD CONTRACT CLAUSES ALREADY PRESENT.\n{}",
             feature_src
@@ -79,6 +86,7 @@ impl<'a> LLM<'a> {
     pub async fn add_contracts_at_point(
         &self,
         point: &Point,
+        workspace: &Workspace,
     ) -> Result<WorkspaceEdit, super::Error<'static>> {
         let (feature, feature_src) = self.feature_at_point_with_src(point)?;
         let Some(precondition_insert_point) = feature.point_end_preconditions() else {
@@ -102,5 +110,16 @@ impl<'a> LLM<'a> {
                 text_edit_add_postcondition(&feature, postcondition_insert_point.clone(), post),
             ],
         )])))
+    }
+}
+
+impl<'a, 'b> Default for LLM<'a, 'b> {
+    fn default() -> Self {
+        Self {
+            model_config: gemini::Config::default(),
+            client: reqwest::Client::new(),
+            file: None,
+            workspace: None,
+        }
     }
 }
