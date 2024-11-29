@@ -7,6 +7,32 @@ impl Model {
         Model(Vec::new())
     }
 }
+impl Model {
+    fn from_model_names(names: ModelNames, features: &Vec<Feature>) -> Model {
+        Model(
+            names
+                .0
+                .iter()
+                .filter_map(|name| {
+                    features
+                        .iter()
+                        .find(|feature| feature.name() == name)
+                        .cloned()
+                })
+                .collect(),
+        )
+    }
+}
+impl Display for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut display_text = String::new();
+        self.0.iter().for_each(|feature| {
+            display_text.push_str(feature.name());
+            display_text.push('\n')
+        });
+        write!(f, "{display_text}")
+    }
+}
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct ModelNames(Vec<String>);
 impl Parse for ModelNames {
@@ -34,22 +60,6 @@ impl Parse for ModelNames {
         }
 
         Ok(ModelNames(names))
-    }
-}
-impl Model {
-    fn from_model_names(names: ModelNames, features: &Vec<Feature>) -> Model {
-        Model(
-            names
-                .0
-                .iter()
-                .filter_map(|name| {
-                    features
-                        .iter()
-                        .find(|feature| feature.name() == name)
-                        .cloned()
-                })
-                .collect(),
-        )
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]

@@ -56,10 +56,17 @@ impl<'a, 'b> LLM<'a, 'b> {
         let Some(workspace) = self.workspace else {
             panic!("workspace must be set in LLM")
         };
-        let target_model = file.class().full_model(workspace.system_classes());
+        let full_model_text;
+        {
+            // TODO add models of arguments and Result.
+            let mut setup = "The models of the current class and its ancestors are:".to_string();
+            file.class()
+                .full_model(workspace.system_classes())
+                .for_each(|model| setup.push_str(format!("{model}").as_str()));
+            full_model_text = setup;
+        }
         let mut request = gemini::Request::from(format!(
-            "Add preconditions and postconditions to the following routine. DO NOT ADD CONTRACT CLAUSES ALREADY PRESENT.\n{}",
-            feature_src
+            "You are an expert in formal methods, specifically design by contract for static verification. You are optionally adding model-based contracts to the following feature:```eiffel\n{feature_src}\n```\nRemember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.\n{full_model_text}"
         ));
         request.set_config(gemini::GenerationConfig::from(
             RoutineSpecification::to_response_schema(),
