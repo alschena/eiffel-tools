@@ -1,5 +1,5 @@
 //! The structure of the model response candidates.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 /// Output schema of the generated candidate text. Schemas must be a subset of the OpenAPI schema and can be objects, primitives or arrays.
 /// If set, a compatible responseMimeType must also be set. Compatible MIME types: application/json: Schema for JSON response. Refer to the JSON text generation guide for more details.
@@ -57,7 +57,7 @@ pub enum SchemaType {
     Object,
 }
 impl Described for String {}
-impl ToResponseSchema for String {
+impl ToResponseSchema<'_> for String {
     fn to_response_schema() -> ResponseSchema {
         ResponseSchema {
             schema_type: SchemaType::String,
@@ -73,7 +73,7 @@ impl ToResponseSchema for String {
     }
 }
 impl Described for f32 {}
-impl ToResponseSchema for f32 {
+impl ToResponseSchema<'_> for f32 {
     fn to_response_schema() -> ResponseSchema {
         ResponseSchema {
             schema_type: SchemaType::Number,
@@ -89,7 +89,7 @@ impl ToResponseSchema for f32 {
     }
 }
 impl Described for i32 {}
-impl ToResponseSchema for i32 {
+impl ToResponseSchema<'_> for i32 {
     fn to_response_schema() -> ResponseSchema {
         ResponseSchema {
             schema_type: SchemaType::Integer,
@@ -105,9 +105,9 @@ impl ToResponseSchema for i32 {
     }
 }
 impl<T: Described> Described for Vec<T> {}
-impl<T> ToResponseSchema for Vec<T>
+impl<'de, T> ToResponseSchema<'de> for Vec<T>
 where
-    T: ToResponseSchema,
+    T: ToResponseSchema<'de>,
 {
     fn to_response_schema() -> ResponseSchema {
         ResponseSchema {
@@ -123,8 +123,11 @@ where
         }
     }
 }
-pub trait ToResponseSchema: Described {
+pub trait ToResponseSchema<'de>: Described + Deserialize<'de> {
     fn to_response_schema() -> ResponseSchema;
+    fn parse_reply(text: &'de str) -> Result<Self, impl std::error::Error> {
+        serde_json::from_str(text)
+    }
 }
 pub trait Described {
     fn description() -> String {

@@ -22,9 +22,7 @@ impl Response {
     pub fn parsable_content<'a>(&'a self) -> impl Iterator<Item = &str> + 'a {
         self.candidates.parsable_content()
     }
-    pub fn parsed<'a, 'de, T: ToResponseSchema + Deserialize<'de>>(
-        &'a self,
-    ) -> impl Iterator<Item = T> + 'a
+    pub fn parsed<'a, 'de, T: ToResponseSchema<'de>>(&'a self) -> impl Iterator<Item = T> + 'a
     where
         'a: 'de,
     {
@@ -46,7 +44,7 @@ struct UsageMetadata;
 #[derive(Deserialize, Debug)]
 pub struct Candidates(Vec<Candidate>);
 impl Candidates {
-    pub fn parsable_content<'a>(&'a self) -> impl Iterator<Item = &str> + 'a {
+    fn parsable_content<'a>(&'a self) -> impl Iterator<Item = &str> + 'a {
         self.iter()
             .filter_map(|c| {
                 let content = &c.content;
@@ -58,14 +56,12 @@ impl Candidates {
             })
             .flatten()
     }
-    pub fn parse<'a, 'de, T: ToResponseSchema + Deserialize<'de>>(
-        &'a self,
-    ) -> impl Iterator<Item = T> + 'a
+    pub fn parse<'a, 'de, T: ToResponseSchema<'de>>(&'a self) -> impl Iterator<Item = T> + 'a
     where
         'a: 'de,
     {
         self.parsable_content()
-            .filter_map(|item| match serde_json::from_str::<T>(item) {
+            .filter_map(|item| match T::parse_reply(item) {
                 Ok(v) => Some(v),
                 Err(e) => {
                     warn!("fails to parse {item:?} with error: {e:?}");

@@ -25,7 +25,7 @@ fn impl_to_response_schema(ast: &syn::DeriveInput) -> TokenStream {
                 .map(|x| (x.ident.clone().expect("Named field")))
                 .collect();
             quote! {
-                impl ToResponseSchema for #struct_name {
+                impl ToResponseSchema<'_> for #struct_name {
                     fn to_response_schema() -> gemini::ResponseSchema {
                         let description = #struct_name::description();
                         ResponseSchema {
