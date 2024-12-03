@@ -81,14 +81,26 @@ impl<'a, 'b> LLM<'a, 'b> {
         {
             Ok(response) => {
                 info!("Request to llm: {request:?}\nResponse from llm: {response:?}");
-                match response.parsed().next() {
+                match response
+                    .parsed()
+                    .inspect(|pre: &RoutineSpecification| {
+                        info!("all preconditions {}", pre.precondition);
+                        info!("all postconditions {}", pre.postcondition);
+                    })
+                    .filter(|spec: &RoutineSpecification| spec.valid_syntax())
+                    .inspect(|post: &RoutineSpecification| {
+                        info!("filtered preconditions {}", post.precondition);
+                        info!("filtered postconditions {}", post.postcondition);
+                    })
+                    .next()
+                {
                     Some(spec) => Ok(spec),
-                    None => Err(super::Error::PassThroughError(
-                        "No specification for routine was produced",
+                    None => Err(super::Error::CodeActionDisabled(
+                        "No added specification for routine was produced",
                     )),
                 }
             }
-            Err(_) => Err(super::Error::PassThroughError(
+            Err(_) => Err(super::Error::CodeActionDisabled(
                 "fails to process llm request",
             )),
         }

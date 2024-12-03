@@ -37,6 +37,9 @@ pub(crate) trait Indent {
             })
     }
 }
+pub(crate) trait ValidSyntax {
+    fn valid_syntax(&self) -> bool;
+}
 
 #[cfg(test)]
 mod tests {}

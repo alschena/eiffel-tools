@@ -1,4 +1,5 @@
 use crate::lib::code_entities::prelude::*;
+use crate::lib::code_entities::ValidSyntax;
 use crate::lib::language_server_protocol::prelude::{HandleRequest, ServerState};
 use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;

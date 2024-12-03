@@ -84,6 +84,11 @@ pub struct Clause {
     pub predicate: Predicate,
     pub tag: Tag,
 }
+impl ValidSyntax for Clause {
+    fn valid_syntax(&self) -> bool {
+        self.predicate.valid_syntax() && self.tag.valid_syntax()
+    }
+}
 impl Parse for Clause {
     type Error = anyhow::Error;
     fn parse(assertion_clause: &Node, src: &str) -> anyhow::Result<Self> {
@@ -130,6 +135,11 @@ impl Clause {
 pub struct Tag {
     pub tag: String,
 }
+impl ValidSyntax for Tag {
+    fn valid_syntax(&self) -> bool {
+        !self.tag.contains(" ")
+    }
+}
 impl Display for Tag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.tag)
@@ -144,6 +154,16 @@ impl From<String> for Tag {
 pub struct Predicate {
     pub predicate: String,
 }
+impl ValidSyntax for Predicate {
+    fn valid_syntax(&self) -> bool {
+        let text = self.predicate.as_str();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("parser must load grammar.");
+        parser.parse(text, None).is_some()
+    }
+}
 impl Display for Predicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.predicate)
@@ -157,6 +177,11 @@ impl Predicate {
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Precondition {
     pub precondition: Vec<Clause>,
+}
+impl ValidSyntax for Precondition {
+    fn valid_syntax(&self) -> bool {
+        self.precondition.iter().all(|clause| clause.valid_syntax())
+    }
 }
 impl From<Vec<Clause>> for Precondition {
     fn from(value: Vec<Clause>) -> Self {
@@ -218,10 +243,22 @@ impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
 pub struct Postcondition {
     pub postcondition: Vec<Clause>,
 }
+impl ValidSyntax for Postcondition {
+    fn valid_syntax(&self) -> bool {
+        self.postcondition
+            .iter()
+            .all(|clause| clause.valid_syntax())
+    }
+}
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
 pub struct RoutineSpecification {
     pub precondition: Precondition,
     pub postcondition: Postcondition,
+}
+impl ValidSyntax for RoutineSpecification {
+    fn valid_syntax(&self) -> bool {
+        self.precondition.valid_syntax() && self.postcondition.valid_syntax()
+    }
 }
 impl From<Vec<Clause>> for Postcondition {
     fn from(value: Vec<Clause>) -> Self {
