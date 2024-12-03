@@ -10,6 +10,9 @@ impl<'a, 'b> LLM<'a, 'b> {
     pub fn set_file(&mut self, file: &'a ProcessedFile) {
         self.file = Some(file);
     }
+    pub fn set_workspace(&mut self, workspace: &'b Workspace) {
+        self.workspace = Some(workspace);
+    }
     fn model_config(&self) -> &gemini::Config {
         &self.model_config
     }

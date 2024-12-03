@@ -64,6 +64,7 @@ impl HandleRequest for request::CodeActionRequest {
             Some(file) => {
                 let mut model = transformer::LLM::default();
                 model.set_file(&file);
+                model.set_workspace(&ws);
                 let point: Point = params
                     .range
                     .end
@@ -73,7 +74,9 @@ impl HandleRequest for request::CodeActionRequest {
                     Ok(edit) => (Some(edit), None),
                     Err(e) => (
                         None,
-                        Some(e.resolve().expect("all failures disable the code action.")),
+                        Some(e.resolve().expect(
+                            "all these failures must be resolved disabling the code action.",
+                        )),
                     ),
                 }
             }
