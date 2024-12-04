@@ -1,4 +1,6 @@
-use super::*;
+use crate::lib::code_entities::prelude::*;
+use async_lsp::lsp_types::TextEdit;
+use contract::{Postcondition, Precondition};
 
 pub(crate) fn text_edit_add_postcondition(
     feature: &Feature,
