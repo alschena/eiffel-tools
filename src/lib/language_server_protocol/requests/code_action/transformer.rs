@@ -1,11 +1,12 @@
 use super::utils::{text_edit_add_postcondition, text_edit_add_precondition};
+use super::Error;
 use crate::lib::code_entities::prelude::*;
 use crate::lib::code_entities::ValidSyntax;
 use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use async_lsp::lsp_types::{Url, WorkspaceEdit};
 use async_lsp::Result;
-use contract::RoutineSpecification;
+use contract::{Postcondition, Precondition, RoutineSpecification};
 use gemini;
 use gemini::ToResponseSchema;
 use std::collections::HashMap;
@@ -30,45 +31,50 @@ impl<'a, 'b> LLM<'a, 'b> {
     fn client(&self) -> &reqwest::Client {
         &self.client
     }
-    fn target_url(&self) -> Result<Url, super::Error<'static>> {
+    fn target_url(&self) -> Result<Url, Error<'static>> {
         let Some(file) = self.file else {
             panic!("target file must be set in LLM.")
         };
-        Url::from_file_path(file.path()).map_err(|_| {
-            super::Error::PassThroughError("fails to transform path into lsp_types::Url")
-        })
+        Url::from_file_path(file.path())
+            .map_err(|_| Error::PassThroughError("fails to transform path into lsp_types::Url"))
     }
 }
 impl<'a, 'b> LLM<'a, 'b> {
-    fn feature_at_point_with_src(
-        &self,
-        point: &Point,
-    ) -> Result<(&'a Feature, String), super::Error<'static>> {
-        let Some(file) = self.file else {
-            panic!("target file must be set in LLM.")
-        };
-        match file.feature_around_point(&point) {
-            Some(feature) => match file.feature_src(&feature) {
-                Ok(src) => Ok((feature, src)),
-                Err(_) => Err(super::Error::PassThroughError(
-                    "fails to extract feature source from file",
-                )),
-            },
-            None => Err(super::Error::CodeActionDisabled(
-                "There is no feature surrounding the cursor",
-            )),
-        }
-    }
     async fn request_specification(
         &self,
         feature: &Feature,
-        feature_src: &str,
-    ) -> Result<RoutineSpecification, super::Error<'static>> {
+    ) -> Result<(RoutineSpecification, Point, Point), Error<'static>> {
         let Some(file) = self.file else {
             panic!("target file must be set in LLM.")
         };
         let Some(workspace) = self.workspace else {
             panic!("workspace must be set in LLM")
+        };
+        let Some(point_insert_preconditions) = feature.point_end_preconditions() else {
+            return Err(Error::CodeActionDisabled(
+                "Only attributes with an attribute block and routines support adding preconditions",
+            ));
+        };
+        let Some(point_insert_postconditions) = feature.point_end_postconditions() else {
+            return Err(Error::CodeActionDisabled("Only attributes with an attribute block and routines support adding postconditions"));
+        };
+        let precondition_hole = format!(
+            "\n{}<NEW_PRECONDITION_CLAUSES>",
+            Precondition::indentation_string()
+        );
+        let postcondition_hole = format!(
+            "\n{}<NEW_POSTCONDITION_CLAUSES>",
+            Postcondition::indentation_string()
+        );
+        let injections = vec![
+            (point_insert_preconditions, precondition_hole.as_str()),
+            (point_insert_postconditions, postcondition_hole.as_str()),
+        ];
+        let Ok(feature_src) = file.feature_src_with_injections(&feature, injections.into_iter())
+        else {
+            return Err(Error::PassThroughError(
+                "fails to extract source of feature from file",
+            ));
         };
         let full_model_text;
         {
@@ -105,42 +111,47 @@ impl<'a, 'b> LLM<'a, 'b> {
                     })
                     .next()
                 {
-                    Some(spec) => Ok(spec),
-                    None => Err(super::Error::CodeActionDisabled(
+                    Some(spec) => Ok((
+                        spec,
+                        point_insert_preconditions.clone(),
+                        point_insert_postconditions.clone(),
+                    )),
+                    None => Err(Error::CodeActionDisabled(
                         "No added specification for routine was produced",
                     )),
                 }
             }
-            Err(_) => Err(super::Error::CodeActionDisabled(
-                "fails to process llm request",
-            )),
+            Err(_) => Err(Error::CodeActionDisabled("fails to process llm request")),
         }
     }
     pub async fn add_contracts_at_point(
         &self,
         point: &Point,
         workspace: &Workspace,
-    ) -> Result<WorkspaceEdit, super::Error<'static>> {
-        let (feature, feature_src) = self.feature_at_point_with_src(point)?;
-        let Some(precondition_insert_point) = feature.point_end_preconditions() else {
-            return Err(super::Error::CodeActionDisabled(
-                "Only attributes with an attribute block and routines support adding preconditions",
+    ) -> Result<WorkspaceEdit, Error<'static>> {
+        let Some(file) = self.file else {
+            panic!("target must be set in LLM")
+        };
+        let Some(feature) = file.feature_around_point(point) else {
+            return Err(Error::CodeActionDisabled(
+                "A valid feature must surround the cursor.",
             ));
         };
-        let Some(postcondition_insert_point) = feature.point_end_postconditions() else {
-            return Err(super::Error::CodeActionDisabled("Only attributes with an attribute block and routines support adding postconditions"));
-        };
-        let RoutineSpecification {
-            precondition: pre,
-            postcondition: post,
-        } = self.request_specification(feature, &feature_src).await?;
+        let (
+            RoutineSpecification {
+                precondition: pre,
+                postcondition: post,
+            },
+            precondition_insertion_point,
+            postcondition_insertion_point,
+        ) = self.request_specification(feature).await?;
 
         let url = self.target_url()?;
         Ok(WorkspaceEdit::new(HashMap::from([(
             url,
             vec![
-                text_edit_add_precondition(&feature, precondition_insert_point.clone(), pre),
-                text_edit_add_postcondition(&feature, postcondition_insert_point.clone(), post),
+                text_edit_add_precondition(&feature, precondition_insertion_point, pre),
+                text_edit_add_postcondition(&feature, postcondition_insertion_point, post),
             ],
         )])))
     }

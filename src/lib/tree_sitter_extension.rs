@@ -76,7 +76,7 @@ end
             return Err(anyhow!("fails to process file"));
         };
 
-        let mut cursor = file.tree.walk();
+        let mut cursor = file.tree().walk();
         let mut width_first = WidthFirstTraversal::new(&mut cursor);
 
         assert_eq!(
