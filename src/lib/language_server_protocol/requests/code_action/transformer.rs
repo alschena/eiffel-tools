@@ -1,4 +1,15 @@
-use super::*;
+use super::utils::{text_edit_add_postcondition, text_edit_add_precondition};
+use crate::lib::code_entities::prelude::*;
+use crate::lib::code_entities::ValidSyntax;
+use crate::lib::processed_file::ProcessedFile;
+use crate::lib::workspace::Workspace;
+use async_lsp::lsp_types::{Url, WorkspaceEdit};
+use async_lsp::Result;
+use contract::RoutineSpecification;
+use gemini;
+use gemini::ToResponseSchema;
+use std::collections::HashMap;
+use tracing::info;
 
 pub struct LLM<'a, 'b> {
     model_config: gemini::Config,

@@ -1,21 +1,12 @@
 use crate::lib::code_entities::prelude::*;
-use crate::lib::code_entities::ValidSyntax;
 use crate::lib::language_server_protocol::prelude::{HandleRequest, ServerState};
-use crate::lib::processed_file::ProcessedFile;
-use crate::lib::workspace::Workspace;
 use async_lsp::lsp_types::{request, CodeAction, CodeActionDisabled, CodeActionOrCommand};
-use async_lsp::lsp_types::{Url, WorkspaceEdit};
 use async_lsp::ResponseError;
 use async_lsp::Result;
-use contract::RoutineSpecification;
-use gemini;
-use gemini::ToResponseSchema;
-use std::collections::HashMap;
 use std::fmt::Display;
-use tracing::{info, warn};
+use tracing::warn;
 mod transformer;
 mod utils;
-use utils::*;
 
 #[derive(Debug)]
 enum Error<'a> {
