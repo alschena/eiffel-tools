@@ -53,39 +53,25 @@ impl ProcessedFile {
     pub(crate) fn class(&self) -> &Class {
         &self.class
     }
-    pub fn feature_src(&self, feature: &Feature) -> Result<String> {
-        let src = String::from_utf8(std::fs::read(self.path())?)?;
-        let range = feature.range();
-        let start = range.start();
-        let end = range.end();
-        let mut feature_src = String::new();
-        src.lines()
-            .skip(start.row)
-            .take(end.row - start.row)
-            .for_each(|line| {
-                feature_src.push_str(line);
-                feature_src.push('\n')
-            });
-        Ok(feature_src)
-    }
     pub fn feature_src_with_injections<'a>(
         &self,
         feature: &Feature,
         injections: impl Iterator<Item = (&'a Point, &'a str)> + Clone,
     ) -> Result<String> {
+        debug_assert!(injections.clone().is_sorted_by(|(a, _), (b, _)| { a <= b }));
+
         let src = String::from_utf8(std::fs::read(self.path())?)?;
         let range = feature.range();
         let start = range.start();
         let end = range.end();
 
-        debug_assert!(injections.clone().is_sorted_by(|(a, _), (b, _)| { a <= b }));
         let mut injections = injections.peekable();
 
         let mut feature_src = String::new();
         src.lines()
             .enumerate()
             .skip(start.row)
-            .take(end.row - start.row)
+            .take((end.row - start.row) + 1)
             .for_each(|(linenum, line)| match injections.peek() {
                 Some((&Point { row, column: _ }, text)) if row < linenum => {
                     feature_src.push_str(text);
@@ -148,9 +134,10 @@ end
             .expect("Error loading Eiffel grammar");
         file.write_str(
             r#"
-class A
-feature
-  x: INTEGER
+class A feature
+  f(x, y: INTEGER; z: BOOLEAN)
+    do
+    end
 end
             "#,
         )
@@ -175,7 +162,9 @@ end
             )
             .expect("the injections must succeed");
         assert_eq!(
-            r#"  [FIRST_LINE_OF_FEATURE] x: INTEGER
+            r#"  [FIRST_LINE_OF_FEATURE] f(x, y: INTEGER; z: BOOLEAN)
+    do
+    end
 "#,
             text_with_injection
         );
