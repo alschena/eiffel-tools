@@ -36,7 +36,7 @@ impl Display for Model {
         let mut display_text = String::new();
         self.0.iter().for_each(|feature| {
             display_text.push_str(feature.name());
-            display_text.push('\n')
+            display_text.push(' ');
         });
         write!(f, "{display_text}")
     }
