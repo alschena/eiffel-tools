@@ -41,6 +41,54 @@ pub struct ResponseSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<ResponseSchema>>,
 }
+impl ResponseSchema {
+    pub fn merge(self, rhs: Self) -> Self {
+        assert_eq!(self.schema_type, SchemaType::Object);
+        assert_eq!(rhs.schema_type, SchemaType::Object);
+
+        let description = self
+            .description
+            .map(|mut self_description| {
+                rhs.description.map(|ref rhs_description| {
+                    self_description.push_str(rhs_description);
+                    self_description
+                })
+            })
+            .flatten();
+        let properties = self
+            .properties
+            .map(|mut self_properties| {
+                rhs.properties.map(|rhs_properties| {
+                    self_properties.extend(rhs_properties.into_iter());
+                    self_properties
+                })
+            })
+            .flatten();
+        let required = self
+            .required
+            .map(|mut self_required| {
+                rhs.required.map(|rhs_required| {
+                    self_required.extend(rhs_required.into_iter());
+                    self_required
+                })
+            })
+            .flatten();
+        ResponseSchema {
+            schema_type: SchemaType::Object,
+            format: None,
+            description,
+            nullable: None,
+            possibilities: None,
+            max_items: None,
+            properties,
+            required,
+            items: None,
+        }
+    }
+    pub fn set_description(&mut self, description: String) {
+        self.description = Some(description)
+    }
+}
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum SchemaType {
     #[serde(rename(serialize = "STRING"))]

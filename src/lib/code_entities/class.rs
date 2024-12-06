@@ -31,11 +31,15 @@ impl Model {
         )
     }
 }
+impl Indent for Model {
+    const INDENTATION_LEVEL: u32 = 1;
+}
 impl Display for Model {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut display_text = String::new();
         self.0.iter().for_each(|feature| {
-            display_text.push_str(feature.name());
+            display_text.push_str(format!("{feature}").as_str());
+            display_text.push(',');
             display_text.push(' ');
         });
         write!(f, "{display_text}")

@@ -4,6 +4,7 @@ mod feature;
 mod shared;
 pub(crate) mod prelude {
     pub(crate) use super::class::Class;
+    pub(crate) use super::class::Model as ClassModel;
     pub(crate) use super::contract;
     pub(crate) use super::feature::Feature;
     pub(crate) use super::shared::{Location, Point, Range};

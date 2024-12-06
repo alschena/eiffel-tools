@@ -22,6 +22,9 @@ impl Parameters {
     fn add_parameter(&mut self, id: String, eiffel_type: String) {
         self.0.push((id, eiffel_type));
     }
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 impl Parse for Parameters {
     type Error = anyhow::Error;
@@ -170,6 +173,18 @@ impl Feature {
         self.postconditions.is_some()
     }
 }
+impl Display for Feature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = self.name();
+        let parenthesized_parameters = if self.parameters().is_empty() {
+            String::new()
+        } else {
+            format!("({})", self.parameters())
+        };
+        let return_type = self.return_type();
+        write!(f, "{name}{parenthesized_parameters}: {return_type}")
+    }
+}
 impl Indent for Feature {
     const INDENTATION_LEVEL: u32 = 1;
 }
@@ -299,7 +314,6 @@ end"#;
             .preconditions()
             .clone()
             .expect("extracted preconditions")
-            .precondition
             .first()
             .expect("non empty precondition")
             .predicate

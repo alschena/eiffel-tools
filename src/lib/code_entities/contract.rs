@@ -5,7 +5,9 @@ use gemini::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
 use std::fmt::Display;
+use std::ops::{Deref, DerefMut};
 use streaming_iterator::StreamingIterator;
+use tracing::info;
 use tree_sitter::{Node, Query, QueryCursor};
 pub trait Type {
     const TREE_NODE_KIND: &str;
@@ -165,11 +167,16 @@ pub struct Predicate {
 impl ValidSyntax for Predicate {
     fn valid_syntax(&self) -> bool {
         let text = self.predicate.as_str();
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
         let mut parser = tree_sitter::Parser::new();
         parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .set_language(&lang)
             .expect("parser must load grammar.");
-        parser.parse(text, None).is_some()
+        let Some(tree) = parser.parse(text, None) else {
+            info!("Parsing predicate fails.");
+            return false;
+        };
+        !tree.root_node().has_error()
     }
 }
 impl Display for Predicate {
@@ -183,19 +190,30 @@ impl Predicate {
     }
 }
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Precondition {
-    pub precondition: Vec<Clause>,
+#[serde(transparent)]
+pub struct Precondition(Vec<Clause>);
+
+impl Deref for Precondition {
+    type Target = Vec<Clause>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
+impl DerefMut for Precondition {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl ValidSyntax for Precondition {
     fn valid_syntax(&self) -> bool {
-        self.precondition.iter().all(|clause| clause.valid_syntax())
+        self.iter().all(|clause| clause.valid_syntax())
     }
 }
 impl From<Vec<Clause>> for Precondition {
     fn from(value: Vec<Clause>) -> Self {
-        Self {
-            precondition: value,
-        }
+        Self(value)
     }
 }
 impl Indent for Precondition {
@@ -248,14 +266,26 @@ impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
     }
 }
 #[derive(Hash, Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
-pub struct Postcondition {
-    pub postcondition: Vec<Clause>,
+#[serde(transparent)]
+pub struct Postcondition(Vec<Clause>);
+
+impl Deref for Postcondition {
+    type Target = Vec<Clause>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
+
+impl DerefMut for Postcondition {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl ValidSyntax for Postcondition {
     fn valid_syntax(&self) -> bool {
-        self.postcondition
-            .iter()
-            .all(|clause| clause.valid_syntax())
+        self.iter().all(|clause| clause.valid_syntax())
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
@@ -270,9 +300,7 @@ impl ValidSyntax for RoutineSpecification {
 }
 impl From<Vec<Clause>> for Postcondition {
     fn from(value: Vec<Clause>) -> Self {
-        Self {
-            postcondition: value,
-        }
+        Self(value)
     }
 }
 impl Type for Postcondition {
@@ -288,8 +316,7 @@ impl Display for Precondition {
         write!(
             f,
             "{}",
-            self.precondition
-                .iter()
+            self.iter()
                 .fold(String::from('\n'), |mut acc, elt| {
                     acc.push_str(format!("{}{}", Self::indentation_string(), elt).as_str());
                     acc
@@ -303,8 +330,7 @@ impl Display for Postcondition {
         write!(
             f,
             "{}",
-            self.postcondition
-                .iter()
+            self.iter()
                 .fold(String::from('\n'), |mut acc, elt| {
                     acc.push_str(format!("{}{}", Self::indentation_string(), elt).as_str());
                     acc
@@ -422,7 +448,6 @@ end"#;
             .item
             .clone()
             .expect("fails to find non-empty precondition")
-            .precondition
             .pop()
             .expect("Parse clause");
         assert_eq!(clause.predicate, predicate);
@@ -463,7 +488,6 @@ end"#;
             .item
             .clone()
             .expect("fails to find non-empty postcondition")
-            .postcondition
             .pop()
             .expect("Parse clause");
         assert_eq!(clause.predicate, predicate);
@@ -475,18 +499,15 @@ end"#;
     fn precondition_response_schema() -> Result<()> {
         let response_schema = Precondition::to_response_schema();
         let oracle_response = ResponseSchema {
-            schema_type: SchemaType::Object,
+            schema_type: SchemaType::Array,
             format: None,
             description: Some(Precondition::description()),
             nullable: None,
             possibilities: None,
             max_items: None,
-            properties: Some(std::collections::HashMap::from([(
-                String::from("precondition"),
-                <Vec<Clause>>::to_response_schema(),
-            )])),
-            required: Some(vec![String::from("precondition")]),
-            items: None,
+            properties: None,
+            required: None,
+            items: Some(Box::new(Clause::to_response_schema())),
         };
         assert_eq!(response_schema, oracle_response);
         Ok(())
@@ -495,18 +516,15 @@ end"#;
     fn postcondition_response_schema() -> Result<()> {
         let response_schema = Postcondition::to_response_schema();
         let oracle_response = ResponseSchema {
-            schema_type: SchemaType::Object,
+            schema_type: SchemaType::Array,
             format: None,
             description: Some(Postcondition::description()),
             nullable: None,
             possibilities: None,
             max_items: None,
-            properties: Some(std::collections::HashMap::from([(
-                String::from("postcondition"),
-                <Vec<Clause>>::to_response_schema(),
-            )])),
-            required: Some(vec![String::from("postcondition")]),
-            items: None,
+            properties: None,
+            required: None,
+            items: Some(Box::new(Clause::to_response_schema())),
         };
         assert_eq!(response_schema, oracle_response);
         Ok(())
@@ -582,5 +600,19 @@ end"#;
         };
         assert_eq!(response_schema, oracle_response);
         Ok(())
+    }
+    #[test]
+    fn predicate_valid_syntax() {
+        let invalid_predicate = Predicate::new("min min".into());
+        let valid_predicate = Predicate::new("min (x, y)".into());
+        assert!(!invalid_predicate.valid_syntax());
+        assert!(valid_predicate.valid_syntax());
+    }
+    #[test]
+    fn tag_valid_syntax() {
+        let invalid_tag: Tag = String::from("this is not valid").into();
+        let valid_tag: Tag = String::from("this_is_valid").into();
+        assert!(!invalid_tag.valid_syntax());
+        assert!(valid_tag.valid_syntax());
     }
 }

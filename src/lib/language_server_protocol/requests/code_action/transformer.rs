@@ -93,10 +93,13 @@ impl<'a, 'b> LLM<'a, 'b> {
         let full_model_text;
         {
             // TODO add models of arguments and Result.
-            let mut setup = "The models of the current class and its ancestors are:".to_string();
+            let mut setup = "The models of the current class and its ancestors are:\n".to_string();
             file.class()
                 .full_model(workspace.system_classes())
-                .for_each(|model| setup.push_str(format!("{model}").as_str()));
+                .for_each(|model| {
+                    setup.push_str(format!("{}{model}", ClassModel::indentation_string()).as_str());
+                    setup.push('\n');
+                });
             full_model_text = setup;
         }
         let mut request = gemini::Request::from(format!(
