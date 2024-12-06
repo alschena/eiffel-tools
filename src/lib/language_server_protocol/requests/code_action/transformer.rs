@@ -6,7 +6,7 @@ use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use async_lsp::lsp_types::{Url, WorkspaceEdit};
 use async_lsp::Result;
-use contract::{Postcondition, Precondition, RoutineSpecification};
+use contract::{Block, Postcondition, Precondition, RoutineSpecification};
 use gemini;
 use gemini::ToResponseSchema;
 use std::collections::HashMap;
@@ -58,14 +58,28 @@ impl<'a, 'b> LLM<'a, 'b> {
         let Some(point_insert_postconditions) = feature.point_end_postconditions() else {
             return Err(Error::CodeActionDisabled("Only attributes with an attribute block and routines support adding postconditions"));
         };
-        let precondition_hole = format!(
-            "\n{}<NEW_PRECONDITION_CLAUSES>",
-            Precondition::indentation_string()
-        );
-        let postcondition_hole = format!(
-            "\n{}<NEW_POSTCONDITION_CLAUSES>",
-            Postcondition::indentation_string()
-        );
+        let precondition_hole = if feature.has_precondition() {
+            format!(
+                "\n{}<ADDED_PRECONDITION_CLAUSES>",
+                Precondition::indentation_string()
+            )
+        } else {
+            format!(
+                "<NEW_PRECONDITION_BLOCK>\n{}",
+                <Block<Precondition>>::indentation_string()
+            )
+        };
+        let postcondition_hole = if feature.has_postcondition() {
+            format!(
+                "\n{}<ADDED_POSTCONDITION_CLAUSES>",
+                Postcondition::indentation_string()
+            )
+        } else {
+            format!(
+                "<NEW_POSTCONDITION_BLOCK>\n{}",
+                <Block<Postcondition>>::indentation_string()
+            )
+        };
         let injections = vec![
             (point_insert_preconditions, precondition_hole.as_str()),
             (point_insert_postconditions, postcondition_hole.as_str()),
