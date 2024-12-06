@@ -1,11 +1,13 @@
 use super::prelude::*;
 use crate::lib::tree_sitter_extension::Parse;
+use anyhow::Context;
 use async_lsp::lsp_types;
 use contract::{Block, Postcondition, Precondition};
 use std::borrow::Cow;
 use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
+use tracing::warn;
 use tree_sitter::{Node, Query, QueryCursor};
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum FeatureVisibility {
@@ -44,18 +46,22 @@ impl Parse for Parameters {
             for entity_declaration_capture in entity_declaration_match.captures {
                 let mut query_cursor = QueryCursor::new();
                 let node = entity_declaration_capture.node;
+
                 let parameter_name_query = Query::new(lang, "(identifier) @parameter_name")
                     .expect("Query parameter's name for a certain entity declaration block.");
-                let parameter_type_query = Query::new(lang, "(class_type) @parameter_type")
+                let parameter_type_query = Query::new(lang, "type: (_) @parameter_type")
                     .expect("Query parameter's type for a certain entity declaration block.");
 
-                let parameter_type: String = src[query_cursor
+                let parameter_type: String = src[match query_cursor
                     .matches(&parameter_type_query, node.clone(), src.as_bytes())
                     .next()
-                    .expect("There must be a type for each entity declaration match.")
-                    .captures[0]
-                    .node
-                    .byte_range()]
+                {
+                    Some(mat) => mat.captures[0].node.byte_range(),
+                    None => {
+                        warn!("There must be a type for each entity declaration match.");
+                        break;
+                    }
+                }]
                 .into();
                 query_cursor
                     .matches(&parameter_name_query, node.clone(), src.as_bytes())
