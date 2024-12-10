@@ -6,10 +6,14 @@ use async_lsp::server::LifecycleLayer;
 use async_lsp::tracing::TracingLayer;
 use async_lsp::{client_monitor::ClientProcessMonitorLayer, lsp_types::notification};
 use eiffel_tools::lib::language_server_protocol::prelude::*;
+use std::path::Path;
 use std::time::Duration;
 use tower::ServiceBuilder;
-use tracing::{info, Level};
-use tracing_subscriber::fmt::{fmt, format::FmtSpan};
+use tracing_subscriber::filter;
+use tracing_subscriber::fmt::{self, format::FmtSpan};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{Layer, Registry};
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
@@ -49,17 +53,42 @@ async fn main() -> anyhow::Result<()> {
             .service::<router::Router<_>>(router.into())
     });
 
-    let log_file = std::fs::OpenOptions::new()
+    let log_directory_path = &Path::new(".lsp_eiffel.d");
+    if !log_directory_path.exists() {
+        std::fs::DirBuilder::new().create(log_directory_path)?;
+    }
+
+    let default_log_file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .append(false)
-        .open(".eiffel-lsp.log")?;
+        .open(log_directory_path.join("log.log"))?;
 
-    fmt()
-        .with_max_level(Level::INFO)
+    let gemini_log_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .append(false)
+        .open(log_directory_path.join("gemini.log"))?;
+
+    let default_layer = fmt::layer()
         .with_span_events(FmtSpan::CLOSE)
         .with_ansi(false)
-        .with_writer(log_file)
+        .with_writer(default_log_file)
+        .with_filter(
+            filter::Targets::default()
+                .with_default(filter::LevelFilter::INFO)
+                .with_target("gemini", filter::LevelFilter::OFF),
+        );
+
+    let gemini_layer = fmt::layer()
+        .with_span_events(FmtSpan::CLOSE)
+        .with_ansi(false)
+        .with_writer(gemini_log_file)
+        .with_filter(filter::Targets::default().with_target("gemini", filter::LevelFilter::INFO));
+
+    Registry::default()
+        .with(default_layer)
+        .with(gemini_layer)
         .init();
 
     // Prefer truly asynchronous piped stdin/stdout without blocking tasks.

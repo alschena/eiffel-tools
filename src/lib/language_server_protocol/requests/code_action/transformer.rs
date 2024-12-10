@@ -114,17 +114,17 @@ impl<'a, 'b> LLM<'a, 'b> {
             .await
         {
             Ok(response) => {
-                info!("Request to llm: {request:?}\nResponse from llm: {response:?}");
+                info!(target:"gemini", "Request to llm: {request:?}\nResponse from llm: {response:?}");
                 match response
                     .parsed()
                     .inspect(|pre: &RoutineSpecification| {
-                        info!("all preconditions {}", pre.precondition);
-                        info!("all postconditions {}", pre.postcondition);
+                        info!(target: "gemini", "all preconditions {}", pre.precondition);
+                        info!(target: "gemini", "all postconditions {}", pre.postcondition);
                     })
                     .filter(|spec: &RoutineSpecification| spec.valid_syntax())
                     .inspect(|post: &RoutineSpecification| {
-                        info!("filtered preconditions {}", post.precondition);
-                        info!("filtered postconditions {}", post.postcondition);
+                        info!(target: "gemini", "filtered preconditions {}", post.precondition);
+                        info!(target: "gemini", "filtered postconditions {}", post.postcondition);
                     })
                     .next()
                 {
