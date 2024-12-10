@@ -2,7 +2,7 @@ use reqwest;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::Display;
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub(super) enum Role {
     #[serde(rename(deserialize = "user"))]
     User,

@@ -1,81 +1,81 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::language_server_protocol::prelude::{HandleRequest, ServerState};
-use async_lsp::lsp_types::{self, request, CodeAction, CodeActionDisabled, CodeActionOrCommand};
+use async_lsp::lsp_types::{request, CodeAction, CodeActionDisabled, CodeActionOrCommand};
 use async_lsp::ResponseError;
 use async_lsp::Result;
-use std::collections::HashMap;
+use std::fmt::Display;
+use tracing::warn;
 mod transformer;
+mod utils;
+
+#[derive(Debug)]
+enum Error<'a> {
+    CodeActionDisabled(&'a str),
+    PassThroughError(&'a str),
+}
+impl<'a> Error<'a> {
+    fn resolve(&self) -> Option<CodeActionDisabled> {
+        match self {
+            Self::CodeActionDisabled(reason) => Some(CodeActionDisabled {
+                reason: reason.to_string(),
+            }),
+            Self::PassThroughError(reason) => {
+                warn!("{reason}");
+                None
+            }
+        }
+    }
+}
+impl<'a> Display for Error<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::CodeActionDisabled(s) => write!(f, "{s}"),
+            Error::PassThroughError(s) => write!(
+                f,
+                "fails with {s}, but the process can continue. Look at log file for more information."
+            ),
+        }
+    }
+}
 
 impl HandleRequest for request::CodeActionRequest {
     async fn handle_request(
         st: ServerState,
         params: <Self as request::Request>::Params,
     ) -> Result<<Self as request::Request>::Result, ResponseError> {
+        let ws = st.workspace.read().await;
         let path = params
             .text_document
             .uri
             .to_file_path()
             .expect("fails to convert uri of code action parameter in usable path.");
-        let file = st.find_file(&path).await;
+        let file = ws.find_file(&path);
 
-        let (disabled, edit) = match file {
-            Some(file) => match file.feature_around_point(
-                params
+        let (edit, disabled) = match file {
+            Some(file) => {
+                let mut model = transformer::LLM::default();
+                model.set_file(&file);
+                model.set_workspace(&ws);
+                let point: Point = params
                     .range
                     .end
                     .try_into()
-                    .expect("fails to convert lsp position to eiffel point."),
-            ) {
-                Some(feature) => {
-                    match (feature.range_end_preconditions(), feature.range_end_postconditions()) {
-                        (Some(precondition_range_end), Some(postcondition_range_end)) => {
-                        let model = transformer::LLM::default();
-                        let feature_src = file.feature_src(&feature).expect("file should contain feature");
-                        let (pre, post) = model.add_contracts_async(feature_src).await.expect("llm fails to produce contracts");
-                            (None, Some(lsp_types::WorkspaceEdit::new(HashMap::from([ (params.text_document.uri, vec![
-                                    lsp_types::TextEdit {
-                                        range: postcondition_range_end.clone().try_into().expect("range should convert to lsp-type range."),
-                                        new_text: if feature.is_postcondition_block_present() {
-                                            format!("{post}")} else {format!(
-                                                    "{}",
-                                                    contract::Block::<contract::Postcondition> {
-                                                        item: Some(post),
-                                                        range: postcondition_range_end,
-                                                        keyword: contract::Keyword::Ensure,
-                                                    }
-                                                )}
-                                    },
-                                    lsp_types::TextEdit {
-                                        range: precondition_range_end.clone().try_into().expect("range should convert to lsp-type range."),
-                                        new_text: if feature.is_precondition_block_present() {
-                                            format!("{pre}")} else {format!(
-                                                    "{}",
-                                                    contract::Block::<contract::Precondition> {
-                                                        item: Some(pre),
-                                                        range: precondition_range_end,
-                                                        keyword: contract::Keyword::Require,
-                                                    }
-                                                )}
-                                    },
-                            ])
-                            ]))))
-                        }
-                        (None, None) => (Some(CodeActionDisabled {reason: String::from("The surrounding feature does not support adding pre or post conditions.")}), None),
-                        _ => unreachable!()
-                    }
+                    .expect("fails to convert lsp-point to eiffel point");
+                match model.add_contracts_at_point(&point, &ws).await {
+                    Ok(edit) => (Some(edit), None),
+                    Err(e) => (
+                        None,
+                        Some(e.resolve().expect(
+                            "all these failures must be resolved disabling the code action.",
+                        )),
+                    ),
                 }
-                None => (
-                    Some(CodeActionDisabled {
-                        reason: "The cursor is not surrounded by a feature".to_string(),
-                    }),
-                    None,
-                ),
-            },
+            }
             None => (
+                None,
                 Some(CodeActionDisabled {
                     reason: "The current file has not been parsed yet.".to_string(),
                 }),
-                None,
             ),
         };
         Ok(Some(vec![CodeActionOrCommand::CodeAction(CodeAction {

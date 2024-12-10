@@ -13,11 +13,11 @@ use tree_sitter::{Parser, Tree};
 #[derive(Debug, Clone)]
 pub struct ProcessedFile {
     /// Treesitter abstract syntax tree, stored for incremental parsing.
-    pub(super) tree: Tree,
+    tree: Tree,
     /// Path of the file
-    pub(super) path: PathBuf,
+    path: PathBuf,
     /// In eiffel a class contains all other code entities of a class
-    pub(super) class: Class,
+    class: Class,
 }
 impl ProcessedFile {
     #[instrument(skip(parser))]
@@ -38,10 +38,10 @@ impl ProcessedFile {
     pub(crate) fn tree(&self) -> &Tree {
         &self.tree
     }
-    pub(crate) fn feature_around_point(&self, point: Point) -> Option<&Feature> {
+    pub(crate) fn feature_around_point(&self, point: &Point) -> Option<&Feature> {
         let mut features = self.class().features().iter();
         match features
-            .find(|feature| point >= feature.range().start && point <= feature.range().end)
+            .find(|&feature| point >= feature.range().start() && point <= feature.range().end())
         {
             Some(f) => Some(f),
             None => None,
@@ -53,15 +53,120 @@ impl ProcessedFile {
     pub(crate) fn class(&self) -> &Class {
         &self.class
     }
-    pub fn feature_src(&self, feature: &Feature) -> Result<String> {
+    pub fn feature_src_with_injections<'a>(
+        &self,
+        feature: &Feature,
+        injections: impl Iterator<Item = (&'a Point, &'a str)> + Clone,
+    ) -> Result<String> {
+        debug_assert!(injections.clone().is_sorted_by(|(a, _), (b, _)| { a <= b }));
+
         let src = String::from_utf8(std::fs::read(self.path())?)?;
         let range = feature.range();
         let start = range.start();
         let end = range.end();
-        Ok(src
-            .lines()
+
+        let mut injections = injections.peekable();
+
+        let mut feature_src = String::new();
+        src.lines()
+            .enumerate()
             .skip(start.row)
-            .take(end.row - start.row)
-            .collect())
+            .take((end.row - start.row) + 1)
+            .for_each(|(linenum, line)| match injections.peek() {
+                Some((&Point { row, column: _ }, text)) if row < linenum => {
+                    feature_src.push_str(text);
+                    injections.next();
+                }
+                Some((&Point { row, column }, text)) if row == linenum => {
+                    feature_src.push_str(&line[..column]);
+                    feature_src.push_str(text);
+                    feature_src.push_str(&line[column..]);
+                    feature_src.push('\n');
+                    injections.next();
+                }
+                _ => {
+                    feature_src.push_str(line);
+                    feature_src.push('\n');
+                }
+            });
+        Ok(feature_src)
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lib::code_entities::prelude::*;
+    use assert_fs::prelude::*;
+    use assert_fs::{fixture::FileWriteStr, NamedTempFile, TempDir};
+    #[tokio::test]
+    async fn new() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+
+        let temp_dir = TempDir::new().expect("must create temporary directory.");
+        let file = temp_dir.child("processed_file_new.e");
+        file.write_str(
+            r#"
+class A
+feature
+  x: INTEGER
+end
+            "#,
+        )
+        .expect("temp file must be writable");
+        assert!(file.exists());
+        let processed_file = ProcessedFile::new(&mut parser, file.to_path_buf())
+            .await
+            .expect("processed file must be produced.");
+        assert_eq!(file.to_path_buf(), processed_file.path());
+        assert_eq!("A", processed_file.class().name());
+    }
+    #[tokio::test]
+    async fn feature_str_with_injections() {
+        let temp_dir = TempDir::new().expect("must create temporary directory.");
+        let file = temp_dir.child("processed_file_new.e");
+
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+        file.write_str(
+            r#"
+class A feature
+  f(x, y: INTEGER; z: BOOLEAN)
+    do
+    end
+end
+            "#,
+        )
+        .expect("temp file must be writable");
+        assert!(file.exists());
+        let processed_file = ProcessedFile::new(&mut parser, file.to_path_buf())
+            .await
+            .expect("An instance of processed file is produced.");
+        let feature = processed_file
+            .class
+            .features()
+            .first()
+            .expect("There is a feature");
+        let range = feature.range();
+        let begin = feature.range().start();
+        let end = feature.range().end();
+
+        let text_with_injection = processed_file
+            .feature_src_with_injections(
+                feature,
+                vec![(begin, "[FIRST_LINE_OF_FEATURE] ")].into_iter(),
+            )
+            .expect("the injections must succeed");
+        assert_eq!(
+            r#"  [FIRST_LINE_OF_FEATURE] f(x, y: INTEGER; z: BOOLEAN)
+    do
+    end
+"#,
+            text_with_injection
+        );
     }
 }

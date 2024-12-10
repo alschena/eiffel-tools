@@ -1,7 +1,7 @@
 use serde::Serialize;
 pub mod schema;
 /// Configuration options for model generation and outputs.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -119,14 +119,14 @@ impl GenerationConfig {
     }
 }
 /// The set of character sequences (up to 5) that will stop output generation. If specified, the API will stop at the first appearance of a stop_sequence. The stop sequence will not be included as part of the response.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct StopSequence(Vec<String>);
 
 /// MIME type of the generated candidate text.
 /// Supported MIME types are: text/plain: (default) Text output.
 /// application/json: JSON response in the response candidates.
 /// Refer to the docs for a list of all supported text MIME types.
-#[derive(Serialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 pub enum ResponseMimeType {
     #[serde(rename(serialize = "application/json"))]
     Json,

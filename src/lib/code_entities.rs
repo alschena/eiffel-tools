@@ -1,15 +1,14 @@
-use super::processed_file::ProcessedFile;
-
 mod class;
 pub(crate) mod contract;
 mod feature;
 mod shared;
 pub(crate) mod prelude {
     pub(crate) use super::class::Class;
+    pub(crate) use super::class::Model as ClassModel;
     pub(crate) use super::contract;
     pub(crate) use super::feature::Feature;
     pub(crate) use super::shared::{Location, Point, Range};
-    pub(crate) use super::{CodeEntity, Indent};
+    pub(crate) use super::{CodeEntity, Indent, ValidSyntax};
 }
 pub(crate) trait CodeEntity {}
 pub(crate) trait Indent {
@@ -23,6 +22,9 @@ pub(crate) trait Indent {
                 acc
             })
     }
+}
+pub(crate) trait ValidSyntax {
+    fn valid_syntax(&self) -> bool;
 }
 
 #[cfg(test)]

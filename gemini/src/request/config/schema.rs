@@ -1,5 +1,5 @@
 //! The structure of the model response candidates.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 /// Output schema of the generated candidate text. Schemas must be a subset of the OpenAPI schema and can be objects, primitives or arrays.
 /// If set, a compatible responseMimeType must also be set. Compatible MIME types: application/json: Schema for JSON response. Refer to the JSON text generation guide for more details.
@@ -41,6 +41,54 @@ pub struct ResponseSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<ResponseSchema>>,
 }
+impl ResponseSchema {
+    pub fn merge(self, rhs: Self) -> Self {
+        assert_eq!(self.schema_type, SchemaType::Object);
+        assert_eq!(rhs.schema_type, SchemaType::Object);
+
+        let description = self
+            .description
+            .map(|mut self_description| {
+                rhs.description.map(|ref rhs_description| {
+                    self_description.push_str(rhs_description);
+                    self_description
+                })
+            })
+            .flatten();
+        let properties = self
+            .properties
+            .map(|mut self_properties| {
+                rhs.properties.map(|rhs_properties| {
+                    self_properties.extend(rhs_properties.into_iter());
+                    self_properties
+                })
+            })
+            .flatten();
+        let required = self
+            .required
+            .map(|mut self_required| {
+                rhs.required.map(|rhs_required| {
+                    self_required.extend(rhs_required.into_iter());
+                    self_required
+                })
+            })
+            .flatten();
+        ResponseSchema {
+            schema_type: SchemaType::Object,
+            format: None,
+            description,
+            nullable: None,
+            possibilities: None,
+            max_items: None,
+            properties,
+            required,
+            items: None,
+        }
+    }
+    pub fn set_description(&mut self, description: String) {
+        self.description = Some(description)
+    }
+}
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum SchemaType {
     #[serde(rename(serialize = "STRING"))]
@@ -57,7 +105,7 @@ pub enum SchemaType {
     Object,
 }
 impl Described for String {}
-impl ToResponseSchema for String {
+impl ToResponseSchema<'_> for String {
     fn to_response_schema() -> ResponseSchema {
         ResponseSchema {
             schema_type: SchemaType::String,
@@ -73,7 +121,7 @@ impl ToResponseSchema for String {
     }
 }
 impl Described for f32 {}
-impl ToResponseSchema for f32 {
+impl ToResponseSchema<'_> for f32 {
     fn to_response_schema() -> ResponseSchema {
         ResponseSchema {
             schema_type: SchemaType::Number,
@@ -89,7 +137,7 @@ impl ToResponseSchema for f32 {
     }
 }
 impl Described for i32 {}
-impl ToResponseSchema for i32 {
+impl ToResponseSchema<'_> for i32 {
     fn to_response_schema() -> ResponseSchema {
         ResponseSchema {
             schema_type: SchemaType::Integer,
@@ -105,9 +153,9 @@ impl ToResponseSchema for i32 {
     }
 }
 impl<T: Described> Described for Vec<T> {}
-impl<T> ToResponseSchema for Vec<T>
+impl<'de, T> ToResponseSchema<'de> for Vec<T>
 where
-    T: ToResponseSchema,
+    T: ToResponseSchema<'de>,
 {
     fn to_response_schema() -> ResponseSchema {
         ResponseSchema {
@@ -123,8 +171,11 @@ where
         }
     }
 }
-pub trait ToResponseSchema: Described {
+pub trait ToResponseSchema<'de>: Described + Deserialize<'de> {
     fn to_response_schema() -> ResponseSchema;
+    fn parse_reply(text: &'de str) -> Result<Self, impl std::error::Error> {
+        serde_json::from_str(text)
+    }
 }
 pub trait Described {
     fn description() -> String {

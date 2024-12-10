@@ -7,6 +7,15 @@ pub struct Point {
     pub row: usize,
     pub column: usize,
 }
+impl Point {
+    pub fn shift_left(&mut self, shift: usize) {
+        assert!(shift <= self.column);
+        self.column = self.column - shift;
+    }
+    pub fn reset_column(&mut self) {
+        self.column = 0;
+    }
+}
 impl PartialOrd for Point {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.row < other.row {
@@ -27,15 +36,25 @@ impl PartialOrd for Point {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Range {
-    pub start: Point,
-    pub end: Point,
+    start: Point,
+    end: Point,
 }
 impl Range {
+    pub fn new(start: Point, end: Point) -> Range {
+        Range { start, end }
+    }
+    pub fn new_collapsed(point: Point) -> Range {
+        Range::new(point.clone(), point)
+    }
     pub fn start(&self) -> &Point {
         &self.start
     }
     pub fn end(&self) -> &Point {
         &self.end
+    }
+    pub fn collapse_to_line_start(&mut self) {
+        self.start.reset_column();
+        self.end.reset_column();
     }
 }
 impl PartialOrd for Range {

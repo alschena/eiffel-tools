@@ -24,7 +24,7 @@ tracing-subscriber = "0.3.*"
 tracing = "0.1.*"
 # Treesitter
 tree-sitter = "~0.24.2"
-tree-sitter-eiffel = { git = "https://github.com/imustafin/tree-sitter-eiffel", rev = "1cbbd471a5ee5fbf5fc63822044a648fc937737a"}
+tree-sitter-eiffel = { git = "https://github.com/imustafin/tree-sitter-eiffel", branch = "lsp-adaptation"}
 # Parsing
 serde = "1.0.*"
 # Eiffel configuration

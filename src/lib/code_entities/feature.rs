@@ -1,12 +1,14 @@
-use super::class::Class;
-use super::contract::{Block, Postcondition, Precondition};
 use super::prelude::*;
-use crate::lib::tree_sitter_extension::{self, Node, Parse};
-use ::tree_sitter::{Query, QueryCursor};
-use anyhow::anyhow;
+use crate::lib::tree_sitter_extension::Parse;
+use anyhow::Context;
 use async_lsp::lsp_types;
+use contract::{Block, Postcondition, Precondition};
+use std::borrow::Cow;
+use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
+use tracing::warn;
+use tree_sitter::{Node, Query, QueryCursor};
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum FeatureVisibility {
     Private,
@@ -15,81 +17,172 @@ pub enum FeatureVisibility {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
+struct Parameters(Vec<(String, String)>);
+impl Parameters {
+    fn add_parameter(&mut self, id: String, eiffel_type: String) {
+        self.0.push((id, eiffel_type));
+    }
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+impl Parse for Parameters {
+    type Error = anyhow::Error;
+
+    fn parse(node: &Node, src: &str) -> Result<Self, Self::Error> {
+        debug_assert!(node.kind() == "formal_arguments");
+
+        let mut cursor = QueryCursor::new();
+        let lang = &tree_sitter_eiffel::LANGUAGE.into();
+
+        let entity_declaration_group_query =
+            Query::new(lang, "(entity_declaration_group) @declarationgroup")
+                .expect("Query for `entity_declaration_group` nodes must succeed.");
+
+        let mut entity_declaration_group_cursor = cursor.matches(
+            &entity_declaration_group_query,
+            node.clone(),
+            src.as_bytes(),
+        );
+        let mut parameters = Parameters(Vec::new());
+        while let Some(entity_declaration_match) = entity_declaration_group_cursor.next() {
+            for entity_declaration_capture in entity_declaration_match.captures {
+                let mut query_cursor = QueryCursor::new();
+                let node = entity_declaration_capture.node;
+
+                let parameter_name_query = Query::new(lang, "(identifier) @parameter_name")
+                    .expect("Query parameter's name for a certain entity declaration block.");
+                let parameter_type_query = Query::new(lang, "type: (_) @parameter_type")
+                    .expect("Query parameter's type for a certain entity declaration block.");
+
+                let parameter_type: String = src[match query_cursor
+                    .matches(&parameter_type_query, node.clone(), src.as_bytes())
+                    .next()
+                {
+                    Some(mat) => mat.captures[0].node.byte_range(),
+                    None => {
+                        warn!("There must be a type for each entity declaration match.");
+                        break;
+                    }
+                }]
+                .into();
+                query_cursor
+                    .matches(&parameter_name_query, node.clone(), src.as_bytes())
+                    .for_each(|mat| {
+                        mat.captures.iter().for_each(|cap| {
+                            parameters.add_parameter(
+                                src[cap.node.byte_range()].into(),
+                                parameter_type.clone(),
+                            )
+                        })
+                    });
+            }
+        }
+        Ok(parameters)
+    }
+}
+impl Display for Parameters {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = self.0.iter().fold(
+            String::new(),
+            |mut acc, (parameter_name, parameter_type)| {
+                acc.push_str(parameter_name.as_str());
+                acc.push_str(": ");
+                acc.push_str(parameter_type.as_str());
+                acc
+            },
+        );
+        write!(f, "{text}");
+        Ok(())
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Feature {
     pub(super) name: String,
+    parameters: Parameters,
+    return_type: String,
     pub(super) visibility: FeatureVisibility,
     pub(super) range: Range,
     /// Is None only when a precondition cannot be added (for attributes without an attribute clause).
-    pub(super) preconditions: Option<Block<Precondition>>,
-    pub(super) postconditions: Option<Block<Postcondition>>,
+    preconditions: Option<Block<Precondition>>,
+    postconditions: Option<Block<Postcondition>>,
 }
 impl Feature {
     pub fn name(&self) -> &str {
         &self.name
     }
+    fn parameters(&self) -> &Parameters {
+        &self.parameters
+    }
+    fn return_type(&self) -> &str {
+        &self.return_type
+    }
+    fn signature(&self) -> String {
+        format!("{} ({}): {}", self.name, self.parameters, self.return_type)
+    }
     pub fn range(&self) -> &Range {
         &self.range
     }
-    pub fn preconditions(&self) -> &Option<Block<Precondition>> {
-        &self.preconditions
-    }
-    pub fn is_precondition_block_present(&self) -> bool {
+    pub fn preconditions(&self) -> Option<&Precondition> {
         match &self.preconditions {
-            Some(Block { item, .. }) => match item {
-                Some(_) => true,
-                None => false,
-            },
-            None => false,
+            Some(pre) => pre.item(),
+            None => None,
         }
     }
-    pub fn is_postcondition_block_present(&self) -> bool {
+    pub fn postconditions(&self) -> Option<&Postcondition> {
         match &self.postconditions {
-            Some(Block { item, .. }) => match item {
-                Some(_) => true,
-                None => false,
-            },
-            None => false,
+            Some(post) => post.item(),
+            None => None,
         }
     }
-    pub fn range_end_preconditions(&self) -> Option<Range> {
-        let point: &Point = match &self.preconditions {
-            Some(pre) => &pre.range().end,
-            None => return None,
-        };
-        Some(Range {
-            start: point.clone(),
-            end: point.clone(),
-        })
+    pub fn has_precondition(&self) -> bool {
+        self.preconditions().is_some()
     }
-    pub fn range_start_preconditions(&self) -> Option<Range> {
-        let point: &Point = match &self.preconditions {
-            Some(pre) => &pre.range().start,
-            None => return None,
-        };
-        Some(Range {
-            start: point.clone(),
-            end: point.clone(),
-        })
+    pub fn has_postcondition(&self) -> bool {
+        self.postconditions().is_some()
     }
-    pub fn range_end_postconditions(&self) -> Option<Range> {
-        let point: &Point = match &self.postconditions {
-            Some(post) => &post.range().end,
+    pub fn point_end_preconditions(&self) -> Option<&Point> {
+        match &self.preconditions {
+            Some(pre) => Some(pre.range().end()),
             None => return None,
-        };
-        Some(Range {
-            start: point.clone(),
-            end: point.clone(),
-        })
+        }
     }
-    pub fn range_start_postconditions(&self) -> Option<Range> {
-        let point: &Point = match &self.postconditions {
-            Some(post) => &post.range().start,
+    pub fn point_start_preconditions(&self) -> Option<&Point> {
+        match &self.preconditions {
+            Some(pre) => Some(pre.range().start()),
             None => return None,
+        }
+    }
+    pub fn point_end_postconditions(&self) -> Option<&Point> {
+        match &self.postconditions {
+            Some(post) => Some(post.range().end()),
+            None => None,
+        }
+    }
+    pub fn point_start_postconditions(&self) -> Option<&Point> {
+        match &self.postconditions {
+            Some(post) => Some(post.range().start()),
+            None => None,
+        }
+    }
+    pub fn supports_precondition_block(&self) -> bool {
+        self.preconditions.is_some()
+    }
+    pub fn supports_postcondition_block(&self) -> bool {
+        self.postconditions.is_some()
+    }
+}
+impl Display for Feature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = self.name();
+        let parenthesized_parameters = if self.parameters().is_empty() {
+            String::new()
+        } else {
+            format!("({})", self.parameters())
         };
-        Some(Range {
-            start: point.clone(),
-            end: point.clone(),
-        })
+        let return_type = self.return_type();
+        write!(f, "{name}{parenthesized_parameters}: {return_type}")
     }
 }
 impl Indent for Feature {
@@ -100,18 +193,48 @@ impl Parse for Feature {
     #[instrument(skip_all)]
     fn parse(node: &Node, src: &str) -> anyhow::Result<Self> {
         debug_assert!(node.kind() == "feature_declaration");
-        let mut binding = QueryCursor::new();
+
+        let mut query_cursor = QueryCursor::new();
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
-        let query = Query::new(lang, "(extended_feature_name) @name").unwrap();
-        let mut name_captures = binding.captures(&query, node.clone(), src.as_bytes());
+
+        let name_query = Query::new(lang, r#"(extended_feature_name) @name"#)
+            .expect("Query for `extended_feature_name` must succeed.");
+        let mut name_captures = query_cursor.captures(&name_query, node.clone(), src.as_bytes());
         let name = src[name_captures.next().expect("Should have name").0.captures[0]
             .node
             .byte_range()]
         .into();
 
-        let query = Query::new(lang, "(attribute_or_routine) @x").unwrap();
-        let mut attribute_or_routine_captures =
-            binding.captures(&query, node.clone(), src.as_bytes());
+        let parameters_query = Query::new(lang, "(formal_arguments) @parameters")
+            .expect("Query for `formal_arguments` of the feature must succeed.");
+        let parameters = query_cursor
+            .captures(&parameters_query, node.clone(), src.as_bytes())
+            .next()
+            .map_or_else(
+                || Ok(Parameters(Vec::new())),
+                |formal_arguments| Parameters::parse(&formal_arguments.0.captures[0].node, src),
+            )?;
+
+        let return_type_query = Query::new(
+            lang,
+            "(feature_declaration (class_type (class_name) @return_type))",
+        )
+        .expect("Query for the return type of the feature must succeed.");
+        let return_type = query_cursor
+            .captures(&return_type_query, node.clone(), src.as_bytes())
+            .next()
+            .map_or_else(
+                || String::new(),
+                |return_type| src[return_type.0.captures[0].node.byte_range()].into(),
+            );
+
+        let attribute_or_routine_captures_query =
+            Query::new(lang, "(attribute_or_routine) @x").unwrap();
+        let mut attribute_or_routine_captures = query_cursor.captures(
+            &attribute_or_routine_captures_query,
+            node.clone(),
+            src.as_bytes(),
+        );
         let aor = attribute_or_routine_captures.next();
         let preconditions = match aor {
             Some(x) => Some(Block::<Precondition>::parse(&x.0.captures[0].node, src)?),
@@ -126,6 +249,8 @@ impl Parse for Feature {
             name,
             visibility: FeatureVisibility::Private,
             range: node.range().into(),
+            parameters,
+            return_type,
             preconditions,
             postconditions,
         })
@@ -187,12 +312,8 @@ end"#;
         assert_eq!(feature.name(), "x");
         let predicate = feature
             .preconditions()
-            .as_ref()
-            .expect("fails because feature cannot have a precondition block.")
-            .item()
             .clone()
             .expect("extracted preconditions")
-            .precondition
             .first()
             .expect("non empty precondition")
             .predicate

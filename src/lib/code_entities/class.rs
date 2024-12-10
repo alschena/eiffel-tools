@@ -1,20 +1,48 @@
 use super::prelude::*;
-use crate::lib::tree_sitter_extension::{self, Node, Parse};
-use crate::lib::workspace::Workspace;
+use crate::lib::tree_sitter_extension::Parse;
 use anyhow::anyhow;
 use async_lsp::lsp_types;
-use rayon::prelude::*;
+use std::fmt::Display;
 use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
-use tracing::info;
 use tracing::instrument;
-use tree_sitter::{Parser, Query, QueryCursor};
+use tree_sitter::{Node, Query, QueryCursor};
 // TODO accept only attributes of logical type in the model
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Model(pub Vec<Feature>);
 impl Model {
     fn new() -> Model {
         Model(Vec::new())
+    }
+}
+impl Model {
+    fn from_model_names(names: ModelNames, features: &Vec<Feature>) -> Model {
+        Model(
+            names
+                .0
+                .iter()
+                .filter_map(|name| {
+                    features
+                        .iter()
+                        .find(|feature| feature.name() == name)
+                        .cloned()
+                })
+                .collect(),
+        )
+    }
+}
+impl Indent for Model {
+    const INDENTATION_LEVEL: u32 = 1;
+}
+impl Display for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut display_text = String::new();
+        self.0.iter().for_each(|feature| {
+            display_text.push_str(format!("{feature}").as_str());
+            display_text.push(',');
+            display_text.push(' ');
+        });
+        write!(f, "{display_text}")
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -46,22 +74,6 @@ impl Parse for ModelNames {
         Ok(ModelNames(names))
     }
 }
-impl Model {
-    fn from_model_names(names: ModelNames, features: &Vec<Feature>) -> Model {
-        Model(
-            names
-                .0
-                .iter()
-                .filter_map(|name| {
-                    features
-                        .iter()
-                        .find(|feature| feature.name() == name)
-                        .cloned()
-                })
-                .collect(),
-        )
-    }
-}
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Class {
     name: String,
@@ -79,12 +91,13 @@ impl Class {
     pub fn model(&self) -> &Model {
         &self.model
     }
-    pub fn full_model<'a, 'b: 'a>(&'b self, classes: &'a [&'a Class]) -> Vec<&'a Model> {
+    pub fn full_model<'a>(
+        &'a self,
+        classes: impl Iterator<Item = &'a Class> + 'a,
+    ) -> impl Iterator<Item = &'a Model> {
         self.ancestors_classes(classes)
-            .iter()
-            .map(|c| c.model())
+            .map(|ancestor| ancestor.model())
             .chain(std::iter::once(self.model()))
-            .collect()
     }
     pub fn features(&self) -> &Vec<Feature> {
         &self.features
@@ -95,11 +108,16 @@ impl Class {
     pub fn ancestors(&self) -> &Vec<Ancestor> {
         &self.ancestors
     }
-    pub fn ancestors_classes<'a, 'b>(&'b self, classes: &'a [&'a Class]) -> Vec<&'a Class> {
-        self.ancestors()
-            .into_iter()
-            .filter_map(|a| (classes.iter().find(|class| class.name() == a.name())).map(|&c| c))
-            .collect()
+    pub fn ancestors_classes<'a, 'b>(
+        &'b self,
+        classes: impl Iterator<Item = &'a Class> + 'b,
+    ) -> impl Iterator<Item = &'a Class> + 'b {
+        classes.filter(|class_in_workspace| {
+            self.ancestors()
+                .into_iter()
+                .find(|ancestor| ancestor.name() == class_in_workspace.name())
+                .is_some()
+        })
     }
     pub fn range(&self) -> &Range {
         &self.range
@@ -606,31 +624,28 @@ end
         let parent =
             Class::parse(&tree_parent.root_node(), src_parent).expect("fails to parse class");
         let classes = vec![&child, &parent];
-        let a = child.ancestors_classes(&classes);
-        let a = a
-            .first()
-            .ok_or(anyhow!("fails to capture ancestor class."))?;
-        assert_eq!(a, &&parent);
+        let a = child.ancestors_classes(classes.into_iter());
+        assert_eq!(a.collect::<Vec<_>>(), vec![&parent]);
         Ok(())
     }
     #[test]
     fn full_model() -> Result<()> {
         let src_child = "
     note
-        model: seq
+        model: seq_child
     class A
     inherit
       W
-    feature seq: MML_SEQUENCE[G]
+    feature seq_child: MML_SEQUENCE[G]
     end
     ";
         let src_parent = "
     note
-        model: seq
+        model: seq_parent
     class W
     feature
         x: INTEGER
-        seq: MML_SEQUENCE [INTEGER]
+        seq_parent: MML_SEQUENCE [INTEGER]
     end
     ";
         let mut parser = tree_sitter::Parser::new();
@@ -643,11 +658,11 @@ end
         let child = Class::parse(&tree_child.root_node(), src_child).expect("fails to parse class");
         let parent =
             Class::parse(&tree_parent.root_node(), src_parent).expect("fails to parse class");
-        let classes = vec![&child, &parent];
-        let a = std::collections::HashSet::from_iter(child.full_model(&classes).into_iter());
         assert_eq!(
-            a,
-            std::collections::HashSet::from([child.model(), parent.model()])
+            child
+                .full_model(vec![&child, &parent].into_iter())
+                .collect::<Vec<_>>(),
+            vec![parent.model(), child.model()]
         );
         Ok(())
     }
