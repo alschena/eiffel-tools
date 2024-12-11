@@ -317,8 +317,7 @@ end"#;
             .first()
             .expect("non empty precondition")
             .predicate
-            .clone()
-            .predicate;
-        assert_eq!(predicate, "True".to_string())
+            .clone();
+        assert_eq!(predicate.as_str(), "True")
     }
 }

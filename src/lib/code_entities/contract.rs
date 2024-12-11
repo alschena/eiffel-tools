@@ -4,8 +4,10 @@ use anyhow::anyhow;
 use gemini::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
+use std::convert::AsRef;
 use std::fmt::Display;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
+use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tracing::info;
 use tree_sitter::{Node, Query, QueryCursor};
@@ -91,8 +93,8 @@ impl Display for Keyword {
 }
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Clause {
-    pub predicate: Predicate,
     pub tag: Tag,
+    pub predicate: Predicate,
 }
 impl ValidSyntax for Clause {
     fn valid_syntax(&self) -> bool {
@@ -142,31 +144,43 @@ impl Clause {
     }
 }
 #[derive(Deserialize, Clone, ToResponseSchema, Debug, PartialEq, Eq, Hash)]
-pub struct Tag {
-    pub tag: String,
+#[serde(transparent)]
+pub struct Tag(String);
+
+impl Tag {
+    fn as_str(&self) -> &str {
+        &self.0
+    }
 }
+
 impl ValidSyntax for Tag {
     fn valid_syntax(&self) -> bool {
-        !self.tag.contains(" ")
+        !self.as_str().contains(" ")
     }
 }
 impl Display for Tag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.tag)
+        write!(f, "{}", self.as_str())
     }
 }
 impl From<String> for Tag {
     fn from(value: String) -> Self {
-        Tag { tag: value }
+        Tag(value)
     }
 }
 #[derive(Hash, Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
-pub struct Predicate {
-    pub predicate: String,
+#[serde(transparent)]
+pub struct Predicate(String);
+
+impl Predicate {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
+
 impl ValidSyntax for Predicate {
     fn valid_syntax(&self) -> bool {
-        let text = self.predicate.as_str();
+        let text: &str = self.as_str();
         let lang = tree_sitter_eiffel::LANGUAGE.into();
         let mut parser = tree_sitter::Parser::new();
         parser
@@ -181,12 +195,12 @@ impl ValidSyntax for Predicate {
 }
 impl Display for Predicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.predicate)
+        write!(f, "{}", self.as_str())
     }
 }
 impl Predicate {
     fn new(s: String) -> Predicate {
-        Predicate { predicate: s }
+        Predicate(s)
     }
 }
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone, Hash)]
@@ -443,7 +457,7 @@ end"#;
         let precondition =
             <Block<Precondition>>::parse(&node, &src).expect("fails to parse precondition.");
         let predicate = Predicate::new("True".to_string());
-        let tag = Tag { tag: String::new() };
+        let tag = Tag(String::new());
         let clause = precondition
             .item
             .clone()
@@ -483,7 +497,7 @@ end"#;
         let postcondition =
             <Block<Postcondition>>::parse(&node, &src).expect("fails to parse postcondition.");
         let predicate = Predicate::new("True".to_string());
-        let tag = Tag { tag: String::new() };
+        let tag = Tag(String::new());
         let clause = postcondition
             .item
             .clone()
@@ -565,17 +579,14 @@ end"#;
     fn tag_response_schema() -> Result<()> {
         let response_schema = Tag::to_response_schema();
         let oracle_response = ResponseSchema {
-            schema_type: SchemaType::Object,
+            schema_type: SchemaType::String,
             format: None,
             description: Some(Tag::description()),
             nullable: None,
             possibilities: None,
             max_items: None,
-            properties: Some(std::collections::HashMap::from([(
-                String::from("tag"),
-                String::to_response_schema(),
-            )])),
-            required: Some(vec![String::from("tag")]),
+            properties: None,
+            required: None,
             items: None,
         };
         assert_eq!(response_schema, oracle_response);
@@ -585,17 +596,14 @@ end"#;
     fn predicate_response_schema() -> Result<()> {
         let response_schema = Predicate::to_response_schema();
         let oracle_response = ResponseSchema {
-            schema_type: SchemaType::Object,
+            schema_type: SchemaType::String,
             format: None,
             description: Some(Predicate::description()),
             nullable: None,
             possibilities: None,
             max_items: None,
-            properties: Some(std::collections::HashMap::from([(
-                String::from("predicate"),
-                String::to_response_schema(),
-            )])),
-            required: Some(vec![String::from("predicate")]),
+            properties: None,
+            required: None,
             items: None,
         };
         assert_eq!(response_schema, oracle_response);
