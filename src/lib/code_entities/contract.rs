@@ -6,7 +6,8 @@ use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
 use std::convert::AsRef;
 use std::fmt::Display;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
+use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tracing::info;
 use tree_sitter::{Node, Query, QueryCursor};
@@ -152,20 +153,6 @@ impl Tag {
     }
 }
 
-impl Deref for Tag {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Tag {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 impl ValidSyntax for Tag {
     fn valid_syntax(&self) -> bool {
         !self.as_str().contains(" ")
@@ -188,19 +175,6 @@ pub struct Predicate(String);
 impl Predicate {
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-}
-impl Deref for Predicate {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Predicate {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 
