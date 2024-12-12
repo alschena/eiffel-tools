@@ -1,4 +1,5 @@
 use super::prelude::*;
+use crate::lib::code_entities::feature::Notes;
 use crate::lib::tree_sitter_extension::Parse;
 use anyhow::anyhow;
 use gemini::{Described, ResponseSchema, ToResponseSchema};
@@ -14,54 +15,49 @@ use tree_sitter::{Node, Query, QueryCursor};
 pub trait Type {
     const TREE_NODE_KIND: &str;
     const DEFAULT_KEYWORD: Keyword;
+    const EXTENSION_KEYWORD: Keyword;
     const POSITIONED: Positioned;
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 /// Wraps an optional contract clause adding whereabouts informations.
 /// If the `item` is None, the range start and end coincide where the contract clause would be added.
-pub struct Block<T> {
-    pub item: Option<T>,
+pub struct Block<T: Default> {
+    pub item: T,
     pub range: Range,
     pub keyword: Keyword,
 }
-impl<T: Type> Block<T> {
-    pub fn item(&self) -> Option<&T> {
-        match &self.item {
-            Some(ref item) => Some(item),
-            None => None,
-        }
+impl<T: Type + Default> Block<T> {
+    pub fn item(&self) -> &T {
+        &self.item
     }
     pub fn range(&self) -> &Range {
         &self.range
     }
     pub fn new(item: T, range: Range) -> Self {
         Self {
-            item: Some(item),
+            item,
             range,
             keyword: T::DEFAULT_KEYWORD,
         }
     }
     pub fn new_empty(point: Point) -> Self {
         Self {
-            item: None,
+            item: T::default(),
             range: Range::new_collapsed(point),
             keyword: T::DEFAULT_KEYWORD,
         }
     }
 }
-impl<T: Indent> Indent for Block<T> {
+impl<T: Indent + Default> Indent for Block<T> {
     const INDENTATION_LEVEL: u32 = T::INDENTATION_LEVEL - 1;
 }
-impl<T: Display + Indent> Display for Block<T> {
+impl<T: Display + Indent + Default> Display for Block<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{}{}\n{}",
             &self.keyword,
-            match &self.item {
-                Some(c) => format!("{}", c),
-                None => "True".to_owned(),
-            },
+            &self.item,
             Self::indentation_string(),
         )
     }
@@ -95,6 +91,14 @@ impl Display for Keyword {
 pub struct Clause {
     pub tag: Tag,
     pub predicate: Predicate,
+}
+impl Default for Clause {
+    fn default() -> Self {
+        Self {
+            tag: <Tag as Default>::default(),
+            predicate: <Predicate as Default>::default(),
+        }
+    }
 }
 impl ValidSyntax for Clause {
     fn valid_syntax(&self) -> bool {
@@ -153,6 +157,12 @@ impl Tag {
     }
 }
 
+impl Default for Tag {
+    fn default() -> Self {
+        Self(String::from("default"))
+    }
+}
+
 impl ValidSyntax for Tag {
     fn valid_syntax(&self) -> bool {
         !self.as_str().contains(" ")
@@ -175,6 +185,12 @@ pub struct Predicate(String);
 impl Predicate {
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl Default for Predicate {
+    fn default() -> Self {
+        Self(String::from("True"))
     }
 }
 
@@ -220,6 +236,12 @@ impl DerefMut for Precondition {
     }
 }
 
+impl Default for Precondition {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
 impl ValidSyntax for Precondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
@@ -236,29 +258,40 @@ impl Indent for Precondition {
 impl Type for Precondition {
     const TREE_NODE_KIND: &str = "precondition";
     const DEFAULT_KEYWORD: Keyword = Keyword::Require;
+    const EXTENSION_KEYWORD: Keyword = Keyword::RequireThen;
     const POSITIONED: Positioned = Positioned::Prefix;
 }
-impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
+impl<T: Type + From<Vec<Clause>> + Default> Parse for Block<T> {
     type Error = anyhow::Error;
     fn parse(attribute_or_routine: &Node, src: &str) -> Result<Block<T>, anyhow::Error> {
         debug_assert!(attribute_or_routine.kind() == "attribute_or_routine");
 
-        let mut binding = QueryCursor::new();
+        let mut cursor = QueryCursor::new();
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
         let query = Query::new(lang, format!("({}) @x", T::TREE_NODE_KIND).as_str()).unwrap();
-        let mut precondition_captures =
-            binding.captures(&query, attribute_or_routine.clone(), src.as_bytes());
-        let precondition_cap = precondition_captures.next();
-        let node = match precondition_cap {
+        let mut contracts_captures =
+            cursor.captures(&query, attribute_or_routine.clone(), src.as_bytes());
+        let contracts_cap = contracts_captures.next();
+        let node = match contracts_cap {
             Some(x) => x.0.captures[0].node,
             None => {
                 let point = match T::POSITIONED {
-                    Positioned::Prefix => Point::from(attribute_or_routine.range().start_point),
+                    Positioned::Prefix => {
+                        let notes_query = Query::new(lang, "(notes) @notes")
+                            .expect("fails to create a query for notes.");
+                        match cursor
+                            .matches(&notes_query, attribute_or_routine.clone(), src.as_bytes())
+                            .next()
+                        {
+                            Some(notes) => Point::from(notes.captures[0].node.range().start_point),
+                            None => Point::from(attribute_or_routine.range().start_point),
+                        }
+                    }
                     Positioned::Postfix => {
-                        let mut point = Point::from(attribute_or_routine.range().end_point);
+                        let mut postfix_point = Point::from(attribute_or_routine.range().end_point);
                         // This compensates the keyword `end`.
-                        point.shift_left(3);
-                        point
+                        postfix_point.shift_left(3);
+                        postfix_point
                     }
                 };
                 return Ok(Self::new_empty(point));
@@ -267,7 +300,7 @@ impl<T: Type + From<Vec<Clause>>> Parse for Block<T> {
 
         let query = Query::new(lang, "(assertion_clause (expression)) @x").unwrap();
         let mut assertion_clause_matches =
-            binding.matches(&query, attribute_or_routine.clone(), src.as_bytes());
+            cursor.matches(&query, attribute_or_routine.clone(), src.as_bytes());
 
         let mut clauses: Vec<Clause> = Vec::new();
         while let Some(mat) = assertion_clause_matches.next() {
@@ -297,6 +330,12 @@ impl DerefMut for Postcondition {
     }
 }
 
+impl Default for Postcondition {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
 impl ValidSyntax for Postcondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
@@ -320,6 +359,7 @@ impl From<Vec<Clause>> for Postcondition {
 impl Type for Postcondition {
     const TREE_NODE_KIND: &str = "postcondition";
     const DEFAULT_KEYWORD: Keyword = Keyword::Ensure;
+    const EXTENSION_KEYWORD: Keyword = Keyword::EnsureElse;
     const POSITIONED: Positioned = Positioned::Postfix;
 }
 impl Indent for Postcondition {
@@ -454,16 +494,11 @@ end"#;
 
         let node = captures.next().unwrap().0.captures[0].node;
 
-        let precondition =
+        let mut precondition =
             <Block<Precondition>>::parse(&node, &src).expect("fails to parse precondition.");
         let predicate = Predicate::new("True".to_string());
         let tag = Tag(String::new());
-        let clause = precondition
-            .item
-            .clone()
-            .expect("fails to find non-empty precondition")
-            .pop()
-            .expect("Parse clause");
+        let clause = precondition.item.pop().expect("Parse clause");
         assert_eq!(clause.predicate, predicate);
         assert_eq!(clause.tag, tag);
     }
@@ -494,16 +529,11 @@ end"#;
 
         let node = captures.next().unwrap().0.captures[0].node;
 
-        let postcondition =
+        let mut postcondition =
             <Block<Postcondition>>::parse(&node, &src).expect("fails to parse postcondition.");
         let predicate = Predicate::new("True".to_string());
         let tag = Tag(String::new());
-        let clause = postcondition
-            .item
-            .clone()
-            .expect("fails to find non-empty postcondition")
-            .pop()
-            .expect("Parse clause");
+        let clause = postcondition.item.pop().expect("Parse clause");
         assert_eq!(clause.predicate, predicate);
         assert_eq!(clause.tag, tag);
     }

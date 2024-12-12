@@ -8,9 +8,8 @@ pub(crate) mod prelude {
     pub(crate) use super::contract;
     pub(crate) use super::feature::Feature;
     pub(crate) use super::shared::{Location, Point, Range};
-    pub(crate) use super::{CodeEntity, Indent, ValidSyntax};
+    pub(crate) use super::{Indent, ValidSyntax};
 }
-pub(crate) trait CodeEntity {}
 pub(crate) trait Indent {
     const INDENTATION_LEVEL: u32;
     const INDENTATION_CHARACTER: char = '\t';

@@ -1,14 +1,72 @@
 use super::prelude::*;
 use crate::lib::tree_sitter_extension::Parse;
-use anyhow::Context;
 use async_lsp::lsp_types;
 use contract::{Block, Postcondition, Precondition};
-use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::fmt::Display;
+use std::ops::Deref;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
 use tracing::warn;
 use tree_sitter::{Node, Query, QueryCursor};
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct Notes(BTreeMap<String, String>);
+impl Deref for Notes {
+    type Target = BTreeMap<String, String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Parse for Notes {
+    type Error = anyhow::Error;
+
+    fn parse(node: &tree_sitter::Node, src: &str) -> Result<Self, Self::Error> {
+        let mut cursor = QueryCursor::new();
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+
+        let query_note_entry = Query::new(&lang, "(note_entry) @note_entry")
+            .expect("Query for `node_entry` nodes must succeed.");
+        let mut matches_note_entries =
+            cursor.matches(&query_note_entry, node.clone(), src.as_bytes());
+
+        let mut note_entries = BTreeMap::new();
+        while let Some(match_note_entry) = matches_note_entries.next() {
+            for capture_note_entry in match_note_entry.captures {
+                let mut query_cursor = QueryCursor::new();
+                let node = capture_note_entry.node;
+
+                let query_tag =
+                    Query::new(&lang, "(tag) @tag").expect("Query tag for each note entry.");
+                let query_value = Query::new(&lang, "value: (_) @value")
+                    .expect("Query value for each note entry.");
+
+                let mut tag_matches =
+                    query_cursor.matches(&query_tag, node.clone(), src.as_bytes());
+                let Some(tag_match) = tag_matches.next() else {
+                    warn!("There must be a type for each entity declaration match.");
+                    break;
+                };
+                let tag = src[tag_match.captures[0].node.byte_range()].into();
+
+                let mut value_matches =
+                    query_cursor.matches(&query_value, node.clone(), src.as_bytes());
+                let Some(value_match) = value_matches.next() else {
+                    warn!("There must be a type for each entity declaration match.");
+                    break;
+                };
+                let value = src[value_match.captures[0].node.byte_range()].into();
+
+                note_entries.insert(tag, value);
+            }
+        }
+
+        Ok(Self(note_entries))
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum FeatureVisibility {
     Private,
@@ -92,7 +150,7 @@ impl Display for Parameters {
                 acc
             },
         );
-        write!(f, "{text}");
+        write!(f, "{text}")?;
         Ok(())
     }
 }
@@ -102,6 +160,7 @@ pub struct Feature {
     pub(super) name: String,
     parameters: Parameters,
     return_type: String,
+    notes: Option<Notes>,
     pub(super) visibility: FeatureVisibility,
     pub(super) range: Range,
     /// Is None only when a precondition cannot be added (for attributes without an attribute clause).
@@ -126,13 +185,13 @@ impl Feature {
     }
     pub fn preconditions(&self) -> Option<&Precondition> {
         match &self.preconditions {
-            Some(pre) => pre.item(),
+            Some(pre) => Some(pre.item()),
             None => None,
         }
     }
     pub fn postconditions(&self) -> Option<&Postcondition> {
         match &self.postconditions {
-            Some(post) => post.item(),
+            Some(post) => Some(post.item()),
             None => None,
         }
     }
@@ -236,14 +295,22 @@ impl Parse for Feature {
             src.as_bytes(),
         );
         let aor = attribute_or_routine_captures.next();
-        let preconditions = match aor {
-            Some(x) => Some(Block::<Precondition>::parse(&x.0.captures[0].node, src)?),
-            None => None,
-        };
-        let postconditions = match aor {
-            Some(x) => Some(Block::<Postcondition>::parse(&x.0.captures[0].node, src)?),
-            None => None,
-        };
+
+        let notes;
+        let preconditions;
+        let postconditions;
+        match aor {
+            Some(aor) => {
+                preconditions = Some(Block::<Precondition>::parse(&aor.0.captures[0].node, src)?);
+                postconditions = Some(Block::<Postcondition>::parse(&aor.0.captures[0].node, src)?);
+                notes = Some(Notes::parse(&aor.0.captures[0].node, src)?);
+            }
+            None => {
+                preconditions = None;
+                postconditions = None;
+                notes = None;
+            }
+        }
 
         Ok(Feature {
             name,
@@ -251,6 +318,7 @@ impl Parse for Feature {
             range: node.range().into(),
             parameters,
             return_type,
+            notes,
             preconditions,
             postconditions,
         })
@@ -276,8 +344,6 @@ impl TryFrom<&Feature> for lsp_types::DocumentSymbol {
 }
 #[cfg(test)]
 mod tests {
-    use crate::lib::tree_sitter_extension::WidthFirstTraversal;
-
     use super::*;
 
     #[test]
@@ -296,13 +362,13 @@ class A feature
     end
 end"#;
         let mut parser = ::tree_sitter::Parser::new();
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
         parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .set_language(&lang)
             .expect("Error loading Eiffel grammar");
         let tree = parser.parse(src, None).unwrap();
 
-        let lang = &tree_sitter_eiffel::LANGUAGE.into();
-        let query = ::tree_sitter::Query::new(lang, "(feature_declaration) @name").unwrap();
+        let query = ::tree_sitter::Query::new(&lang, "(feature_declaration) @feature").unwrap();
 
         let mut binding = QueryCursor::new();
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
@@ -319,5 +385,73 @@ end"#;
             .predicate
             .clone();
         assert_eq!(predicate.as_str(), "True")
+    }
+
+    #[test]
+    fn parse_notes() {
+        let src = r#"
+class A feature
+  x
+    note
+        entry_tag: entry_value
+    do
+    end
+end
+        "#;
+        let mut parser = ::tree_sitter::Parser::new();
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        parser
+            .set_language(&lang)
+            .expect("Error loading Eiffel grammar");
+        let tree = parser.parse(src, None).unwrap();
+
+        let query = ::tree_sitter::Query::new(&lang, "(attribute_or_routine) @aor").unwrap();
+
+        let mut binding = QueryCursor::new();
+        let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
+        let node = captures.next().unwrap().0.captures[0].node;
+
+        let notes = Notes::parse(&node, &src).expect("Parse notes");
+        let Some((tag, value)) = notes.iter().next() else {
+            panic!("no note entries were found.")
+        };
+        assert_eq!(tag, "entry_tag");
+        assert_eq!(value, "entry_value");
+    }
+
+    #[test]
+    fn parse_notes_of_feature() {
+        let src = r#"
+class A feature
+  x
+    note
+        entry_tag: entry_value
+    do
+    end
+end
+        "#;
+
+        let mut parser = ::tree_sitter::Parser::new();
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        parser
+            .set_language(&lang)
+            .expect("Error loading Eiffel grammar");
+        let tree = parser.parse(src, None).unwrap();
+
+        let query = ::tree_sitter::Query::new(&lang, "(feature_declaration) @feature").unwrap();
+
+        let mut binding = QueryCursor::new();
+        let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
+        let node = captures.next().unwrap().0.captures[0].node;
+
+        let feature = Feature::parse(&node, &src).expect("Parse feature");
+        let Some(feature_notes) = feature.notes else {
+            panic!("feature notes have not been parsed.")
+        };
+        let Some((tag, value)) = feature_notes.iter().next() else {
+            panic!("no note entries were found.")
+        };
+        assert_eq!(tag, "entry_tag");
+        assert_eq!(value, "entry_value");
     }
 }
