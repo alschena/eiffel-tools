@@ -11,15 +11,16 @@ pub(crate) mod prelude {
     pub(crate) use super::{Indent, ValidSyntax};
 }
 pub(crate) trait Indent {
-    const INDENTATION_LEVEL: u32;
+    const INDENTATION_LEVEL: usize;
     const INDENTATION_CHARACTER: char = '\t';
     fn indentation_string() -> String {
-        (0..Self::INDENTATION_LEVEL)
-            .into_iter()
-            .fold(String::new(), |mut acc, _| {
+        (0..Self::INDENTATION_LEVEL).into_iter().fold(
+            String::with_capacity(Self::INDENTATION_LEVEL),
+            |mut acc, _| {
                 acc.push(Self::INDENTATION_CHARACTER);
                 acc
-            })
+            },
+        )
     }
 }
 pub(crate) trait ValidSyntax {

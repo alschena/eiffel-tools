@@ -49,7 +49,7 @@ impl<T: Type + Default> Block<T> {
     }
 }
 impl<T: Indent + Default> Indent for Block<T> {
-    const INDENTATION_LEVEL: u32 = T::INDENTATION_LEVEL - 1;
+    const INDENTATION_LEVEL: usize = T::INDENTATION_LEVEL - 1;
 }
 impl<T: Display + Indent + Default> Display for Block<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -253,7 +253,7 @@ impl From<Vec<Clause>> for Precondition {
     }
 }
 impl Indent for Precondition {
-    const INDENTATION_LEVEL: u32 = 3;
+    const INDENTATION_LEVEL: usize = 3;
 }
 impl Type for Precondition {
     fn query() -> Query {
@@ -368,7 +368,7 @@ impl Type for Postcondition {
     const POSITIONED: Positioned = Positioned::Postfix;
 }
 impl Indent for Postcondition {
-    const INDENTATION_LEVEL: u32 = 3;
+    const INDENTATION_LEVEL: usize = 3;
 }
 impl Display for Precondition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

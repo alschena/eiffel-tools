@@ -251,7 +251,7 @@ impl Display for Feature {
     }
 }
 impl Indent for Feature {
-    const INDENTATION_LEVEL: u32 = 1;
+    const INDENTATION_LEVEL: usize = 1;
 }
 impl Parse for Feature {
     type Error = anyhow::Error;
