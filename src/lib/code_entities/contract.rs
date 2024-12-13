@@ -14,19 +14,16 @@ use tracing::info;
 use tree_sitter::{Node, Query, QueryCursor};
 pub trait Type {
     fn query() -> Query;
-    const DEFAULT_KEYWORD: Keyword;
-    const EXTENSION_KEYWORD: Keyword;
-    const POSITIONED: Positioned;
+    fn keyword() -> Keyword;
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 /// Wraps an optional contract clause adding whereabouts informations.
 /// If the `item` is None, the range start and end coincide where the contract clause would be added.
-pub struct Block<T: Default> {
+pub struct Block<T> {
     pub item: T,
     pub range: Range,
-    pub keyword: Keyword,
 }
-impl<T: Type + Default> Block<T> {
+impl<T: Type> Block<T> {
     pub fn item(&self) -> &T {
         &self.item
     }
@@ -34,29 +31,26 @@ impl<T: Type + Default> Block<T> {
         &self.range
     }
     pub fn new(item: T, range: Range) -> Self {
-        Self {
-            item,
-            range,
-            keyword: T::DEFAULT_KEYWORD,
-        }
+        Self { item, range }
     }
+}
+impl<T: Type + Default> Block<T> {
     pub fn new_empty(point: Point) -> Self {
         Self {
             item: T::default(),
             range: Range::new_collapsed(point),
-            keyword: T::DEFAULT_KEYWORD,
         }
     }
 }
-impl<T: Indent + Default> Indent for Block<T> {
+impl<T: Indent> Indent for Block<T> {
     const INDENTATION_LEVEL: usize = T::INDENTATION_LEVEL - 1;
 }
-impl<T: Display + Indent + Default> Display for Block<T> {
+impl<T: Display + Indent + Type> Display for Block<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{}{}\n{}",
-            &self.keyword,
+            T::keyword(),
             &self.item,
             Self::indentation_string(),
         )
@@ -69,11 +63,6 @@ pub enum Keyword {
     Ensure,
     EnsureElse,
     Invariant,
-}
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Positioned {
-    Prefix,
-    Postfix,
 }
 impl Display for Keyword {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -260,49 +249,38 @@ impl Type for Precondition {
         Query::new(&tree_sitter_eiffel::LANGUAGE.into(), "(precondition) @x")
             .expect("fails to create precondition query.")
     }
-    const DEFAULT_KEYWORD: Keyword = Keyword::Require;
-    const EXTENSION_KEYWORD: Keyword = Keyword::RequireThen;
-    const POSITIONED: Positioned = Positioned::Prefix;
+    fn keyword() -> Keyword {
+        Keyword::Require
+    }
 }
-impl<T: Type + From<Vec<Clause>> + Default> Parse for Block<T> {
+impl Parse for Block<Precondition> {
     type Error = anyhow::Error;
-    fn parse(attribute_or_routine: &Node, src: &str) -> Result<Block<T>, anyhow::Error> {
-        debug_assert!(attribute_or_routine.kind() == "attribute_or_routine");
+
+    fn parse(node: &Node, src: &str) -> Result<Self, Self::Error> {
+        debug_assert!(node.kind() == "attribute_or_routine");
 
         let mut cursor = QueryCursor::new();
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
-        let query = T::query();
-        let mut contracts_captures =
-            cursor.captures(&query, attribute_or_routine.clone(), src.as_bytes());
+        let query = Precondition::query();
+        let mut contracts_captures = cursor.captures(&query, node.clone(), src.as_bytes());
         let contracts_cap = contracts_captures.next();
         let node = match contracts_cap {
             Some(x) => x.0.captures[0].node,
             None => {
-                let point = match T::POSITIONED {
-                    Positioned::Prefix => {
-                        let notes_query = Notes::query();
-                        match cursor
-                            .matches(&notes_query, attribute_or_routine.clone(), src.as_bytes())
-                            .next()
-                        {
-                            Some(notes) => Point::from(notes.captures[0].node.range().start_point),
-                            None => Point::from(attribute_or_routine.range().start_point),
-                        }
-                    }
-                    Positioned::Postfix => {
-                        let mut postfix_point = Point::from(attribute_or_routine.range().end_point);
-                        // This compensates the keyword `end`.
-                        postfix_point.shift_left(3);
-                        postfix_point
-                    }
+                let notes_query = Notes::query();
+                let point = match cursor
+                    .matches(&notes_query, node.clone(), src.as_bytes())
+                    .next()
+                {
+                    Some(notes) => Point::from(notes.captures[0].node.range().start_point),
+                    None => Point::from(node.range().start_point),
                 };
                 return Ok(Self::new_empty(point));
             }
         };
 
         let query = Query::new(lang, "(assertion_clause (expression)) @x").unwrap();
-        let mut assertion_clause_matches =
-            cursor.matches(&query, attribute_or_routine.clone(), src.as_bytes());
+        let mut assertion_clause_matches = cursor.matches(&query, node.clone(), src.as_bytes());
 
         let mut clauses: Vec<Clause> = Vec::new();
         while let Some(mat) = assertion_clause_matches.next() {
@@ -314,6 +292,41 @@ impl<T: Type + From<Vec<Clause>> + Default> Parse for Block<T> {
         Ok(Self::new(clauses.into(), node.range().into()))
     }
 }
+impl Parse for Block<Postcondition> {
+    type Error = anyhow::Error;
+
+    fn parse(node: &Node, src: &str) -> Result<Self, Self::Error> {
+        debug_assert!(node.kind() == "attribute_or_routine");
+
+        let mut cursor = QueryCursor::new();
+        let lang = &tree_sitter_eiffel::LANGUAGE.into();
+        let query = Postcondition::query();
+        let mut contracts_captures = cursor.captures(&query, node.clone(), src.as_bytes());
+        let contracts_cap = contracts_captures.next();
+        let node = match contracts_cap {
+            Some(x) => x.0.captures[0].node,
+            None => {
+                let mut point = Point::from(node.range().end_point);
+                // This compensates the keyword `end`.
+                point.shift_left(3);
+                return Ok(Self::new_empty(point));
+            }
+        };
+
+        let query = Query::new(lang, "(assertion_clause (expression)) @x").unwrap();
+        let mut assertion_clause_matches = cursor.matches(&query, node.clone(), src.as_bytes());
+
+        let mut clauses: Vec<Clause> = Vec::new();
+        while let Some(mat) = assertion_clause_matches.next() {
+            for cap in mat.captures {
+                clauses.push(Clause::parse(&cap.node, src)?)
+            }
+        }
+
+        Ok(Self::new(clauses.into(), node.range().into()))
+    }
+}
+
 #[derive(Hash, Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
 #[serde(transparent)]
 pub struct Postcondition(Vec<Clause>);
@@ -363,9 +376,9 @@ impl Type for Postcondition {
         Query::new(&tree_sitter_eiffel::LANGUAGE.into(), "(postcondition) @x")
             .expect("fails to create postcondition query.")
     }
-    const DEFAULT_KEYWORD: Keyword = Keyword::Ensure;
-    const EXTENSION_KEYWORD: Keyword = Keyword::EnsureElse;
-    const POSITIONED: Positioned = Positioned::Postfix;
+    fn keyword() -> Keyword {
+        Keyword::Ensure
+    }
 }
 impl Indent for Postcondition {
     const INDENTATION_LEVEL: usize = 3;
