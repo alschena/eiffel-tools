@@ -13,7 +13,7 @@ use streaming_iterator::StreamingIterator;
 use tracing::info;
 use tree_sitter::{Node, Query, QueryCursor};
 pub trait Type {
-    const TREE_NODE_KIND: &str;
+    fn query() -> Query;
     const DEFAULT_KEYWORD: Keyword;
     const EXTENSION_KEYWORD: Keyword;
     const POSITIONED: Positioned;
@@ -256,7 +256,10 @@ impl Indent for Precondition {
     const INDENTATION_LEVEL: u32 = 3;
 }
 impl Type for Precondition {
-    const TREE_NODE_KIND: &str = "precondition";
+    fn query() -> Query {
+        Query::new(&tree_sitter_eiffel::LANGUAGE.into(), "(precondition) @x")
+            .expect("fails to create precondition query.")
+    }
     const DEFAULT_KEYWORD: Keyword = Keyword::Require;
     const EXTENSION_KEYWORD: Keyword = Keyword::RequireThen;
     const POSITIONED: Positioned = Positioned::Prefix;
@@ -268,7 +271,7 @@ impl<T: Type + From<Vec<Clause>> + Default> Parse for Block<T> {
 
         let mut cursor = QueryCursor::new();
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
-        let query = Query::new(lang, format!("({}) @x", T::TREE_NODE_KIND).as_str()).unwrap();
+        let query = T::query();
         let mut contracts_captures =
             cursor.captures(&query, attribute_or_routine.clone(), src.as_bytes());
         let contracts_cap = contracts_captures.next();
@@ -277,8 +280,7 @@ impl<T: Type + From<Vec<Clause>> + Default> Parse for Block<T> {
             None => {
                 let point = match T::POSITIONED {
                     Positioned::Prefix => {
-                        let notes_query = Query::new(lang, "(notes) @notes")
-                            .expect("fails to create a query for notes.");
+                        let notes_query = Notes::query();
                         match cursor
                             .matches(&notes_query, attribute_or_routine.clone(), src.as_bytes())
                             .next()
@@ -357,7 +359,10 @@ impl From<Vec<Clause>> for Postcondition {
     }
 }
 impl Type for Postcondition {
-    const TREE_NODE_KIND: &str = "postcondition";
+    fn query() -> Query {
+        Query::new(&tree_sitter_eiffel::LANGUAGE.into(), "(postcondition) @x")
+            .expect("fails to create postcondition query.")
+    }
     const DEFAULT_KEYWORD: Keyword = Keyword::Ensure;
     const EXTENSION_KEYWORD: Keyword = Keyword::EnsureElse;
     const POSITIONED: Positioned = Positioned::Postfix;

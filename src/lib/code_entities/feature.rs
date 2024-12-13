@@ -19,6 +19,12 @@ impl Deref for Notes {
         &self.0
     }
 }
+impl Notes {
+    pub(super) fn query() -> Query {
+        Query::new(&tree_sitter_eiffel::LANGUAGE.into(), "(notes) @notes")
+            .expect("Query tag for each note entry.")
+    }
+}
 
 impl Parse for Notes {
     type Error = anyhow::Error;
