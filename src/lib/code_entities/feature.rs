@@ -190,22 +190,16 @@ impl Feature {
         &self.range
     }
     pub fn preconditions(&self) -> Option<&Precondition> {
-        match &self.preconditions {
-            Some(pre) => Some(pre.item()),
-            None => None,
-        }
+        self.preconditions.as_ref().map(|b| b.item())
     }
     pub fn postconditions(&self) -> Option<&Postcondition> {
-        match &self.postconditions {
-            Some(post) => Some(post.item()),
-            None => None,
-        }
+        self.postconditions.as_ref().map(|b| b.item())
     }
     pub fn has_precondition(&self) -> bool {
-        self.preconditions().is_some()
+        self.preconditions().is_some_and(|p| !p.is_empty())
     }
     pub fn has_postcondition(&self) -> bool {
-        self.postconditions().is_some()
+        self.postconditions().is_some_and(|p| !p.is_empty())
     }
     pub fn point_end_preconditions(&self) -> Option<&Point> {
         match &self.preconditions {
