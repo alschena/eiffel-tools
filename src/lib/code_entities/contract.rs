@@ -45,15 +45,19 @@ impl<T: Type + Default> Block<T> {
 impl<T: Indent> Indent for Block<T> {
     const INDENTATION_LEVEL: usize = T::INDENTATION_LEVEL - 1;
 }
-impl<T: Display + Indent + Type> Display for Block<T> {
+impl<T: Display + Indent + Type + Deref<Target = Vec<Clause>>> Display for Block<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}{}\n{}",
-            T::keyword(),
-            &self.item,
-            Self::indentation_string(),
-        )
+        if self.item().is_empty() {
+            write!(f, "")
+        } else {
+            write!(
+                f,
+                "{}{}\n{}",
+                T::keyword(),
+                &self.item,
+                Self::indentation_string(),
+            )
+        }
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -670,5 +674,21 @@ end"#;
         let valid_tag: Tag = String::from("this_is_valid").into();
         assert!(!invalid_tag.valid_syntax());
         assert!(valid_tag.valid_syntax());
+    }
+    #[test]
+    fn display_precondition_block() {
+        let empty_block: Block<Precondition> = Block::new_empty(Point { row: 0, column: 0 });
+        let simple_block = Block::new(
+            Precondition(vec![Clause {
+                tag: Tag::default(),
+                predicate: Predicate::default(),
+            }]),
+            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 4 }),
+        );
+        assert_eq!(format!("{empty_block}"), "");
+        assert_eq!(
+            format!("{simple_block}"),
+            "require\n\t\t\tdefault: True\n\t\t"
+        );
     }
 }
