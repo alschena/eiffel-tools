@@ -32,7 +32,7 @@ impl Model {
     }
 }
 impl Indent for Model {
-    const INDENTATION_LEVEL: u32 = 1;
+    const INDENTATION_LEVEL: usize = 1;
 }
 impl Display for Model {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -153,7 +153,7 @@ impl Class {
     }
 }
 impl Indent for Class {
-    const INDENTATION_LEVEL: u32 = 1;
+    const INDENTATION_LEVEL: usize = 1;
 }
 impl TryFrom<&Class> for lsp_types::Location {
     type Error = anyhow::Error;
