@@ -1,12 +1,11 @@
 use super::utils::{text_edit_add_postcondition, text_edit_add_precondition};
 use super::Error;
 use crate::lib::code_entities::prelude::*;
-use crate::lib::code_entities::ValidSyntax;
 use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use async_lsp::lsp_types::{Url, WorkspaceEdit};
 use async_lsp::Result;
-use contract::{Block, Postcondition, Precondition, RoutineSpecification};
+use contract::{Block, Postcondition, Precondition, RoutineSpecification, Valid};
 use gemini;
 use gemini::ToResponseSchema;
 use std::collections::HashMap;
@@ -121,7 +120,7 @@ impl<'a, 'b> LLM<'a, 'b> {
                         info!(target: "gemini", "all preconditions {}", pre.precondition);
                         info!(target: "gemini", "all postconditions {}", pre.postcondition);
                     })
-                    .filter(|spec: &RoutineSpecification| spec.valid_syntax())
+                    .filter(|spec: &RoutineSpecification| spec.valid(workspace, file))
                     .inspect(|post: &RoutineSpecification| {
                         info!(target: "gemini", "filtered preconditions {}", post.precondition);
                         info!(target: "gemini", "filtered postconditions {}", post.postcondition);

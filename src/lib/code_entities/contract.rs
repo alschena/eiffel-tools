@@ -1,17 +1,25 @@
 use super::prelude::*;
 use crate::lib::code_entities::feature::Notes;
+use crate::lib::processed_file::ProcessedFile;
 use crate::lib::tree_sitter_extension::Parse;
+use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use gemini::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
-use std::convert::AsRef;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tracing::info;
 use tree_sitter::{Node, Query, QueryCursor};
+pub(crate) trait Valid {
+    fn valid(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
+        self.valid_syntax() && self.valid_identifiers(workspace, file)
+    }
+    fn valid_syntax(&self) -> bool;
+    fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool;
+}
 pub trait Type {
     fn query() -> Query;
     fn keyword() -> Keyword;
@@ -93,9 +101,13 @@ impl Default for Clause {
         }
     }
 }
-impl ValidSyntax for Clause {
+impl Valid for Clause {
     fn valid_syntax(&self) -> bool {
         self.predicate.valid_syntax() && self.tag.valid_syntax()
+    }
+    fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
+        self.predicate.valid_identifiers(workspace, file)
+            && self.tag.valid_identifiers(workspace, file)
     }
 }
 impl Parse for Clause {
@@ -156,9 +168,12 @@ impl Default for Tag {
     }
 }
 
-impl ValidSyntax for Tag {
+impl Valid for Tag {
     fn valid_syntax(&self) -> bool {
         !self.as_str().contains(" ")
+    }
+    fn valid_identifiers(&self, _workspace: &Workspace, _file: &ProcessedFile) -> bool {
+        true
     }
 }
 impl Display for Tag {
@@ -187,7 +202,7 @@ impl Default for Predicate {
     }
 }
 
-impl ValidSyntax for Predicate {
+impl Valid for Predicate {
     fn valid_syntax(&self) -> bool {
         let text: &str = self.as_str();
         let lang = tree_sitter_eiffel::LANGUAGE.into();
@@ -200,6 +215,41 @@ impl ValidSyntax for Predicate {
             return false;
         };
         !tree.root_node().has_error()
+    }
+    // For now only unqualified calls are validated against immediate features.
+    fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
+        let text: &str = self.as_str();
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&lang)
+            .expect("parser must load grammar.");
+        let Some(tree) = parser.parse(text, None) else {
+            info!("Parsing predicate fails.");
+            return false;
+        };
+        let query_unqualified_calls =
+            Query::new(&lang, "(call (unqualified_call) @unqualified !target)")
+                .expect("Fails to query unqualified calls.");
+        let mut query_cursor = QueryCursor::new();
+        let mut captures =
+            query_cursor.captures(&query_unqualified_calls, tree.root_node(), text.as_bytes());
+        captures.all(|cap| {
+            cap.0
+                .captures
+                .iter()
+                .map(|c| c.node)
+                .map(|node| &text[node.byte_range()])
+                .inspect(|identifier| {
+                    info!("the generated expression used the identifiers: {identifier}")
+                })
+                .all(|identifier| {
+                    file.class()
+                        .features()
+                        .iter()
+                        .any(|feature| feature.name() == identifier)
+                })
+        })
     }
 }
 impl Display for Predicate {
@@ -235,9 +285,13 @@ impl Default for Precondition {
     }
 }
 
-impl ValidSyntax for Precondition {
+impl Valid for Precondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
+    }
+    fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
+        self.iter()
+            .all(|clause| clause.valid_identifiers(workspace, file))
     }
 }
 impl From<Vec<Clause>> for Precondition {
@@ -355,9 +409,13 @@ impl Default for Postcondition {
     }
 }
 
-impl ValidSyntax for Postcondition {
+impl Valid for Postcondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
+    }
+    fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
+        self.iter()
+            .all(|clause| clause.valid_identifiers(workspace, file))
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
@@ -365,9 +423,13 @@ pub struct RoutineSpecification {
     pub precondition: Precondition,
     pub postcondition: Postcondition,
 }
-impl ValidSyntax for RoutineSpecification {
+impl Valid for RoutineSpecification {
     fn valid_syntax(&self) -> bool {
         self.precondition.valid_syntax() && self.postcondition.valid_syntax()
+    }
+    fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
+        self.precondition.valid_identifiers(workspace, file)
+            && self.postcondition.valid_identifiers(workspace, file)
     }
 }
 impl From<Vec<Clause>> for Postcondition {

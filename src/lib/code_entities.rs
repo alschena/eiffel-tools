@@ -8,7 +8,7 @@ pub(crate) mod prelude {
     pub(crate) use super::contract;
     pub(crate) use super::feature::Feature;
     pub(crate) use super::shared::{Location, Point, Range};
-    pub(crate) use super::{Indent, ValidSyntax};
+    pub(crate) use super::Indent;
 }
 pub(crate) trait Indent {
     const INDENTATION_LEVEL: usize;
@@ -22,9 +22,6 @@ pub(crate) trait Indent {
             },
         )
     }
-}
-pub(crate) trait ValidSyntax {
-    fn valid_syntax(&self) -> bool;
 }
 
 #[cfg(test)]
