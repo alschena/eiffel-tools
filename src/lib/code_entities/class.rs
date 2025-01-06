@@ -119,6 +119,23 @@ impl Class {
                 .is_some()
         })
     }
+    pub fn inhereted_features<'a, 'b>(
+        &'b self,
+        classes: impl Iterator<Item = &'a Class> + 'b,
+    ) -> impl Iterator<Item = &'a Feature> + 'b
+    where
+        'a: 'b,
+    {
+        if self
+            .ancestors()
+            .iter()
+            .any(|ancestor| !ancestor.rename.is_empty())
+        {
+            unimplemented!()
+        }
+        self.ancestors_classes(classes)
+            .flat_map(|class| class.features())
+    }
     pub fn range(&self) -> &Range {
         &self.range
     }

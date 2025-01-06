@@ -122,8 +122,8 @@ impl<'a, 'b> LLM<'a, 'b> {
                     })
                     .filter(|spec: &RoutineSpecification| spec.valid(workspace, file))
                     .inspect(|post: &RoutineSpecification| {
-                        info!(target: "gemini", "filtered preconditions {}", post.precondition);
-                        info!(target: "gemini", "filtered postconditions {}", post.postcondition);
+                        info!(target: "gemini", "valid preconditions {}", post.precondition);
+                        info!(target: "gemini", "valid postconditions {}", post.postcondition);
                     })
                     .next()
                 {

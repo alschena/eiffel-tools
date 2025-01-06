@@ -7,18 +7,33 @@ use anyhow::anyhow;
 use gemini::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
+use std::fmt::Debug;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tracing::info;
 use tree_sitter::{Node, Query, QueryCursor};
-pub(crate) trait Valid {
+pub(crate) trait Valid: Debug {
     fn valid(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
-        self.valid_syntax() && self.valid_identifiers(workspace, file)
+        self.decorated_valid_syntax() && self.decorated_valid_identifiers(workspace, file)
     }
     fn valid_syntax(&self) -> bool;
     fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool;
+    fn decorated_valid_syntax(&self) -> bool {
+        let value = self.valid_syntax();
+        if !value {
+            info!(target: "gemini","filtered by syntax {self:?}");
+        }
+        value
+    }
+    fn decorated_valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
+        let value = self.valid_identifiers(workspace, file);
+        if !value {
+            info!(target: "gemini","filtered by invalid identifier {self:?}");
+        }
+        value
+    }
 }
 pub trait Type {
     fn query() -> Query;
@@ -216,7 +231,7 @@ impl Valid for Predicate {
         };
         !tree.root_node().has_error()
     }
-    // For now only unqualified calls are validated against immediate features.
+    // For now only unqualified calls are validated against immediate features and inheritance without renaming.
     fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
         let text: &str = self.as_str();
         let lang = tree_sitter_eiffel::LANGUAGE.into();
@@ -244,9 +259,11 @@ impl Valid for Predicate {
                     info!("the generated expression used the identifiers: {identifier}")
                 })
                 .all(|identifier| {
-                    file.class()
+                    let class = file.class();
+                    class
                         .features()
                         .iter()
+                        .chain(class.inhereted_features(workspace.system_classes()))
                         .any(|feature| feature.name() == identifier)
                 })
         })
