@@ -514,6 +514,8 @@ impl Described for RoutineSpecification {
 mod tests {
     use super::*;
     use anyhow::Result;
+    use assert_fs::prelude::*;
+    use assert_fs::{fixture::FileWriteStr, TempDir};
     use gemini::SchemaType;
     use Clause;
 
@@ -752,5 +754,42 @@ end"#;
             format!("{simple_block}"),
             "require\n\t\t\tdefault: True\n\t\t"
         );
+    }
+    #[tokio::test]
+    async fn invalid_predicate() {
+        // Create processed file.
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+
+        let temp_dir = TempDir::new().expect("must create temporary directory.");
+        let file = temp_dir.child("invalid_predicate.e");
+        file.write_str(
+            r#"
+class A
+feature
+  x: BOOLEAN
+end
+            "#,
+        )
+        .expect("temp file must be writable");
+        assert!(file.exists());
+        let processed_file = ProcessedFile::new(&mut parser, file.to_path_buf())
+            .await
+            .expect("processed file must be produced.");
+        assert_eq!(file.to_path_buf(), processed_file.path());
+        assert_eq!("A", processed_file.class().name());
+
+        // Create workspace with only the new file.
+        let mut workspace = Workspace::new();
+        workspace.set_files(vec![processed_file.clone()]);
+
+        // Create an invalid and a valid predicates.
+        let invalid_predicate = Predicate(String::from("z"));
+        let valid_predicate = Predicate(String::from("x"));
+
+        assert!(!invalid_predicate.valid(&workspace, &processed_file));
+        assert!(valid_predicate.valid(&workspace, &processed_file));
     }
 }
