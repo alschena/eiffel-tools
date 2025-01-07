@@ -2,6 +2,7 @@ use super::prelude::*;
 use crate::lib::tree_sitter_extension::Parse;
 use anyhow::anyhow;
 use async_lsp::lsp_types;
+use std::collections::HashSet;
 use std::fmt::Display;
 use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
@@ -80,7 +81,7 @@ pub struct Class {
     path: Option<Location>,
     model: Model,
     features: Vec<Feature>,
-    ancestors: Vec<Ancestor>,
+    parents: Vec<Ancestor>,
     range: Range,
 }
 
@@ -93,9 +94,9 @@ impl Class {
     }
     pub fn full_model<'a>(
         &'a self,
-        classes: impl Iterator<Item = &'a Class> + 'a,
+        system_classes: &'a [&'a Class],
     ) -> impl Iterator<Item = &'a Model> {
-        self.ancestors_classes(classes)
+        self.parent_classes(system_classes)
             .map(|ancestor| ancestor.model())
             .chain(std::iter::once(self.model()))
     }
@@ -105,35 +106,50 @@ impl Class {
     pub fn into_features(self) -> Vec<Feature> {
         self.features
     }
-    pub fn ancestors(&self) -> &Vec<Ancestor> {
-        &self.ancestors
+    fn parents(&self) -> &Vec<Ancestor> {
+        &self.parents
     }
-    pub fn ancestors_classes<'a, 'b>(
-        &'b self,
-        classes: impl Iterator<Item = &'a Class> + 'b,
-    ) -> impl Iterator<Item = &'a Class> + 'b {
-        classes.filter(|class_in_workspace| {
-            self.ancestors()
-                .into_iter()
-                .find(|ancestor| ancestor.name() == class_in_workspace.name())
-                .is_some()
-        })
+    fn parent_classes<'a>(
+        &'a self,
+        system_classes: &'a [&'a Class],
+    ) -> impl Iterator<Item = &'a Class> {
+        self.parents()
+            .into_iter()
+            .filter_map(|parent| parent.class(system_classes))
     }
-    pub fn inhereted_features<'a, 'b>(
-        &'b self,
-        classes: impl Iterator<Item = &'a Class> + 'b,
-    ) -> impl Iterator<Item = &'a Feature> + 'b
-    where
-        'a: 'b,
-    {
+    pub fn ancestors<'a>(&'a self, system_classes: &'a [&'a Class]) -> HashSet<&'a Ancestor> {
+        let mut ancestors = HashSet::new();
+        for parent in self.parents() {
+            let Some(parent_class) = parent.class(system_classes) else {
+                continue;
+            };
+            ancestors.insert(parent);
+            ancestors.extend(parent_class.ancestors(system_classes));
+        }
+        ancestors
+    }
+    pub fn ancestor_classes<'a>(&'a self, system_classes: &'a [&'a Class]) -> HashSet<&'a Class> {
+        let mut ancestors_classes = HashSet::new();
+        self.parent_classes(system_classes)
+            .for_each(|parent_class| {
+                ancestors_classes.insert(parent_class);
+                ancestors_classes.extend(parent_class.ancestor_classes(system_classes));
+            });
+        ancestors_classes
+    }
+    pub fn inhereted_features<'a>(
+        &'a self,
+        system_classes: &'a [&'a Class],
+    ) -> impl Iterator<Item = &'a Feature> {
         if self
-            .ancestors()
+            .ancestors(system_classes)
             .iter()
             .any(|ancestor| !ancestor.rename.is_empty())
         {
             unimplemented!()
         }
-        self.ancestors_classes(classes)
+        self.ancestor_classes(system_classes)
+            .into_iter()
             .flat_map(|class| class.features())
     }
     pub fn range(&self) -> &Range {
@@ -151,7 +167,7 @@ impl Class {
             path: None,
             model: Model(Vec::new()),
             features: Vec::new(),
-            ancestors: Vec::new(),
+            parents: Vec::new(),
             range,
         }
     }
@@ -167,6 +183,10 @@ impl Class {
     pub fn add_location(&mut self, path: &PathBuf) {
         let path = path.clone();
         self.path = Some(Location { path })
+    }
+    #[cfg(test)]
+    pub fn add_parent(&mut self, parent: Ancestor) {
+        self.parents.push(parent)
     }
 }
 impl Indent for Class {
@@ -284,7 +304,7 @@ impl Parse for Class {
         // Extract optional model
         class.model = Model::from_model_names(ModelNames::parse(root, src)?, &features);
         class.features = features;
-        class.ancestors = ancestors;
+        class.parents = ancestors;
         Ok(class)
     }
 }
@@ -325,6 +345,22 @@ pub struct Ancestor {
 impl Ancestor {
     fn name(&self) -> &str {
         &self.name
+    }
+    pub fn class<'a>(&self, system_classes: &'a [&'a Class]) -> Option<&'a Class> {
+        system_classes
+            .into_iter()
+            .find(|class| class.name() == self.name())
+            .copied()
+    }
+    #[cfg(test)]
+    pub fn from_name(name: String) -> Ancestor {
+        Ancestor {
+            name,
+            select: Vec::new(),
+            rename: Vec::new(),
+            redefine: Vec::new(),
+            undefine: Vec::new(),
+        }
     }
 }
 impl Parse for Vec<Ancestor> {
@@ -544,7 +580,7 @@ end
         let tree = parser.parse(src, None).unwrap();
 
         let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
-        let mut ancestors = class.ancestors().into_iter();
+        let mut ancestors = class.parents().into_iter();
 
         assert_eq!(class.name(), "A".to_string());
 
@@ -602,7 +638,7 @@ end
         Ok(())
     }
     #[test]
-    fn ancestor_classes() -> Result<()> {
+    fn parse_parent_classes() -> Result<()> {
         let src_child = "
     class A
     inherit {NONE}
@@ -641,9 +677,44 @@ end
         let parent =
             Class::parse(&tree_parent.root_node(), src_parent).expect("fails to parse class");
         let classes = vec![&child, &parent];
-        let a = child.ancestors_classes(classes.into_iter());
+        let a = child.parent_classes(&classes);
         assert_eq!(a.collect::<Vec<_>>(), vec![&parent]);
         Ok(())
+    }
+    #[test]
+    fn ancestor_classes() {
+        let parent_name = "B";
+        let grandparent_name = "C";
+        let grandparent = Class::from_name_range(
+            grandparent_name.to_string(),
+            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
+        );
+        let mut parent = Class::from_name_range(
+            parent_name.to_string(),
+            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
+        );
+        parent.add_parent(Ancestor::from_name(grandparent_name.to_string()));
+        let mut class = Class::from_name_range(
+            String::from("A"),
+            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
+        );
+        class.add_parent(Ancestor::from_name(parent_name.to_string()));
+
+        let system_classes = vec![&class, &parent, &grandparent];
+
+        let mut parent_and_grandparent_hashset = HashSet::new();
+        parent_and_grandparent_hashset.insert(&parent);
+        parent_and_grandparent_hashset.insert(&grandparent);
+        assert_eq!(
+            class.ancestor_classes(&system_classes),
+            parent_and_grandparent_hashset
+        );
+        let mut grandparent_hashset = HashSet::new();
+        grandparent_hashset.insert(&grandparent);
+        assert_eq!(
+            parent.ancestor_classes(&system_classes),
+            grandparent_hashset,
+        );
     }
     #[test]
     fn full_model() -> Result<()> {
@@ -676,9 +747,7 @@ end
         let parent =
             Class::parse(&tree_parent.root_node(), src_parent).expect("fails to parse class");
         assert_eq!(
-            child
-                .full_model(vec![&child, &parent].into_iter())
-                .collect::<Vec<_>>(),
+            child.full_model(&vec![&child, &parent]).collect::<Vec<_>>(),
             vec![parent.model(), child.model()]
         );
         Ok(())
