@@ -15,11 +15,12 @@ use streaming_iterator::StreamingIterator;
 use tracing::info;
 use tree_sitter::{Node, Query, QueryCursor};
 pub(crate) trait Valid: Debug {
-    fn valid(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
-        self.decorated_valid_syntax() && self.decorated_valid_identifiers(workspace, file)
+    fn valid(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.decorated_valid_syntax()
+            && self.decorated_valid_identifiers(system_classes, current_class)
     }
     fn valid_syntax(&self) -> bool;
-    fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool;
+    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool;
     fn decorated_valid_syntax(&self) -> bool {
         let value = self.valid_syntax();
         if !value {
@@ -27,8 +28,12 @@ pub(crate) trait Valid: Debug {
         }
         value
     }
-    fn decorated_valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
-        let value = self.valid_identifiers(workspace, file);
+    fn decorated_valid_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+    ) -> bool {
+        let value = self.valid_identifiers(system_classes, current_class);
         if !value {
             info!(target: "gemini","filtered by invalid identifier {self:?}");
         }
@@ -120,9 +125,10 @@ impl Valid for Clause {
     fn valid_syntax(&self) -> bool {
         self.predicate.valid_syntax() && self.tag.valid_syntax()
     }
-    fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
-        self.predicate.valid_identifiers(workspace, file)
-            && self.tag.valid_identifiers(workspace, file)
+    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.predicate
+            .valid_identifiers(system_classes, current_class)
+            && self.tag.valid_identifiers(system_classes, current_class)
     }
 }
 impl Parse for Clause {
@@ -187,7 +193,7 @@ impl Valid for Tag {
     fn valid_syntax(&self) -> bool {
         !self.as_str().contains(" ")
     }
-    fn valid_identifiers(&self, _workspace: &Workspace, _file: &ProcessedFile) -> bool {
+    fn valid_identifiers(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
         true
     }
 }
@@ -232,7 +238,7 @@ impl Valid for Predicate {
         !tree.root_node().has_error()
     }
     // For now only unqualified calls are validated against immediate features and inheritance without renaming.
-    fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
+    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
         let text: &str = self.as_str();
         let lang = tree_sitter_eiffel::LANGUAGE.into();
         let mut parser = tree_sitter::Parser::new();
@@ -259,11 +265,10 @@ impl Valid for Predicate {
                     info!("the generated expression used the identifiers: {identifier}")
                 })
                 .all(|identifier| {
-                    let class = file.class();
-                    class
+                    current_class
                         .features()
                         .iter()
-                        .chain(class.inhereted_features(workspace.system_classes()))
+                        .chain(current_class.inhereted_features(system_classes.iter().copied()))
                         .any(|feature| feature.name() == identifier)
                 })
         })
@@ -306,9 +311,9 @@ impl Valid for Precondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
     }
-    fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
+    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
         self.iter()
-            .all(|clause| clause.valid_identifiers(workspace, file))
+            .all(|clause| clause.valid_identifiers(system_classes, current_class))
     }
 }
 impl From<Vec<Clause>> for Precondition {
@@ -430,9 +435,9 @@ impl Valid for Postcondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
     }
-    fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
+    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
         self.iter()
-            .all(|clause| clause.valid_identifiers(workspace, file))
+            .all(|clause| clause.valid_identifiers(system_classes, current_class))
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
@@ -444,9 +449,12 @@ impl Valid for RoutineSpecification {
     fn valid_syntax(&self) -> bool {
         self.precondition.valid_syntax() && self.postcondition.valid_syntax()
     }
-    fn valid_identifiers(&self, workspace: &Workspace, file: &ProcessedFile) -> bool {
-        self.precondition.valid_identifiers(workspace, file)
-            && self.postcondition.valid_identifiers(workspace, file)
+    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.precondition
+            .valid_identifiers(system_classes, current_class)
+            && self
+                .postcondition
+                .valid_identifiers(system_classes, current_class)
     }
 }
 impl From<Vec<Clause>> for Postcondition {
@@ -773,40 +781,18 @@ end"#;
         );
     }
     #[tokio::test]
-    async fn invalid_predicate() {
-        // Create processed file.
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-
-        let temp_dir = TempDir::new().expect("must create temporary directory.");
-        let file = temp_dir.child("invalid_predicate.e");
-        file.write_str(
-            r#"
-class A
-feature
-  x: BOOLEAN
-end
-            "#,
-        )
-        .expect("temp file must be writable");
-        assert!(file.exists());
-        let processed_file = ProcessedFile::new(&mut parser, file.to_path_buf())
-            .await
-            .expect("processed file must be produced.");
-        assert_eq!(file.to_path_buf(), processed_file.path());
-        assert_eq!("A", processed_file.class().name());
-
-        // Create workspace with only the new file.
-        let mut workspace = Workspace::new();
-        workspace.set_files(vec![processed_file.clone()]);
+    async fn valid_and_invalid_predicates() {
+        let mut class = Class::from_name_range(
+            String::from("A"),
+            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
+        );
+        class.add_feature(&Feature::empty_feature("x"));
 
         // Create an invalid and a valid predicates.
         let invalid_predicate = Predicate(String::from("z"));
         let valid_predicate = Predicate(String::from("x"));
 
-        assert!(!invalid_predicate.valid(&workspace, &processed_file));
-        assert!(valid_predicate.valid(&workspace, &processed_file));
+        assert!(!invalid_predicate.valid(vec![&class].as_ref(), &class));
+        assert!(valid_predicate.valid(vec![&class].as_ref(), &class));
     }
 }

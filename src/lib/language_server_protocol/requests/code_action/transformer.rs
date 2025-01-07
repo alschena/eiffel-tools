@@ -120,7 +120,12 @@ impl<'a, 'b> LLM<'a, 'b> {
                         info!(target: "gemini", "all preconditions {}", pre.precondition);
                         info!(target: "gemini", "all postconditions {}", pre.postcondition);
                     })
-                    .filter(|spec: &RoutineSpecification| spec.valid(workspace, file))
+                    .filter(|spec: &RoutineSpecification| {
+                        spec.valid(
+                            workspace.system_classes().collect::<Vec<_>>().as_ref(),
+                            file.class(),
+                        )
+                    })
                     .inspect(|post: &RoutineSpecification| {
                         info!(target: "gemini", "valid preconditions {}", post.precondition);
                         info!(target: "gemini", "valid postconditions {}", post.postcondition);
