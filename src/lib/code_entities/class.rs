@@ -5,6 +5,7 @@ use async_lsp::lsp_types;
 use std::collections::HashSet;
 use std::fmt::Display;
 use std::path::PathBuf;
+use std::str::FromStr;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
 use tree_sitter::{Node, Query, QueryCursor};
@@ -373,24 +374,60 @@ impl Parse for Vec<Ancestor> {
 
         let ancestor_query = Query::new(
             lang,
-            "(parent (class_type (class_name) @ancestor))",
-        ).map_err(|e| anyhow!("fails to query `(parent (class_type (class_name) @ancestor))` with error: {:?}",e))?;
+            format!(
+                "(parent
+                (class_type (class_name) @name)
+                (feature_adaptation (rename (rename_pair (identifier) @rename_before
+                        (extended_feature_name) @rename_after)* )?)?)",
+            )
+            .as_str(),
+        )
+        .map_err(|e| anyhow!("fails to query parent with error: {:?}", e))?;
 
-        let mut binding = QueryCursor::new();
-        let mut matches = binding.matches(&ancestor_query, node.clone(), src.as_bytes());
+        let mut query_cursor = QueryCursor::new();
+        let mut matches = query_cursor.matches(&ancestor_query, node.clone(), src.as_bytes());
 
         let mut ancestors = Vec::new();
+
         while let Some(mat) = matches.next() {
+            let mut name = "";
+            let mut rename: Vec<(String, String)> = Vec::new();
+            let mut rename_before: &str = "";
+
             for cap in mat.captures {
                 let node = &cap.node;
-                ancestors.push(Ancestor {
-                    name: src[node.byte_range()].into(),
-                    select: Vec::new(),
-                    rename: Vec::new(),
-                    redefine: Vec::new(),
-                    undefine: Vec::new(),
-                });
+
+                match ancestor_query.capture_names()[cap.index as usize] {
+                    "name" => {
+                        name = node
+                            .utf8_text(src.as_bytes())
+                            .expect("fails to retrieve parent name.");
+                    }
+                    "rename_before" => {
+                        debug_assert!(rename_before.is_empty());
+                        rename_before = node
+                            .utf8_text(src.as_bytes())
+                            .expect("fails to retrieve old name of renamed feature.")
+                    }
+                    "rename_after" => {
+                        rename.push((
+                            rename_before.to_string(),
+                            node.utf8_text(src.as_bytes())
+                                .expect("fails to retrieve new name of renamed feature.")
+                                .to_string(),
+                        ));
+                        rename_before = "";
+                    }
+                    _ => unreachable!(),
+                }
             }
+            ancestors.push(Ancestor {
+                name: name.to_string(),
+                select: Vec::new(),
+                rename,
+                redefine: Vec::new(),
+                undefine: Vec::new(),
+            });
         }
         Ok(ancestors)
     }
@@ -553,7 +590,7 @@ end
         );
     }
     #[test]
-    fn parse_ancestors() {
+    fn parse_ancestors_names() {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
@@ -566,15 +603,6 @@ inherit {NONE}
 
 inherit
   W
-    undefine a
-    redefine c
-    rename e as f
-    export
-      {ANY}
-        -- Header comment
-        all
-    select g
-    end
 end
 ";
         let tree = parser.parse(src, None).unwrap();
@@ -613,6 +641,37 @@ end
             "W".to_string()
         );
     }
+    #[test]
+    fn parse_ancestors_renames() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+
+        let src = "
+class A
+inherit
+  W
+    rename e as f
+end
+";
+        let tree = parser.parse(src, None).unwrap();
+
+        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
+        let mut ancestors = class.parents().into_iter();
+
+        assert_eq!(
+            ancestors.next().expect("fails to parse first ancestor"),
+            &Ancestor {
+                name: "W".to_string(),
+                select: Vec::new(),
+                rename: vec![("e".to_string(), "f".to_string())],
+                redefine: Vec::new(),
+                undefine: Vec::new()
+            }
+        );
+    }
+
     #[tokio::test]
     async fn class_to_workspacesymbol() -> Result<()> {
         let path = "/tmp/eiffel_tool_test_class_to_workspacesymbol.e";
@@ -681,6 +740,7 @@ end
         assert_eq!(a.collect::<Vec<_>>(), vec![&parent]);
         Ok(())
     }
+
     #[test]
     fn ancestor_classes() {
         let parent_name = "B";
