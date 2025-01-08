@@ -205,9 +205,6 @@ impl Feature {
     fn return_type(&self) -> &str {
         &self.return_type
     }
-    fn signature(&self) -> String {
-        format!("{} ({}): {}", self.name, self.parameters, self.return_type)
-    }
     pub fn range(&self) -> &Range {
         &self.range
     }
@@ -296,11 +293,8 @@ impl Parse for Feature {
                 |formal_arguments| Parameters::parse(&formal_arguments.0.captures[0].node, src),
             )?;
 
-        let return_type_query = Query::new(
-            lang,
-            "(feature_declaration (class_type (class_name) @return_type))",
-        )
-        .expect("Query for the return type of the feature must succeed.");
+        let return_type_query = Query::new(lang, "(feature_declaration type: (_) @return_type)")
+            .expect("Query for the return type of the feature must succeed.");
         let return_type = query_cursor
             .captures(&return_type_query, node.clone(), src.as_bytes())
             .next()
@@ -475,5 +469,63 @@ end
         };
         assert_eq!(tag, "entry_tag");
         assert_eq!(value, "entry_value");
+    }
+
+    #[test]
+    fn parse_parameters() {
+        // Example feature
+        let src = r#"
+class A feature
+  x (y, z: MML_SEQUENCE [INTEGER]): MML_SEQUENCE [INTEGER]
+    do
+    end
+end
+        "#;
+        let mut parser = ::tree_sitter::Parser::new();
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        parser
+            .set_language(&lang)
+            .expect("Error loading Eiffel grammar");
+        let tree = parser.parse(src, None).unwrap();
+        let query = ::tree_sitter::Query::new(&lang, "(feature_declaration) @feature").unwrap();
+
+        let mut binding = QueryCursor::new();
+        let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
+        let node = captures.next().unwrap().0.captures[0].node;
+        let feature = Feature::parse(&node, src).expect("fails to parse feature.");
+
+        assert_eq!(
+            feature.parameters(),
+            &Parameters(vec![
+                ("y".to_string(), "MML_SEQUENCE [INTEGER]".to_string()),
+                ("z".to_string(), "MML_SEQUENCE [INTEGER]".to_string())
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_return_type() {
+        // Example feature
+        let src = r#"
+class A feature
+  x (y, z: MML_SEQUENCE [INTEGER]): MML_SEQUENCE [INTEGER]
+    do
+    end
+end
+        "#;
+        let mut parser = ::tree_sitter::Parser::new();
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        parser
+            .set_language(&lang)
+            .expect("Error loading Eiffel grammar");
+        let tree = parser.parse(src, None).unwrap();
+        let query = ::tree_sitter::Query::new(&lang, "(feature_declaration) @feature").unwrap();
+
+        let mut binding = QueryCursor::new();
+        let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
+        let node = captures.next().unwrap().0.captures[0].node;
+        let feature = Feature::parse(&node, src).expect("fails to parse feature.");
+
+        assert_eq!(feature.return_type(), "MML_SEQUENCE [INTEGER]".to_string());
     }
 }
