@@ -95,9 +95,8 @@ impl ProcessedFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lib::code_entities::prelude::*;
     use assert_fs::prelude::*;
-    use assert_fs::{fixture::FileWriteStr, NamedTempFile, TempDir};
+    use assert_fs::{fixture::FileWriteStr, TempDir};
     #[tokio::test]
     async fn new() {
         let mut parser = tree_sitter::Parser::new();

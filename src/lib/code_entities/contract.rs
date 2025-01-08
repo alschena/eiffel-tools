@@ -1,17 +1,45 @@
 use super::prelude::*;
 use crate::lib::code_entities::feature::Notes;
+use crate::lib::processed_file::ProcessedFile;
 use crate::lib::tree_sitter_extension::Parse;
+use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use gemini::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
-use std::convert::AsRef;
+use std::fmt::Debug;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tracing::info;
 use tree_sitter::{Node, Query, QueryCursor};
+pub(crate) trait Valid: Debug {
+    fn valid(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.decorated_valid_syntax()
+            && self.decorated_valid_identifiers(system_classes, current_class)
+    }
+    fn valid_syntax(&self) -> bool;
+    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool;
+    fn decorated_valid_syntax(&self) -> bool {
+        let value = self.valid_syntax();
+        if !value {
+            info!(target: "gemini","filtered by syntax {self:?}");
+        }
+        value
+    }
+    fn decorated_valid_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+    ) -> bool {
+        let value = self.valid_identifiers(system_classes, current_class);
+        if !value {
+            info!(target: "gemini","filtered by invalid identifier {self:?}");
+        }
+        value
+    }
+}
 pub trait Type {
     fn query() -> Query;
     fn keyword() -> Keyword;
@@ -93,9 +121,14 @@ impl Default for Clause {
         }
     }
 }
-impl ValidSyntax for Clause {
+impl Valid for Clause {
     fn valid_syntax(&self) -> bool {
         self.predicate.valid_syntax() && self.tag.valid_syntax()
+    }
+    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.predicate
+            .valid_identifiers(system_classes, current_class)
+            && self.tag.valid_identifiers(system_classes, current_class)
     }
 }
 impl Parse for Clause {
@@ -156,9 +189,12 @@ impl Default for Tag {
     }
 }
 
-impl ValidSyntax for Tag {
+impl Valid for Tag {
     fn valid_syntax(&self) -> bool {
         !self.as_str().contains(" ")
+    }
+    fn valid_identifiers(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
+        true
     }
 }
 impl Display for Tag {
@@ -187,7 +223,7 @@ impl Default for Predicate {
     }
 }
 
-impl ValidSyntax for Predicate {
+impl Valid for Predicate {
     fn valid_syntax(&self) -> bool {
         let text: &str = self.as_str();
         let lang = tree_sitter_eiffel::LANGUAGE.into();
@@ -200,6 +236,42 @@ impl ValidSyntax for Predicate {
             return false;
         };
         !tree.root_node().has_error()
+    }
+    // For now only unqualified calls are validated against immediate features and inheritance without renaming.
+    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        let text: &str = self.as_str();
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&lang)
+            .expect("parser must load grammar.");
+        let Some(tree) = parser.parse(text, None) else {
+            info!("Parsing predicate fails.");
+            return false;
+        };
+        let query_unqualified_calls =
+            Query::new(&lang, "(call (unqualified_call) @unqualified !target)")
+                .expect("Fails to query unqualified calls.");
+        let mut query_cursor = QueryCursor::new();
+        let mut captures =
+            query_cursor.captures(&query_unqualified_calls, tree.root_node(), text.as_bytes());
+        captures.all(|cap| {
+            cap.0
+                .captures
+                .iter()
+                .map(|c| c.node)
+                .map(|node| &text[node.byte_range()])
+                .inspect(|identifier| {
+                    info!("the generated expression used the identifiers: {identifier}")
+                })
+                .all(|identifier| {
+                    current_class
+                        .features()
+                        .iter()
+                        .chain(current_class.inhereted_features(system_classes.iter().copied()))
+                        .any(|feature| feature.name() == identifier)
+                })
+        })
     }
 }
 impl Display for Predicate {
@@ -235,9 +307,13 @@ impl Default for Precondition {
     }
 }
 
-impl ValidSyntax for Precondition {
+impl Valid for Precondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
+    }
+    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.iter()
+            .all(|clause| clause.valid_identifiers(system_classes, current_class))
     }
 }
 impl From<Vec<Clause>> for Precondition {
@@ -355,9 +431,13 @@ impl Default for Postcondition {
     }
 }
 
-impl ValidSyntax for Postcondition {
+impl Valid for Postcondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
+    }
+    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.iter()
+            .all(|clause| clause.valid_identifiers(system_classes, current_class))
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
@@ -365,9 +445,16 @@ pub struct RoutineSpecification {
     pub precondition: Precondition,
     pub postcondition: Postcondition,
 }
-impl ValidSyntax for RoutineSpecification {
+impl Valid for RoutineSpecification {
     fn valid_syntax(&self) -> bool {
         self.precondition.valid_syntax() && self.postcondition.valid_syntax()
+    }
+    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.precondition
+            .valid_identifiers(system_classes, current_class)
+            && self
+                .postcondition
+                .valid_identifiers(system_classes, current_class)
     }
 }
 impl From<Vec<Clause>> for Postcondition {
@@ -452,6 +539,8 @@ impl Described for RoutineSpecification {
 mod tests {
     use super::*;
     use anyhow::Result;
+    use assert_fs::prelude::*;
+    use assert_fs::{fixture::FileWriteStr, TempDir};
     use gemini::SchemaType;
     use Clause;
 
@@ -690,5 +779,20 @@ end"#;
             format!("{simple_block}"),
             "require\n\t\t\tdefault: True\n\t\t"
         );
+    }
+    #[tokio::test]
+    async fn valid_and_invalid_predicates() {
+        let mut class = Class::from_name_range(
+            String::from("A"),
+            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
+        );
+        class.add_feature(&Feature::empty_feature("x"));
+
+        // Create an invalid and a valid predicates.
+        let invalid_predicate = Predicate(String::from("z"));
+        let valid_predicate = Predicate(String::from("x"));
+
+        assert!(!invalid_predicate.valid(vec![&class].as_ref(), &class));
+        assert!(valid_predicate.valid(vec![&class].as_ref(), &class));
     }
 }

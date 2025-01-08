@@ -174,6 +174,28 @@ pub struct Feature {
     postconditions: Option<Block<Postcondition>>,
 }
 impl Feature {
+    #[cfg(test)]
+    pub fn empty_feature(name: &str) -> Feature {
+        Feature {
+            name: name.into(),
+            parameters: Parameters(Vec::new()),
+            return_type: String::new(),
+            notes: None,
+            visibility: FeatureVisibility::Private,
+            range: Range::new(
+                Point {
+                    row: 4,
+                    column: Self::INDENTATION_LEVEL,
+                },
+                Point {
+                    row: 4,
+                    column: Self::INDENTATION_LEVEL + name.len(),
+                },
+            ),
+            preconditions: None,
+            postconditions: None,
+        }
+    }
     pub fn name(&self) -> &str {
         &self.name
     }

@@ -1,12 +1,11 @@
 use super::utils::{text_edit_add_postcondition, text_edit_add_precondition};
 use super::Error;
 use crate::lib::code_entities::prelude::*;
-use crate::lib::code_entities::ValidSyntax;
 use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use async_lsp::lsp_types::{Url, WorkspaceEdit};
 use async_lsp::Result;
-use contract::{Block, Postcondition, Precondition, RoutineSpecification};
+use contract::{Block, Postcondition, Precondition, RoutineSpecification, Valid};
 use gemini;
 use gemini::ToResponseSchema;
 use std::collections::HashMap;
@@ -105,9 +104,11 @@ impl<'a, 'b> LLM<'a, 'b> {
         let mut request = gemini::Request::from(format!(
             "You are an expert in formal methods, specifically design by contract for static verification. You are optionally adding model-based contracts to the following feature:```eiffel\n{feature_src}\n```\nRemember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.\n{full_model_text}"
         ));
-        request.set_config(gemini::GenerationConfig::from(
-            RoutineSpecification::to_response_schema(),
-        ));
+
+        let mut request_config =
+            gemini::GenerationConfig::from(RoutineSpecification::to_response_schema());
+        request_config.set_temperature(Some(2.0));
+        request.set_config(request_config);
 
         match request
             .process_with_async_client(self.model_config(), self.client())
@@ -118,13 +119,18 @@ impl<'a, 'b> LLM<'a, 'b> {
                 match response
                     .parsed()
                     .inspect(|pre: &RoutineSpecification| {
-                        info!(target: "gemini", "all preconditions {}", pre.precondition);
-                        info!(target: "gemini", "all postconditions {}", pre.postcondition);
+                        info!(target: "gemini", "generated preconditions {}", pre.precondition);
+                        info!(target: "gemini", "generated postconditions {}", pre.postcondition);
                     })
-                    .filter(|spec: &RoutineSpecification| spec.valid_syntax())
+                    .filter(|spec: &RoutineSpecification| {
+                        spec.valid(
+                            workspace.system_classes().collect::<Vec<_>>().as_ref(),
+                            file.class(),
+                        )
+                    })
                     .inspect(|post: &RoutineSpecification| {
-                        info!(target: "gemini", "filtered preconditions {}", post.precondition);
-                        info!(target: "gemini", "filtered postconditions {}", post.postcondition);
+                        info!(target: "gemini", "valid preconditions {}", post.precondition);
+                        info!(target: "gemini", "valid postconditions {}", post.postcondition);
                     })
                     .next()
                 {

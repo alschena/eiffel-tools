@@ -23,7 +23,7 @@ pub struct GenerationConfig {
     /// Note: The default value varies by model, see the Model.temperature attribute of the Model returned from the getModel function.
     /// Values can range from [0.0, 2.0].
     #[serde(skip_serializing_if = "Option::is_none")]
-    temperature: Option<i32>,
+    temperature: Option<f32>,
     /// The maximum cumulative probability of tokens to consider when sampling.
     /// The model uses combined Top-k and Top-p (nucleus) sampling.
     /// Tokens are sorted based on their assigned probabilities so that only the most likely tokens are considered.
@@ -82,7 +82,7 @@ impl GenerationConfig {
     pub fn set_max_output_token(&mut self, max_output_token: Option<i32>) {
         self.max_output_token = max_output_token
     }
-    pub fn set_temperature(&mut self, temperature: Option<i32>) {
+    pub fn set_temperature(&mut self, temperature: Option<f32>) {
         self.temperature = temperature
     }
     pub fn set_top_p(&mut self, top_p: Option<i32>) {
@@ -108,7 +108,7 @@ impl GenerationConfig {
     pub fn max_output_token(&self) -> &Option<i32> {
         &self.max_output_token
     }
-    pub fn temperature(&self) -> &Option<i32> {
+    pub fn temperature(&self) -> &Option<f32> {
         &self.temperature
     }
     pub fn top_p(&self) -> &Option<i32> {
