@@ -1,8 +1,6 @@
 use super::prelude::*;
 use crate::lib::code_entities::feature::Notes;
-use crate::lib::processed_file::ProcessedFile;
 use crate::lib::tree_sitter_extension::Parse;
-use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use gemini::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
@@ -268,6 +266,7 @@ impl Valid for Predicate {
                     current_class
                         .features()
                         .iter()
+                        .map(|feature| std::borrow::Cow::Borrowed(feature))
                         .chain(current_class.inhereted_features(system_classes))
                         .any(|feature| feature.name() == identifier)
                 })

@@ -2,21 +2,16 @@ use super::prelude::*;
 use crate::lib::tree_sitter_extension::Parse;
 use anyhow::anyhow;
 use async_lsp::lsp_types;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt::Display;
 use std::path::PathBuf;
-use std::str::FromStr;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
 use tree_sitter::{Node, Query, QueryCursor};
 // TODO accept only attributes of logical type in the model
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Model(pub Vec<Feature>);
-impl Model {
-    fn new() -> Model {
-        Model(Vec::new())
-    }
-}
+pub struct Model(Vec<Feature>);
 impl Model {
     fn from_model_names(names: ModelNames, features: &Vec<Feature>) -> Model {
         Model(
@@ -141,17 +136,29 @@ impl Class {
     pub fn inhereted_features<'a>(
         &'a self,
         system_classes: &'a [&'a Class],
-    ) -> impl Iterator<Item = &'a Feature> {
-        if self
-            .ancestors(system_classes)
-            .iter()
-            .any(|ancestor| !ancestor.rename.is_empty())
-        {
-            unimplemented!()
-        }
-        self.ancestor_classes(system_classes)
+    ) -> Vec<Cow<'a, Feature>> {
+        self.parent_classes(system_classes)
             .into_iter()
-            .flat_map(|class| class.features())
+            .zip(self.parents())
+            .flat_map(|(parent_class, parent)| {
+                parent_class
+                    .inhereted_features(system_classes)
+                    .into_iter()
+                    .chain(parent_class.features().iter().map(|f| Cow::Borrowed(f)))
+                    .map(|feature| {
+                        match parent
+                            .rename
+                            .iter()
+                            .find(|(old_name, _)| old_name == feature.name())
+                        {
+                            Some((_, new_name)) => {
+                                Cow::Owned(feature.clone_rename(new_name.to_string()))
+                            }
+                            None => feature,
+                        }
+                    })
+            })
+            .collect()
     }
     pub fn range(&self) -> &Range {
         &self.range
@@ -669,6 +676,67 @@ end
                 redefine: Vec::new(),
                 undefine: Vec::new()
             }
+        );
+    }
+
+    #[test]
+    fn rename_inherit_features() {
+        let child_src = "
+class A
+inherit
+  B
+    rename y as z
+end
+";
+        let parent_src = "
+class B
+inherit
+  C
+    rename x as y
+end
+";
+        let grandparent_src = "
+class C
+feature
+    x: BOOLEAN
+end
+";
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+        let grandparent = Class::parse(
+            &parser.parse(grandparent_src, None).unwrap().root_node(),
+            grandparent_src,
+        )
+        .expect("fails to parse grandparent");
+        let parent = Class::parse(
+            &parser.parse(parent_src, None).unwrap().root_node(),
+            parent_src,
+        )
+        .expect("fails to parse parent");
+        let child = Class::parse(
+            &parser.parse(child_src, None).unwrap().root_node(),
+            child_src,
+        )
+        .expect("fails to parse child");
+        let system_classes = vec![&grandparent, &parent, &child];
+        let child_features = child.inhereted_features(&system_classes);
+        let parent_features = parent.inhereted_features(&system_classes);
+        assert_eq!(
+            grandparent.features().first().unwrap().name(),
+            "x",
+            "grandparent features"
+        );
+        assert_eq!(
+            parent_features.first().unwrap().name(),
+            "y",
+            "parent features"
+        );
+        assert_eq!(
+            child_features.first().unwrap().name(),
+            "z",
+            "child features"
         );
     }
 

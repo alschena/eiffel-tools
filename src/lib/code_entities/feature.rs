@@ -174,6 +174,11 @@ pub struct Feature {
     postconditions: Option<Block<Postcondition>>,
 }
 impl Feature {
+    pub fn clone_rename(&self, name: String) -> Feature {
+        let mut f = self.clone();
+        f.name = name;
+        f
+    }
     #[cfg(test)]
     pub fn empty_feature(name: &str) -> Feature {
         Feature {
