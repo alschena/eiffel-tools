@@ -783,12 +783,14 @@ end"#;
     }
     #[test]
     fn valid_and_invalid_predicates() {
-        let mut class = Class::from_name_range(
-            String::from("A"),
-            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
-        );
-        class.add_feature(&Feature::empty_feature("x"));
-
+        let src = "
+            class
+                A
+            feature
+                x: BOOLEAN
+            end
+        ";
+        let class = Class::from_source(src);
         let system_classes = vec![&class];
 
         // Create an invalid and a valid predicates.
@@ -800,25 +802,32 @@ end"#;
     }
     #[test]
     fn valid_predicates_in_ancestors() {
-        let parent_name = String::from("A");
-        let feature_name = "x";
-        let mut parent = Class::from_name_range(
-            parent_name.clone(),
-            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
-        );
-        parent.add_feature(&Feature::empty_feature(feature_name));
-        let mut child = Class::from_name_range(
-            String::from("B"),
-            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
-        );
+        let parent_src = "
+            class
+                B
+            feature
+                x: BOOLEAN
+            end
+        ";
+        let child_src = "
+            class
+                A
+            inherit
+                B
+            end
+        ";
+
+        let mut parent = Class::from_source(parent_src);
+        let mut child = Class::from_source(child_src);
+
         assert!(child
             .features()
             .into_iter()
-            .find(|f| f.name() == feature_name)
+            .find(|f| f.name() == "x")
             .is_none());
-        child.add_parent(Ancestor::from_name(parent_name));
+
         let system_classes = vec![&child, &parent];
-        let valid_predicate = Predicate(String::from(feature_name));
+        let valid_predicate = Predicate(String::from("x"));
         assert!(valid_predicate.valid(&system_classes, &child));
     }
 }
