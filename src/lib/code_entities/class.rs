@@ -2,6 +2,8 @@ use super::prelude::*;
 use crate::lib::tree_sitter_extension::Parse;
 use anyhow::anyhow;
 use async_lsp::lsp_types;
+use std::borrow::Cow;
+use std::collections::HashSet;
 use std::fmt::Display;
 use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
@@ -9,12 +11,7 @@ use tracing::instrument;
 use tree_sitter::{Node, Query, QueryCursor};
 // TODO accept only attributes of logical type in the model
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Model(pub Vec<Feature>);
-impl Model {
-    fn new() -> Model {
-        Model(Vec::new())
-    }
-}
+pub struct Model(Vec<Feature>);
 impl Model {
     fn from_model_names(names: ModelNames, features: &Vec<Feature>) -> Model {
         Model(
@@ -80,7 +77,7 @@ pub struct Class {
     path: Option<Location>,
     model: Model,
     features: Vec<Feature>,
-    ancestors: Vec<Ancestor>,
+    parents: Vec<Ancestor>,
     range: Range,
 }
 
@@ -93,9 +90,9 @@ impl Class {
     }
     pub fn full_model<'a>(
         &'a self,
-        classes: impl Iterator<Item = &'a Class> + 'a,
+        system_classes: &'a [&'a Class],
     ) -> impl Iterator<Item = &'a Model> {
-        self.ancestors_classes(classes)
+        self.parent_classes(system_classes)
             .map(|ancestor| ancestor.model())
             .chain(std::iter::once(self.model()))
     }
@@ -105,36 +102,63 @@ impl Class {
     pub fn into_features(self) -> Vec<Feature> {
         self.features
     }
-    pub fn ancestors(&self) -> &Vec<Ancestor> {
-        &self.ancestors
+    fn parents(&self) -> &Vec<Ancestor> {
+        &self.parents
     }
-    pub fn ancestors_classes<'a, 'b>(
-        &'b self,
-        classes: impl Iterator<Item = &'a Class> + 'b,
-    ) -> impl Iterator<Item = &'a Class> + 'b {
-        classes.filter(|class_in_workspace| {
-            self.ancestors()
-                .into_iter()
-                .find(|ancestor| ancestor.name() == class_in_workspace.name())
-                .is_some()
-        })
+    fn parent_classes<'a>(
+        &'a self,
+        system_classes: &'a [&'a Class],
+    ) -> impl Iterator<Item = &'a Class> {
+        self.parents()
+            .into_iter()
+            .filter_map(|parent| parent.class(system_classes))
     }
-    pub fn inhereted_features<'a, 'b>(
-        &'b self,
-        classes: impl Iterator<Item = &'a Class> + 'b,
-    ) -> impl Iterator<Item = &'a Feature> + 'b
-    where
-        'a: 'b,
-    {
-        if self
-            .ancestors()
-            .iter()
-            .any(|ancestor| !ancestor.rename.is_empty())
-        {
-            unimplemented!()
+    pub fn ancestors<'a>(&'a self, system_classes: &'a [&'a Class]) -> HashSet<&'a Ancestor> {
+        let mut ancestors = HashSet::new();
+        for parent in self.parents() {
+            let Some(parent_class) = parent.class(system_classes) else {
+                continue;
+            };
+            ancestors.insert(parent);
+            ancestors.extend(parent_class.ancestors(system_classes));
         }
-        self.ancestors_classes(classes)
-            .flat_map(|class| class.features())
+        ancestors
+    }
+    pub fn ancestor_classes<'a>(&'a self, system_classes: &'a [&'a Class]) -> HashSet<&'a Class> {
+        let mut ancestors_classes = HashSet::new();
+        self.parent_classes(system_classes)
+            .for_each(|parent_class| {
+                ancestors_classes.insert(parent_class);
+                ancestors_classes.extend(parent_class.ancestor_classes(system_classes));
+            });
+        ancestors_classes
+    }
+    pub fn inhereted_features<'a>(
+        &'a self,
+        system_classes: &'a [&'a Class],
+    ) -> Vec<Cow<'a, Feature>> {
+        self.parent_classes(system_classes)
+            .into_iter()
+            .zip(self.parents())
+            .flat_map(|(parent_class, parent)| {
+                parent_class
+                    .inhereted_features(system_classes)
+                    .into_iter()
+                    .chain(parent_class.features().iter().map(|f| Cow::Borrowed(f)))
+                    .map(|feature| {
+                        match parent
+                            .rename
+                            .iter()
+                            .find(|(old_name, _)| old_name == feature.name())
+                        {
+                            Some((_, new_name)) => {
+                                Cow::Owned(feature.clone_rename(new_name.to_string()))
+                            }
+                            None => feature,
+                        }
+                    })
+            })
+            .collect()
     }
     pub fn range(&self) -> &Range {
         &self.range
@@ -151,7 +175,7 @@ impl Class {
             path: None,
             model: Model(Vec::new()),
             features: Vec::new(),
-            ancestors: Vec::new(),
+            parents: Vec::new(),
             range,
         }
     }
@@ -167,6 +191,10 @@ impl Class {
     pub fn add_location(&mut self, path: &PathBuf) {
         let path = path.clone();
         self.path = Some(Location { path })
+    }
+    #[cfg(test)]
+    pub fn add_parent(&mut self, parent: Ancestor) {
+        self.parents.push(parent)
     }
 }
 impl Indent for Class {
@@ -284,7 +312,7 @@ impl Parse for Class {
         // Extract optional model
         class.model = Model::from_model_names(ModelNames::parse(root, src)?, &features);
         class.features = features;
-        class.ancestors = ancestors;
+        class.parents = ancestors;
         Ok(class)
     }
 }
@@ -326,6 +354,22 @@ impl Ancestor {
     fn name(&self) -> &str {
         &self.name
     }
+    pub fn class<'a>(&self, system_classes: &'a [&'a Class]) -> Option<&'a Class> {
+        system_classes
+            .into_iter()
+            .find(|class| class.name() == self.name())
+            .copied()
+    }
+    #[cfg(test)]
+    pub fn from_name(name: String) -> Ancestor {
+        Ancestor {
+            name,
+            select: Vec::new(),
+            rename: Vec::new(),
+            redefine: Vec::new(),
+            undefine: Vec::new(),
+        }
+    }
 }
 impl Parse for Vec<Ancestor> {
     type Error = anyhow::Error;
@@ -337,24 +381,60 @@ impl Parse for Vec<Ancestor> {
 
         let ancestor_query = Query::new(
             lang,
-            "(parent (class_type (class_name) @ancestor))",
-        ).map_err(|e| anyhow!("fails to query `(parent (class_type (class_name) @ancestor))` with error: {:?}",e))?;
+            format!(
+                "(parent
+                (class_type (class_name) @name)
+                (feature_adaptation (rename (rename_pair (identifier) @rename_before
+                        (extended_feature_name) @rename_after)* )?)?)",
+            )
+            .as_str(),
+        )
+        .map_err(|e| anyhow!("fails to query parent with error: {:?}", e))?;
 
-        let mut binding = QueryCursor::new();
-        let mut matches = binding.matches(&ancestor_query, node.clone(), src.as_bytes());
+        let mut query_cursor = QueryCursor::new();
+        let mut matches = query_cursor.matches(&ancestor_query, node.clone(), src.as_bytes());
 
         let mut ancestors = Vec::new();
+
         while let Some(mat) = matches.next() {
+            let mut name = "";
+            let mut rename: Vec<(String, String)> = Vec::new();
+            let mut rename_before: &str = "";
+
             for cap in mat.captures {
                 let node = &cap.node;
-                ancestors.push(Ancestor {
-                    name: src[node.byte_range()].into(),
-                    select: Vec::new(),
-                    rename: Vec::new(),
-                    redefine: Vec::new(),
-                    undefine: Vec::new(),
-                });
+
+                match ancestor_query.capture_names()[cap.index as usize] {
+                    "name" => {
+                        name = node
+                            .utf8_text(src.as_bytes())
+                            .expect("fails to retrieve parent name.");
+                    }
+                    "rename_before" => {
+                        debug_assert!(rename_before.is_empty());
+                        rename_before = node
+                            .utf8_text(src.as_bytes())
+                            .expect("fails to retrieve old name of renamed feature.")
+                    }
+                    "rename_after" => {
+                        rename.push((
+                            rename_before.to_string(),
+                            node.utf8_text(src.as_bytes())
+                                .expect("fails to retrieve new name of renamed feature.")
+                                .to_string(),
+                        ));
+                        rename_before = "";
+                    }
+                    _ => unreachable!(),
+                }
             }
+            ancestors.push(Ancestor {
+                name: name.to_string(),
+                select: Vec::new(),
+                rename,
+                redefine: Vec::new(),
+                undefine: Vec::new(),
+            });
         }
         Ok(ancestors)
     }
@@ -517,7 +597,7 @@ end
         );
     }
     #[test]
-    fn parse_ancestors() {
+    fn parse_ancestors_names() {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
@@ -530,21 +610,12 @@ inherit {NONE}
 
 inherit
   W
-    undefine a
-    redefine c
-    rename e as f
-    export
-      {ANY}
-        -- Header comment
-        all
-    select g
-    end
 end
 ";
         let tree = parser.parse(src, None).unwrap();
 
         let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
-        let mut ancestors = class.ancestors().into_iter();
+        let mut ancestors = class.parents().into_iter();
 
         assert_eq!(class.name(), "A".to_string());
 
@@ -577,6 +648,98 @@ end
             "W".to_string()
         );
     }
+    #[test]
+    fn parse_ancestors_renames() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+
+        let src = "
+class A
+inherit
+  W
+    rename e as f
+end
+";
+        let tree = parser.parse(src, None).unwrap();
+
+        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
+        let mut ancestors = class.parents().into_iter();
+
+        assert_eq!(
+            ancestors.next().expect("fails to parse first ancestor"),
+            &Ancestor {
+                name: "W".to_string(),
+                select: Vec::new(),
+                rename: vec![("e".to_string(), "f".to_string())],
+                redefine: Vec::new(),
+                undefine: Vec::new()
+            }
+        );
+    }
+
+    #[test]
+    fn rename_inherit_features() {
+        let child_src = "
+class A
+inherit
+  B
+    rename y as z
+end
+";
+        let parent_src = "
+class B
+inherit
+  C
+    rename x as y
+end
+";
+        let grandparent_src = "
+class C
+feature
+    x: BOOLEAN
+end
+";
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+        let grandparent = Class::parse(
+            &parser.parse(grandparent_src, None).unwrap().root_node(),
+            grandparent_src,
+        )
+        .expect("fails to parse grandparent");
+        let parent = Class::parse(
+            &parser.parse(parent_src, None).unwrap().root_node(),
+            parent_src,
+        )
+        .expect("fails to parse parent");
+        let child = Class::parse(
+            &parser.parse(child_src, None).unwrap().root_node(),
+            child_src,
+        )
+        .expect("fails to parse child");
+        let system_classes = vec![&grandparent, &parent, &child];
+        let child_features = child.inhereted_features(&system_classes);
+        let parent_features = parent.inhereted_features(&system_classes);
+        assert_eq!(
+            grandparent.features().first().unwrap().name(),
+            "x",
+            "grandparent features"
+        );
+        assert_eq!(
+            parent_features.first().unwrap().name(),
+            "y",
+            "parent features"
+        );
+        assert_eq!(
+            child_features.first().unwrap().name(),
+            "z",
+            "child features"
+        );
+    }
+
     #[tokio::test]
     async fn class_to_workspacesymbol() -> Result<()> {
         let path = "/tmp/eiffel_tool_test_class_to_workspacesymbol.e";
@@ -602,7 +765,7 @@ end
         Ok(())
     }
     #[test]
-    fn ancestor_classes() -> Result<()> {
+    fn parse_parent_classes() -> Result<()> {
         let src_child = "
     class A
     inherit {NONE}
@@ -641,9 +804,45 @@ end
         let parent =
             Class::parse(&tree_parent.root_node(), src_parent).expect("fails to parse class");
         let classes = vec![&child, &parent];
-        let a = child.ancestors_classes(classes.into_iter());
+        let a = child.parent_classes(&classes);
         assert_eq!(a.collect::<Vec<_>>(), vec![&parent]);
         Ok(())
+    }
+
+    #[test]
+    fn ancestor_classes() {
+        let parent_name = "B";
+        let grandparent_name = "C";
+        let grandparent = Class::from_name_range(
+            grandparent_name.to_string(),
+            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
+        );
+        let mut parent = Class::from_name_range(
+            parent_name.to_string(),
+            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
+        );
+        parent.add_parent(Ancestor::from_name(grandparent_name.to_string()));
+        let mut class = Class::from_name_range(
+            String::from("A"),
+            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
+        );
+        class.add_parent(Ancestor::from_name(parent_name.to_string()));
+
+        let system_classes = vec![&class, &parent, &grandparent];
+
+        let mut parent_and_grandparent_hashset = HashSet::new();
+        parent_and_grandparent_hashset.insert(&parent);
+        parent_and_grandparent_hashset.insert(&grandparent);
+        assert_eq!(
+            class.ancestor_classes(&system_classes),
+            parent_and_grandparent_hashset
+        );
+        let mut grandparent_hashset = HashSet::new();
+        grandparent_hashset.insert(&grandparent);
+        assert_eq!(
+            parent.ancestor_classes(&system_classes),
+            grandparent_hashset,
+        );
     }
     #[test]
     fn full_model() -> Result<()> {
@@ -676,9 +875,7 @@ end
         let parent =
             Class::parse(&tree_parent.root_node(), src_parent).expect("fails to parse class");
         assert_eq!(
-            child
-                .full_model(vec![&child, &parent].into_iter())
-                .collect::<Vec<_>>(),
+            child.full_model(&vec![&child, &parent]).collect::<Vec<_>>(),
             vec![parent.model(), child.model()]
         );
         Ok(())

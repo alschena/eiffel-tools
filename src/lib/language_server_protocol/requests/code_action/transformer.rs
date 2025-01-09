@@ -94,7 +94,7 @@ impl<'a, 'b> LLM<'a, 'b> {
             // TODO add models of arguments and Result.
             let mut setup = "The models of the current class and its ancestors are:\n".to_string();
             file.class()
-                .full_model(workspace.system_classes())
+                .full_model(workspace.system_classes().collect::<Vec<_>>().as_ref())
                 .for_each(|model| {
                     setup.push_str(format!("{}{model}", ClassModel::indentation_string()).as_str());
                     setup.push('\n');

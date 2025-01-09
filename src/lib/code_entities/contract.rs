@@ -1,8 +1,6 @@
 use super::prelude::*;
 use crate::lib::code_entities::feature::Notes;
-use crate::lib::processed_file::ProcessedFile;
 use crate::lib::tree_sitter_extension::Parse;
-use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use gemini::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
@@ -268,7 +266,8 @@ impl Valid for Predicate {
                     current_class
                         .features()
                         .iter()
-                        .chain(current_class.inhereted_features(system_classes.iter().copied()))
+                        .map(|feature| std::borrow::Cow::Borrowed(feature))
+                        .chain(current_class.inhereted_features(system_classes))
                         .any(|feature| feature.name() == identifier)
                 })
         })
@@ -537,6 +536,8 @@ impl Described for RoutineSpecification {
 }
 #[cfg(test)]
 mod tests {
+    use crate::lib::code_entities::class::Ancestor;
+
     use super::*;
     use anyhow::Result;
     use assert_fs::prelude::*;
@@ -780,19 +781,44 @@ end"#;
             "require\n\t\t\tdefault: True\n\t\t"
         );
     }
-    #[tokio::test]
-    async fn valid_and_invalid_predicates() {
+    #[test]
+    fn valid_and_invalid_predicates() {
         let mut class = Class::from_name_range(
             String::from("A"),
             Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
         );
         class.add_feature(&Feature::empty_feature("x"));
 
+        let system_classes = vec![&class];
+
         // Create an invalid and a valid predicates.
         let invalid_predicate = Predicate(String::from("z"));
         let valid_predicate = Predicate(String::from("x"));
 
-        assert!(!invalid_predicate.valid(vec![&class].as_ref(), &class));
-        assert!(valid_predicate.valid(vec![&class].as_ref(), &class));
+        assert!(!invalid_predicate.valid(&system_classes, &class));
+        assert!(valid_predicate.valid(&system_classes, &class));
+    }
+    #[test]
+    fn valid_predicates_in_ancestors() {
+        let parent_name = String::from("A");
+        let feature_name = "x";
+        let mut parent = Class::from_name_range(
+            parent_name.clone(),
+            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
+        );
+        parent.add_feature(&Feature::empty_feature(feature_name));
+        let mut child = Class::from_name_range(
+            String::from("B"),
+            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
+        );
+        assert!(child
+            .features()
+            .into_iter()
+            .find(|f| f.name() == feature_name)
+            .is_none());
+        child.add_parent(Ancestor::from_name(parent_name));
+        let system_classes = vec![&child, &parent];
+        let valid_predicate = Predicate(String::from(feature_name));
+        assert!(valid_predicate.valid(&system_classes, &child));
     }
 }
