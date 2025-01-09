@@ -81,9 +81,44 @@ pub enum FeatureVisibility {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-struct Parameters(Vec<(String, String)>);
+enum EiffelType {
+    ClassType(String),
+    TupleType(String),
+    Anchored(String),
+}
+impl EiffelType {
+    fn as_str(&self) -> &str {
+        match self {
+            EiffelType::ClassType(s) => s.as_str(),
+            EiffelType::TupleType(s) => s.as_str(),
+            EiffelType::Anchored(s) => s.as_str(),
+        }
+    }
+    fn class_name(&self) -> &str {
+        let mut open_brackets: usize = 0;
+        self.as_str()
+            .trim_end_matches(|c| match c {
+                '[' => {
+                    // The pattern filters from the end to the start
+                    open_brackets -= 1;
+                    true
+                }
+                ']' => {
+                    // The pattern filters from the end to the start
+                    open_brackets += 1;
+                    true
+                }
+                _ if open_brackets > 0 => true,
+                _ => false,
+            })
+            .trim_end()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+struct Parameters(Vec<(String, EiffelType)>);
 impl Parameters {
-    fn add_parameter(&mut self, id: String, eiffel_type: String) {
+    fn add_parameter(&mut self, id: String, eiffel_type: EiffelType) {
         self.0.push((id, eiffel_type));
     }
     fn is_empty(&self) -> bool {
@@ -99,48 +134,71 @@ impl Parse for Parameters {
         let mut cursor = QueryCursor::new();
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
 
-        let entity_declaration_group_query =
-            Query::new(lang, "(entity_declaration_group) @declarationgroup")
-                .expect("Query for `entity_declaration_group` nodes must succeed.");
+        let parameter_query = Query::new(
+            lang,
+            r#"(entity_declaration_group
+                (identifier) @name
+                [
+                    (class_type) @classtype
+                    (tuple_type) @tupletype
+                    (anchored) @anchoredtype
+                ])"#,
+        )
+        .expect("fails to query parameter.");
+        let mut parameters_matches = cursor.matches(&parameter_query, node.clone(), src.as_bytes());
 
-        let mut entity_declaration_group_cursor = cursor.matches(
-            &entity_declaration_group_query,
-            node.clone(),
-            src.as_bytes(),
-        );
         let mut parameters = Parameters(Vec::new());
-        while let Some(entity_declaration_match) = entity_declaration_group_cursor.next() {
-            for entity_declaration_capture in entity_declaration_match.captures {
-                let mut query_cursor = QueryCursor::new();
-                let node = entity_declaration_capture.node;
 
-                let parameter_name_query = Query::new(lang, "(identifier) @parameter_name")
-                    .expect("Query parameter's name for a certain entity declaration block.");
-                let parameter_type_query = Query::new(lang, "type: (_) @parameter_type")
-                    .expect("Query parameter's type for a certain entity declaration block.");
+        while let Some(parameter_match) = parameters_matches.next() {
+            let mut name = String::new();
+            let mut eiffel_type: Option<EiffelType> = None;
 
-                let parameter_type: String = src[match query_cursor
-                    .matches(&parameter_type_query, node.clone(), src.as_bytes())
-                    .next()
-                {
-                    Some(mat) => mat.captures[0].node.byte_range(),
-                    None => {
-                        warn!("There must be a type for each entity declaration match.");
-                        break;
+            for parameter_capture in parameter_match.captures {
+                let node = parameter_capture.node;
+
+                let text = node.utf8_text(src.as_bytes());
+
+                eprintln!(
+                    "capture_name: {}\ncapture_text: {}",
+                    parameter_query.capture_names()[parameter_capture.index as usize],
+                    text.unwrap()
+                );
+
+                match parameter_query.capture_names()[parameter_capture.index as usize] {
+                    "name" => {
+                        debug_assert!(name.is_empty());
+                        name.push_str(text.expect("fails to retrieve parameter name."));
                     }
-                }]
-                .into();
-                query_cursor
-                    .matches(&parameter_name_query, node.clone(), src.as_bytes())
-                    .for_each(|mat| {
-                        mat.captures.iter().for_each(|cap| {
-                            parameters.add_parameter(
-                                src[cap.node.byte_range()].into(),
-                                parameter_type.clone(),
-                            )
-                        })
-                    });
+                    "classtype" => {
+                        debug_assert!(eiffel_type.is_none());
+                        eiffel_type = Some(EiffelType::ClassType(
+                            text.expect("fails to retrieve parameter class type")
+                                .to_string(),
+                        ))
+                    }
+                    "tupletype" => {
+                        debug_assert!(eiffel_type.is_none());
+                        eiffel_type = Some(EiffelType::TupleType(
+                            text.expect("fails to retrieve parameter tuple type")
+                                .to_string(),
+                        ))
+                    }
+                    "anchoredtype" => {
+                        debug_assert!(eiffel_type.is_none());
+                        eiffel_type = Some(EiffelType::Anchored(
+                            text.expect("fails to retrieve parameter anchored type")
+                                .to_string(),
+                        ))
+                    }
+                    _ => unreachable!(),
+                }
             }
+            debug_assert!(!name.is_empty(), "name must be set at this point");
+
+            parameters.add_parameter(
+                name,
+                eiffel_type.expect("eiffel type must be set at this point."),
+            )
         }
         Ok(parameters)
     }
@@ -480,8 +538,14 @@ end
         assert_eq!(
             feature.parameters(),
             &Parameters(vec![
-                ("y".to_string(), "MML_SEQUENCE [INTEGER]".to_string()),
-                ("z".to_string(), "MML_SEQUENCE [INTEGER]".to_string())
+                (
+                    "y".to_string(),
+                    EiffelType::ClassType("MML_SEQUENCE [INTEGER]".to_string())
+                ),
+                (
+                    "z".to_string(),
+                    EiffelType::ClassType("MML_SEQUENCE [INTEGER]".to_string())
+                )
             ])
         );
     }
@@ -510,5 +574,15 @@ end
         let feature = Feature::parse(&node, src).expect("fails to parse feature.");
 
         assert_eq!(feature.return_type(), "MML_SEQUENCE [INTEGER]".to_string());
+    }
+
+    #[test]
+    fn eiffel_type_class_name() {
+        let eiffeltype = EiffelType::ClassType(String::from("MML_SEQUENCE[INTEGER]"));
+        assert_eq!(
+            eiffeltype.class_name(),
+            "MML_SEQUENCE",
+            "The instantiation of the generic must be skipped."
+        );
     }
 }
