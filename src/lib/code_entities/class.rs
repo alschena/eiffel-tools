@@ -196,6 +196,17 @@ impl Class {
     pub fn add_parent(&mut self, parent: Ancestor) {
         self.parents.push(parent)
     }
+    #[cfg(test)]
+    pub fn from_source(source: &str) -> Class {
+        let mut parser = ::tree_sitter::Parser::new();
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        parser
+            .set_language(&lang)
+            .expect("Error loading Eiffel grammar");
+        let tree = parser.parse(source, None).unwrap();
+        Class::parse(&tree.root_node(), source)
+            .expect("fails to parse class from given source code.")
+    }
 }
 impl Indent for Class {
     const INDENTATION_LEVEL: usize = 1;
@@ -451,19 +462,12 @@ mod tests {
 
     #[test]
     fn parse_base_class() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-
         let src = "
     class A
     note
     end
         ";
-        let tree = parser.parse(src, None).expect("AST");
-
-        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
+        let class = Class::from_source(src);
 
         assert_eq!(
             class.name(),
@@ -476,11 +480,6 @@ mod tests {
 
     #[test]
     fn parse_annotated_class() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-
         let src = "
 note
   demo_note: True
@@ -491,19 +490,11 @@ invariant
     note_after_invariant: True
 end
     ";
-        let tree = parser.parse(src, None).expect("AST");
-
-        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
-
+        let class = Class::from_source(src);
         assert_eq!(class.name(), "DEMO_CLASS".to_string());
     }
     #[test]
     fn parse_procedure() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-
         let src = "
 class A feature
   f(x, y: INTEGER; z: BOOLEAN)
@@ -511,66 +502,25 @@ class A feature
     end
 end
 ";
-        let tree = parser.parse(src, None).unwrap();
-        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
-        let features = class.features().clone();
-
+        let class = Class::from_source(src);
         assert_eq!(class.name(), "A".to_string());
-        assert_eq!(features.first().unwrap().name(), "f".to_string());
+        assert_eq!(class.features().first().unwrap().name(), "f".to_string());
     }
 
     #[test]
     fn parse_attribute() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-
         let src = "
 class A
 feature
     x: INTEGER
 end
 ";
-        let tree = parser.parse(src, None).unwrap();
-
-        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
-        let features = class.features().clone();
-
+        let class = Class::from_source(src);
         assert_eq!(class.name(), "A".to_string());
-        assert_eq!(features.first().unwrap().name(), "x".to_string());
-    }
-    #[test]
-    fn parse_model_names() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-
-        let src = "
-note
-    model: seq
-class A
-feature
-    x: INTEGER
-    seq: MML_SEQUENCE [INTEGER]
-end
-";
-        let tree = parser.parse(src, None).unwrap();
-
-        let model_names =
-            ModelNames::parse(&tree.root_node(), src).expect("fails to parse model names");
-
-        assert!(!model_names.0.is_empty());
-        assert_eq!(model_names.0.first(), Some(&"seq".to_string()));
+        assert_eq!(class.features().first().unwrap().name(), "x".to_string());
     }
     #[test]
     fn parse_model() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-
         let src = "
 note
     model: seq
@@ -580,29 +530,23 @@ feature
     seq: MML_SEQUENCE [INTEGER]
 end
 ";
-        let tree = parser.parse(src, None).unwrap();
-
-        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
-        let model = class.model().clone();
-        let features = class.features().clone();
-
+        let class = Class::from_source(src);
         assert_eq!(class.name(), "A".to_string());
         assert_eq!(
-            features.first().expect("Parsed first feature").name(),
+            class
+                .features()
+                .first()
+                .expect("Parsed first feature")
+                .name(),
             "x".to_string()
         );
         assert_eq!(
-            (&model.0.first().expect("Parsed model")).name(),
+            (class.model().0.first().expect("Parsed model")).name(),
             "seq".to_string()
         );
     }
     #[test]
     fn parse_ancestors_names() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-
         let src = "
 class A
 inherit {NONE}
@@ -612,9 +556,7 @@ inherit
   W
 end
 ";
-        let tree = parser.parse(src, None).unwrap();
-
-        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
+        let class = Class::from_source(src);
         let mut ancestors = class.parents().into_iter();
 
         assert_eq!(class.name(), "A".to_string());
@@ -650,11 +592,6 @@ end
     }
     #[test]
     fn parse_ancestors_renames() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-
         let src = "
 class A
 inherit
@@ -662,9 +599,7 @@ inherit
     rename e as f
 end
 ";
-        let tree = parser.parse(src, None).unwrap();
-
-        let class = Class::parse(&tree.root_node(), src).expect("fails to parse class");
+        let class = Class::from_source(src);
         let mut ancestors = class.parents().into_iter();
 
         assert_eq!(
@@ -701,25 +636,9 @@ feature
     x: BOOLEAN
 end
 ";
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-        let grandparent = Class::parse(
-            &parser.parse(grandparent_src, None).unwrap().root_node(),
-            grandparent_src,
-        )
-        .expect("fails to parse grandparent");
-        let parent = Class::parse(
-            &parser.parse(parent_src, None).unwrap().root_node(),
-            parent_src,
-        )
-        .expect("fails to parse parent");
-        let child = Class::parse(
-            &parser.parse(child_src, None).unwrap().root_node(),
-            child_src,
-        )
-        .expect("fails to parse child");
+        let grandparent = Class::from_source(grandparent_src);
+        let parent = Class::from_source(parent_src);
+        let child = Class::from_source(child_src);
         let system_classes = vec![&grandparent, &parent, &child];
         let child_features = child.inhereted_features(&system_classes);
         let parent_features = parent.inhereted_features(&system_classes);
@@ -765,7 +684,7 @@ end
         Ok(())
     }
     #[test]
-    fn parse_parent_classes() -> Result<()> {
+    fn parse_parent_classes() {
         let src_child = "
     class A
     inherit {NONE}
@@ -793,56 +712,49 @@ end
         seq: MML_SEQUENCE [INTEGER]
     end
     ";
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-        let tree_child = parser.parse(src_child, None).unwrap();
-        let tree_parent = parser.parse(src_parent, None).unwrap();
-
-        let child = Class::parse(&tree_child.root_node(), src_child).expect("fails to parse class");
-        let parent =
-            Class::parse(&tree_parent.root_node(), src_parent).expect("fails to parse class");
-        let classes = vec![&child, &parent];
-        let a = child.parent_classes(&classes);
-        assert_eq!(a.collect::<Vec<_>>(), vec![&parent]);
-        Ok(())
+        let child = Class::from_source(src_child);
+        let parent = Class::from_source(src_parent);
+        let system_classes = vec![&child, &parent];
+        let child_parents = child.parent_classes(&system_classes).collect::<Vec<_>>();
+        assert_eq!(child_parents, vec![&parent]);
     }
 
     #[test]
     fn ancestor_classes() {
-        let parent_name = "B";
-        let grandparent_name = "C";
-        let grandparent = Class::from_name_range(
-            grandparent_name.to_string(),
-            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
-        );
-        let mut parent = Class::from_name_range(
-            parent_name.to_string(),
-            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
-        );
-        parent.add_parent(Ancestor::from_name(grandparent_name.to_string()));
-        let mut class = Class::from_name_range(
-            String::from("A"),
-            Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 1 }),
-        );
-        class.add_parent(Ancestor::from_name(parent_name.to_string()));
+        let child_src = "
+class A
+inherit
+  B
+    rename y as z
+end
+";
+        let parent_src = "
+class B
+inherit
+  C
+    rename x as y
+end
+";
+        let grandparent_src = "
+class C
+feature
+    x: BOOLEAN
+end
+";
+        let grandparent = Class::from_source(grandparent_src);
+        let parent = Class::from_source(parent_src);
+        let child = Class::from_source(child_src);
 
-        let system_classes = vec![&class, &parent, &grandparent];
+        let system_classes = vec![&child, &parent, &grandparent];
 
-        let mut parent_and_grandparent_hashset = HashSet::new();
-        parent_and_grandparent_hashset.insert(&parent);
-        parent_and_grandparent_hashset.insert(&grandparent);
-        assert_eq!(
-            class.ancestor_classes(&system_classes),
-            parent_and_grandparent_hashset
-        );
-        let mut grandparent_hashset = HashSet::new();
-        grandparent_hashset.insert(&grandparent);
-        assert_eq!(
-            parent.ancestor_classes(&system_classes),
-            grandparent_hashset,
-        );
+        let mut child_ancestors = HashSet::new();
+        child_ancestors.insert(&parent);
+        child_ancestors.insert(&grandparent);
+        assert_eq!(child.ancestor_classes(&system_classes), child_ancestors);
+
+        let mut parent_ancestors = HashSet::new();
+        parent_ancestors.insert(&grandparent);
+        assert_eq!(parent.ancestor_classes(&system_classes), parent_ancestors,);
     }
     #[test]
     fn full_model() -> Result<()> {
@@ -864,16 +776,8 @@ end
         seq_parent: MML_SEQUENCE [INTEGER]
     end
     ";
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-        let tree_child = parser.parse(src_child, None).unwrap();
-        let tree_parent = parser.parse(src_parent, None).unwrap();
-
-        let child = Class::parse(&tree_child.root_node(), src_child).expect("fails to parse class");
-        let parent =
-            Class::parse(&tree_parent.root_node(), src_parent).expect("fails to parse class");
+        let child = Class::from_source(src_child);
+        let parent = Class::from_source(src_parent);
         assert_eq!(
             child.full_model(&vec![&child, &parent]).collect::<Vec<_>>(),
             vec![parent.model(), child.model()]
