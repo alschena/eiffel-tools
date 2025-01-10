@@ -5,6 +5,7 @@ use contract::{Block, Postcondition, Precondition};
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::ops::Deref;
+use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
 use tracing::warn;
@@ -117,12 +118,24 @@ impl EiffelType {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 struct Parameters(Vec<(String, EiffelType)>);
+impl Deref for Parameters {
+    type Target = Vec<(String, EiffelType)>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for Parameters {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 impl Parameters {
     fn add_parameter(&mut self, id: String, eiffel_type: EiffelType) {
-        self.0.push((id, eiffel_type));
+        self.push((id, eiffel_type));
     }
     fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.deref().is_empty()
     }
 }
 impl Parse for Parameters {
@@ -242,6 +255,9 @@ impl Feature {
     }
     fn parameters(&self) -> &Parameters {
         &self.parameters
+    }
+    pub fn number_parameters(&self) -> usize {
+        self.parameters().len()
     }
     fn return_type(&self) -> &str {
         &self.return_type

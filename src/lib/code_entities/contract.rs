@@ -17,9 +17,15 @@ pub(crate) trait Valid: Debug {
     fn valid(&self, system_classes: &[&Class], current_class: &Class) -> bool {
         self.decorated_valid_syntax()
             && self.decorated_valid_identifiers(system_classes, current_class)
+            && self.decorated_valid_calls(system_classes, current_class)
     }
     fn valid_syntax(&self) -> bool;
-    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool;
+    fn valid_top_level_identifiers(&self, system_classes: &[&Class], current_class: &Class)
+        -> bool;
+    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
+        true
+    }
+
     fn decorated_valid_syntax(&self) -> bool {
         let value = self.valid_syntax();
         if !value {
@@ -32,9 +38,16 @@ pub(crate) trait Valid: Debug {
         system_classes: &[&Class],
         current_class: &Class,
     ) -> bool {
-        let value = self.valid_identifiers(system_classes, current_class);
+        let value = self.valid_top_level_identifiers(system_classes, current_class);
         if !value {
             info!(target: "gemini","filtered by invalid identifier {self:?}");
+        }
+        value
+    }
+    fn decorated_valid_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        let value = self.valid_top_level_calls(system_classes, current_class);
+        if !value {
+            info!(target: "gemini","filtered by invalid top level call {self:?}");
         }
         value
     }
@@ -124,10 +137,16 @@ impl Valid for Clause {
     fn valid_syntax(&self) -> bool {
         self.predicate.valid_syntax() && self.tag.valid_syntax()
     }
-    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+    ) -> bool {
         self.predicate
-            .valid_identifiers(system_classes, current_class)
-            && self.tag.valid_identifiers(system_classes, current_class)
+            .valid_top_level_identifiers(system_classes, current_class)
+            && self
+                .tag
+                .valid_top_level_identifiers(system_classes, current_class)
     }
 }
 impl Parse for Clause {
@@ -192,7 +211,11 @@ impl Valid for Tag {
     fn valid_syntax(&self) -> bool {
         !self.as_str().contains(" ")
     }
-    fn valid_identifiers(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
+    fn valid_top_level_identifiers(
+        &self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+    ) -> bool {
         true
     }
 }
@@ -231,7 +254,7 @@ impl Predicate {
         let text = self.as_str();
 
         let query_id = Query::new(&lang, "(call (unqualified_call (identifier) @id) !target)")
-            .expect("Fails to construct query for top-level identifiers (names of unqualified features and targets) in predicate.");
+            .expect("Fails to construct query for top-level identifiers (names of unqualified features and targets) in predicate: {self}");
 
         let mut query_cursor = QueryCursor::new();
 
@@ -248,6 +271,57 @@ impl Predicate {
             }
         }
         ids
+    }
+
+    fn top_level_calls_with_arguments(&self) -> Vec<(&str, Vec<&str>)> {
+        let tree = self.parse().expect("fails to parse predicate.");
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        let text = self.as_str();
+
+        let query_id = Query::new(
+            &lang,
+            r#"(call (unqualified_call (identifier) @id
+            (actuals (expression) @argument
+                ("," (expression) @argument)*) !target))"#,
+        )
+        .expect("Fails to construct query for top-level calls with arguments in predicate: {self}");
+
+        let mut query_cursor = QueryCursor::new();
+
+        let mut matches = query_cursor.matches(&query_id, tree.root_node(), text.as_bytes());
+
+        let mut calls_with_args = Vec::new();
+        while let Some(mat) = matches.next() {
+            let mut args = Vec::new();
+            let name: &str;
+
+            mat.nodes_for_capture_index(
+                query_id
+                    .capture_index_for_name("argument")
+                    .expect("`argument` is a capture name."),
+            )
+            .for_each(|node| {
+                args.push(
+                    node.utf8_text(text.as_bytes())
+                        .expect("valid capture for call's argument."),
+                )
+            });
+
+            let id_node = mat
+                .nodes_for_capture_index(
+                    query_id
+                        .capture_index_for_name("id")
+                        .expect("`id` is a capture name."),
+                )
+                .next()
+                .expect("Calls must have an identifier.");
+            name = id_node
+                .utf8_text(text.as_bytes())
+                .expect("valid capture for call's identifier.");
+
+            calls_with_args.push((name, args));
+        }
+        calls_with_args
     }
 }
 
@@ -267,8 +341,11 @@ impl Valid for Predicate {
             }
         }
     }
-    // For now only unqualified calls are validated against immediate features and inheritance without renaming.
-    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+    ) -> bool {
         let ids = self.top_level_identifiers();
         ids.iter().all(|&identifier| {
             current_class
@@ -277,6 +354,19 @@ impl Valid for Predicate {
                 .map(|feature| std::borrow::Cow::Borrowed(feature))
                 .chain(current_class.inhereted_features(system_classes))
                 .any(|feature| feature.name() == identifier)
+        })
+    }
+    /// NOTE: For now only checks the number of arguments of each call is correct.
+    fn valid_top_level_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        let calls = self.top_level_calls_with_arguments();
+        calls.iter().all(|&(id, ref args)| {
+            current_class
+                .features()
+                .iter()
+                .map(|feature| std::borrow::Cow::Borrowed(feature))
+                .chain(current_class.inhereted_features(system_classes))
+                .find(|feature| feature.name() == id)
+                .is_some_and(|feature| feature.number_parameters() == args.len())
         })
     }
 }
@@ -317,9 +407,13 @@ impl Valid for Precondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
     }
-    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+    ) -> bool {
         self.iter()
-            .all(|clause| clause.valid_identifiers(system_classes, current_class))
+            .all(|clause| clause.valid_top_level_identifiers(system_classes, current_class))
     }
 }
 impl From<Vec<Clause>> for Precondition {
@@ -441,9 +535,13 @@ impl Valid for Postcondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
     }
-    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+    ) -> bool {
         self.iter()
-            .all(|clause| clause.valid_identifiers(system_classes, current_class))
+            .all(|clause| clause.valid_top_level_identifiers(system_classes, current_class))
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
@@ -455,12 +553,16 @@ impl Valid for RoutineSpecification {
     fn valid_syntax(&self) -> bool {
         self.precondition.valid_syntax() && self.postcondition.valid_syntax()
     }
-    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+    ) -> bool {
         self.precondition
-            .valid_identifiers(system_classes, current_class)
+            .valid_top_level_identifiers(system_classes, current_class)
             && self
                 .postcondition
-                .valid_identifiers(system_classes, current_class)
+                .valid_top_level_identifiers(system_classes, current_class)
     }
 }
 impl From<Vec<Clause>> for Postcondition {
