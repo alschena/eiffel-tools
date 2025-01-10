@@ -5,13 +5,14 @@ use anyhow::anyhow;
 use gemini::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tracing::info;
-use tree_sitter::{Node, Query, QueryCursor};
+use tree_sitter::{Node, Query, QueryCursor, Tree};
 pub(crate) trait Valid: Debug {
     fn valid(&self, system_classes: &[&Class], current_class: &Class) -> bool {
         self.decorated_valid_syntax()
@@ -213,6 +214,41 @@ impl Predicate {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    fn parse(&self) -> Option<Tree> {
+        let text: &str = self.as_str();
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&lang)
+            .expect("parser must load grammar.");
+        parser.parse(text, None)
+    }
+
+    fn top_level_identifiers(&self) -> HashSet<&str> {
+        let tree = self.parse().expect("fails to parse predicate.");
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        let text = self.as_str();
+
+        let query_id = Query::new(&lang, "(call (unqualified_call (identifier) @id) !target)")
+            .expect("Fails to construct query for top-level identifiers (names of unqualified features and targets) in predicate.");
+
+        let mut query_cursor = QueryCursor::new();
+
+        let mut matches = query_cursor.matches(&query_id, tree.root_node(), text.as_bytes());
+
+        let mut ids = HashSet::new();
+        while let Some(mat) = matches.next() {
+            for cap in mat.captures.iter() {
+                let id = cap
+                    .node
+                    .utf8_text(text.as_bytes())
+                    .expect("The capture must contain valid text.");
+                ids.insert(id);
+            }
+        }
+        ids
+    }
 }
 
 impl Default for Predicate {
@@ -223,53 +259,24 @@ impl Default for Predicate {
 
 impl Valid for Predicate {
     fn valid_syntax(&self) -> bool {
-        let text: &str = self.as_str();
-        let lang = tree_sitter_eiffel::LANGUAGE.into();
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang)
-            .expect("parser must load grammar.");
-        let Some(tree) = parser.parse(text, None) else {
-            info!("Parsing predicate fails.");
-            return false;
-        };
-        !tree.root_node().has_error()
+        match self.parse() {
+            Some(tree) => !tree.root_node().has_error(),
+            None => {
+                info!("fails to parse predicate: {}", self.as_str());
+                false
+            }
+        }
     }
     // For now only unqualified calls are validated against immediate features and inheritance without renaming.
     fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
-        let text: &str = self.as_str();
-        let lang = tree_sitter_eiffel::LANGUAGE.into();
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang)
-            .expect("parser must load grammar.");
-        let Some(tree) = parser.parse(text, None) else {
-            info!("Parsing predicate fails.");
-            return false;
-        };
-        let query_unqualified_calls =
-            Query::new(&lang, "(call (unqualified_call) @unqualified !target)")
-                .expect("Fails to query unqualified calls.");
-        let mut query_cursor = QueryCursor::new();
-        let mut captures =
-            query_cursor.captures(&query_unqualified_calls, tree.root_node(), text.as_bytes());
-        captures.all(|cap| {
-            cap.0
-                .captures
+        let ids = self.top_level_identifiers();
+        ids.iter().all(|&identifier| {
+            current_class
+                .features()
                 .iter()
-                .map(|c| c.node)
-                .map(|node| &text[node.byte_range()])
-                .inspect(|identifier| {
-                    info!("the generated expression used the identifiers: {identifier}")
-                })
-                .all(|identifier| {
-                    current_class
-                        .features()
-                        .iter()
-                        .map(|feature| std::borrow::Cow::Borrowed(feature))
-                        .chain(current_class.inhereted_features(system_classes))
-                        .any(|feature| feature.name() == identifier)
-                })
+                .map(|feature| std::borrow::Cow::Borrowed(feature))
+                .chain(current_class.inhereted_features(system_classes))
+                .any(|feature| feature.name() == identifier)
         })
     }
 }
@@ -782,6 +789,24 @@ end"#;
         );
     }
     #[test]
+    fn predicate_identifiers() {
+        let p = Predicate("x < y.z.w".to_string());
+        let ids = p.top_level_identifiers();
+        assert!(ids.contains("x"));
+        assert!(ids.contains("y"));
+        assert!(ids.len() == 2);
+    }
+    #[test]
+    fn predicate_identifiers_unqualified_calls() {
+        let p = Predicate("x (y) < y (l).z.w".to_string());
+        let ids = p.top_level_identifiers();
+        eprintln!("{ids:?}");
+        assert!(ids.contains("x"));
+        assert!(ids.contains("y"));
+        assert!(ids.contains("l"));
+        assert!(ids.len() == 3);
+    }
+    #[test]
     fn valid_and_invalid_predicates() {
         let src = "
             class
@@ -817,8 +842,8 @@ end"#;
             end
         ";
 
-        let mut parent = Class::from_source(parent_src);
-        let mut child = Class::from_source(child_src);
+        let parent = Class::from_source(parent_src);
+        let child = Class::from_source(child_src);
 
         assert!(child
             .features()
