@@ -82,7 +82,7 @@ pub enum FeatureVisibility {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-enum EiffelType {
+pub enum EiffelType {
     ClassType(String),
     TupleType(String),
     Anchored(String),
@@ -117,7 +117,7 @@ impl EiffelType {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-struct Parameters(Vec<(String, EiffelType)>);
+pub struct Parameters(Vec<(String, EiffelType)>);
 impl Deref for Parameters {
     type Target = Vec<(String, EiffelType)>;
 
@@ -253,7 +253,7 @@ impl Feature {
     pub fn name(&self) -> &str {
         &self.name
     }
-    fn parameters(&self) -> &Parameters {
+    pub fn parameters(&self) -> &Parameters {
         &self.parameters
     }
     pub fn number_parameters(&self) -> usize {

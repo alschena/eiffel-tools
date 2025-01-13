@@ -14,14 +14,23 @@ use streaming_iterator::StreamingIterator;
 use tracing::info;
 use tree_sitter::{Node, Query, QueryCursor, Tree};
 pub(crate) trait Valid: Debug {
-    fn valid(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+    fn valid(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> bool {
         self.decorated_valid_syntax()
-            && self.decorated_valid_identifiers(system_classes, current_class)
+            && self.decorated_valid_identifiers(system_classes, current_class, current_feature)
             && self.decorated_valid_calls(system_classes, current_class)
     }
     fn valid_syntax(&self) -> bool;
-    fn valid_top_level_identifiers(&self, system_classes: &[&Class], current_class: &Class)
-        -> bool;
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> bool;
     fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
         true
     }
@@ -37,8 +46,10 @@ pub(crate) trait Valid: Debug {
         &self,
         system_classes: &[&Class],
         current_class: &Class,
+        current_feature: &Feature,
     ) -> bool {
-        let value = self.valid_top_level_identifiers(system_classes, current_class);
+        let value =
+            self.valid_top_level_identifiers(system_classes, current_class, current_feature);
         if !value {
             info!(target: "gemini","filtered by invalid identifier {self:?}");
         }
@@ -141,12 +152,13 @@ impl Valid for Clause {
         &self,
         system_classes: &[&Class],
         current_class: &Class,
+        current_feature: &Feature,
     ) -> bool {
         self.predicate
-            .valid_top_level_identifiers(system_classes, current_class)
+            .valid_top_level_identifiers(system_classes, current_class, current_feature)
             && self
                 .tag
-                .valid_top_level_identifiers(system_classes, current_class)
+                .valid_top_level_identifiers(system_classes, current_class, current_feature)
     }
 }
 impl Parse for Clause {
@@ -215,6 +227,7 @@ impl Valid for Tag {
         &self,
         _system_classes: &[&Class],
         _current_class: &Class,
+        _current_feature: &Feature,
     ) -> bool {
         true
     }
@@ -345,6 +358,7 @@ impl Valid for Predicate {
         &self,
         system_classes: &[&Class],
         current_class: &Class,
+        current_feature: &Feature,
     ) -> bool {
         let ids = self.top_level_identifiers();
         ids.iter().all(|&identifier| {
@@ -353,10 +367,16 @@ impl Valid for Predicate {
                 .iter()
                 .map(|feature| std::borrow::Cow::Borrowed(feature))
                 .chain(current_class.inhereted_features(system_classes))
-                .any(|feature| feature.name() == identifier)
+                .any(|feature| {
+                    current_feature
+                        .parameters()
+                        .iter()
+                        .any(|(name, _)| name == identifier)
+                        || (identifier == feature.name())
+                })
         })
     }
-    /// NOTE: For now only checks the number of arguments of each call is correct.
+    /// NOTE: For now only checks the number of arguments of each unqualified call is correct.
     fn valid_top_level_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
         let calls = self.top_level_calls_with_arguments();
         calls.iter().all(|&(id, ref args)| {
@@ -411,9 +431,11 @@ impl Valid for Precondition {
         &self,
         system_classes: &[&Class],
         current_class: &Class,
+        current_feature: &Feature,
     ) -> bool {
-        self.iter()
-            .all(|clause| clause.valid_top_level_identifiers(system_classes, current_class))
+        self.iter().all(|clause| {
+            clause.valid_top_level_identifiers(system_classes, current_class, current_feature)
+        })
     }
 }
 impl From<Vec<Clause>> for Precondition {
@@ -539,9 +561,11 @@ impl Valid for Postcondition {
         &self,
         system_classes: &[&Class],
         current_class: &Class,
+        current_feature: &Feature,
     ) -> bool {
-        self.iter()
-            .all(|clause| clause.valid_top_level_identifiers(system_classes, current_class))
+        self.iter().all(|clause| {
+            clause.valid_top_level_identifiers(system_classes, current_class, current_feature)
+        })
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
@@ -557,12 +581,17 @@ impl Valid for RoutineSpecification {
         &self,
         system_classes: &[&Class],
         current_class: &Class,
+        current_feature: &Feature,
     ) -> bool {
-        self.precondition
-            .valid_top_level_identifiers(system_classes, current_class)
-            && self
-                .postcondition
-                .valid_top_level_identifiers(system_classes, current_class)
+        self.precondition.valid_top_level_identifiers(
+            system_classes,
+            current_class,
+            current_feature,
+        ) && self.postcondition.valid_top_level_identifiers(
+            system_classes,
+            current_class,
+            current_feature,
+        )
     }
 }
 impl From<Vec<Clause>> for Postcondition {
@@ -915,17 +944,26 @@ end"#;
                 A
             feature
                 x: BOOLEAN
+                y: BOOLEAN
+                    do
+                        Result := True
+                    end
             end
         ";
         let class = Class::from_source(src);
+        let feature = class
+            .features()
+            .iter()
+            .find(|f| f.name() == "y".to_string())
+            .expect("parse feature y");
         let system_classes = vec![&class];
 
         // Create an invalid and a valid predicates.
         let invalid_predicate = Predicate(String::from("z"));
         let valid_predicate = Predicate(String::from("x"));
 
-        assert!(!invalid_predicate.valid(&system_classes, &class));
-        assert!(valid_predicate.valid(&system_classes, &class));
+        assert!(!invalid_predicate.valid(&system_classes, &class, feature));
+        assert!(valid_predicate.valid(&system_classes, &class, feature));
     }
     #[test]
     fn valid_predicates_in_ancestors() {
@@ -941,11 +979,21 @@ end"#;
                 A
             inherit
                 B
+            feature
+                y: BOOLEAN
+                    do
+                        Result := True
+                    end
             end
         ";
 
         let parent = Class::from_source(parent_src);
         let child = Class::from_source(child_src);
+        let feature = child
+            .features()
+            .iter()
+            .find(|f| f.name() == "y")
+            .expect("parse feature y");
 
         assert!(child
             .features()
@@ -955,6 +1003,26 @@ end"#;
 
         let system_classes = vec![&child, &parent];
         let valid_predicate = Predicate(String::from("x"));
-        assert!(valid_predicate.valid(&system_classes, &child));
+        assert!(valid_predicate.valid(&system_classes, &child, feature));
+    }
+    #[test]
+    fn valid_predicate_of_parameters() {
+        let src = "
+            class
+                A
+            feature
+                x (f: BOOLEAN): BOOLEAN
+                    do
+                        Result := f
+                    end
+            end
+        ";
+        let c = Class::from_source(src);
+        let f = c.features().first().expect("first feature exists");
+        let vp = Predicate::new("f".to_string());
+        let ip = Predicate::new("r".to_string());
+        let system_classes = vec![&c];
+        assert!(vp.valid(&system_classes, &c, f));
+        assert!(!ip.valid(&system_classes, &c, f));
     }
 }

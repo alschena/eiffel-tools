@@ -126,6 +126,7 @@ impl<'a, 'b> LLM<'a, 'b> {
                         spec.valid(
                             workspace.system_classes().collect::<Vec<_>>().as_ref(),
                             file.class(),
+                            feature,
                         )
                     })
                     .inspect(|post: &RoutineSpecification| {
