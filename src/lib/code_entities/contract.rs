@@ -674,12 +674,8 @@ impl Described for RoutineSpecification {
 }
 #[cfg(test)]
 mod tests {
-    use crate::lib::code_entities::class::Ancestor;
-
     use super::*;
     use anyhow::Result;
-    use assert_fs::prelude::*;
-    use assert_fs::{fixture::FileWriteStr, TempDir};
     use gemini::SchemaType;
     use Clause;
 
@@ -1018,11 +1014,44 @@ end"#;
             end
         ";
         let c = Class::from_source(src);
-        let f = c.features().first().expect("first feature exists");
+        let f = c.features().first().expect("first feature exists.");
         let vp = Predicate::new("f".to_string());
         let ip = Predicate::new("r".to_string());
         let system_classes = vec![&c];
         assert!(vp.valid(&system_classes, &c, f));
         assert!(!ip.valid(&system_classes, &c, f));
+    }
+    #[test]
+    fn invalid_predicate_for_number_of_arguments() {
+        let src = "
+            class
+                A
+            feature
+                z: BOOLEAN
+                x (f: BOOLEAN): BOOLEAN
+                    do
+                        Result := f
+                    end
+                y: BOOLEAN
+                    do
+                        Result := x
+                    end
+            end
+        ";
+        let c = Class::from_source(src);
+        let f = c
+            .features()
+            .iter()
+            .find(|f| f.name() == "y")
+            .expect("first feature exists.");
+        let system_classes = vec![&c];
+
+        let vp = Predicate::new("x (z)".to_string());
+        let ip = Predicate::new("x (z, z)".to_string());
+        let ip2 = Predicate::new("x ()".to_string());
+
+        assert!(vp.valid(&system_classes, &c, f));
+        assert!(!ip.valid(&system_classes, &c, f));
+        assert!(!ip2.valid(&system_classes, &c, f));
     }
 }
