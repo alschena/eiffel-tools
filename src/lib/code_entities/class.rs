@@ -74,7 +74,6 @@ impl Parse for ModelNames {
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Class {
     name: String,
-    path: Option<Location>,
     model: Model,
     features: Vec<Feature>,
     parents: Vec<Ancestor>,
@@ -163,16 +162,10 @@ impl Class {
     pub fn range(&self) -> &Range {
         &self.range
     }
-    pub fn location(&self) -> Option<&Location> {
-        match &self.path {
-            None => None,
-            Some(file) => Some(&file),
-        }
-    }
+
     pub fn from_name_range(name: String, range: Range) -> Class {
         Class {
             name,
-            path: None,
             model: Model(Vec::new()),
             features: Vec::new(),
             parents: Vec::new(),
@@ -188,10 +181,6 @@ impl Class {
         self.model = model.clone()
     }
 
-    pub fn add_location(&mut self, path: &PathBuf) {
-        let path = path.clone();
-        self.path = Some(Location { path })
-    }
     #[cfg(test)]
     pub fn add_parent(&mut self, parent: Ancestor) {
         self.parents.push(parent)
@@ -211,65 +200,7 @@ impl Class {
 impl Indent for Class {
     const INDENTATION_LEVEL: usize = 1;
 }
-impl TryFrom<&Class> for lsp_types::Location {
-    type Error = anyhow::Error;
 
-    fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
-        let range = value.range().clone().try_into()?;
-        let uri = value
-            .location()
-            .expect("Valid location of class")
-            .try_into()
-            .expect("Extraction of location from class");
-        Ok(Self { uri, range })
-    }
-}
-impl TryFrom<&Class> for lsp_types::SymbolInformation {
-    type Error = anyhow::Error;
-    fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
-        let name = value.name().into();
-        let kind = lsp_types::SymbolKind::CLASS;
-        let tags = None;
-        let deprecated = None;
-        let container_name = None;
-        match value.try_into() {
-            Err(e) => Err(e),
-            Ok(location) => Ok(Self {
-                name,
-                kind,
-                tags,
-                deprecated,
-                location,
-                container_name,
-            }),
-        }
-    }
-}
-impl TryFrom<&Class> for lsp_types::DocumentSymbol {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
-        let name = value.name().to_string();
-        let features = value.features();
-        let range = value.range().clone().try_into()?;
-        let children: Option<Vec<lsp_types::DocumentSymbol>> = Some(
-            features
-                .into_iter()
-                .map(|x| x.try_into().expect("feature conversion to document symbol"))
-                .collect(),
-        );
-        Ok(lsp_types::DocumentSymbol {
-            name,
-            detail: None,
-            kind: lsp_types::SymbolKind::CLASS,
-            tags: None,
-            deprecated: None,
-            range,
-            selection_range: range,
-            children,
-        })
-    }
-}
 impl Parse for Class {
     type Error = anyhow::Error;
     #[instrument(skip_all)]
@@ -327,29 +258,28 @@ impl Parse for Class {
         Ok(class)
     }
 }
-impl TryFrom<&Class> for lsp_types::WorkspaceSymbol {
+impl TryFrom<&Class> for lsp_types::DocumentSymbol {
     type Error = anyhow::Error;
 
     fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
         let name = value.name().to_string();
         let features = value.features();
+        let range = value.range().clone().try_into()?;
         let children: Option<Vec<lsp_types::DocumentSymbol>> = Some(
             features
                 .into_iter()
-                .map(|x| lsp_types::DocumentSymbol::try_from(x))
-                .collect::<anyhow::Result<Vec<lsp_types::DocumentSymbol>>>()?,
+                .map(|x| x.try_into().expect("feature conversion to document symbol"))
+                .collect(),
         );
-        let location = match value.location() {
-            Some(v) => v.try_into()?,
-            None => anyhow::bail!("Expected class with valid file location"),
-        };
-        Ok(lsp_types::WorkspaceSymbol {
+        Ok(lsp_types::DocumentSymbol {
             name,
+            detail: None,
             kind: lsp_types::SymbolKind::CLASS,
             tags: None,
-            container_name: None,
-            location: lsp_types::OneOf::Right(location),
-            data: None,
+            deprecated: None,
+            range,
+            selection_range: range,
+            children,
         })
     }
 }
@@ -660,7 +590,7 @@ end
     }
 
     #[tokio::test]
-    async fn class_to_workspacesymbol() -> Result<()> {
+    async fn processed_file_class_to_workspacesymbol() -> Result<()> {
         let path = "/tmp/eiffel_tool_test_class_to_workspacesymbol.e";
         let path = PathBuf::from(path);
         let src = "
@@ -678,8 +608,7 @@ end
         let Some(file) = processed_file::ProcessedFile::new(&mut parser, path.clone()).await else {
             return Err(anyhow!("fails to process file"));
         };
-        let class = (&file).class();
-        let symbol = <lsp_types::WorkspaceSymbol>::try_from(class);
+        let symbol: Result<lsp_types::WorkspaceSymbol, _> = (&file).try_into();
         assert!(symbol.is_ok());
         Ok(())
     }

@@ -68,8 +68,24 @@ impl PartialOrd for Range {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Location {
-    pub path: path::PathBuf,
+pub struct Location(path::PathBuf);
+
+impl Location {
+    pub fn new(path: path::PathBuf) -> Location {
+        Location(path)
+    }
+    pub fn path(&self) -> &path::Path {
+        self.0.as_path()
+    }
+}
+
+impl Location {
+    pub fn to_lsp_location(&self, range: Range) -> Result<lsp_types::Location, anyhow::Error> {
+        Ok(lsp_types::Location {
+            uri: self.try_into()?,
+            range: range.try_into()?,
+        })
+    }
 }
 
 impl TryFrom<&Location> for lsp_types::WorkspaceLocation {
@@ -85,7 +101,7 @@ impl TryFrom<&Location> for lsp_types::WorkspaceLocation {
 impl From<&str> for Location {
     fn from(value: &str) -> Self {
         let path = value.into();
-        Self { path }
+        Self(path)
     }
 }
 impl From<tree_sitter::Point> for Point {
@@ -109,10 +125,10 @@ impl TryFrom<&Location> for lsp_types::Url {
     type Error = anyhow::Error;
 
     fn try_from(value: &Location) -> std::result::Result<Self, Self::Error> {
-        Self::from_file_path(value.path.clone()).map_err(|()| {
+        Self::from_file_path(value.path()).map_err(|()| {
             anyhow!(
                 "Fails to convert the code entitites location of path {:?} to the lsp-type Url",
-                value.path
+                value.path()
             )
         })
     }
