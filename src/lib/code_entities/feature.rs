@@ -171,12 +171,6 @@ impl Parse for Parameters {
 
                 let text = node.utf8_text(src.as_bytes());
 
-                eprintln!(
-                    "capture_name: {}\ncapture_text: {}",
-                    parameter_query.capture_names()[parameter_capture.index as usize],
-                    text.unwrap()
-                );
-
                 match parameter_query.capture_names()[parameter_capture.index as usize] {
                     "name" => {
                         debug_assert!(name.is_empty());
