@@ -53,9 +53,10 @@ impl HandleRequest for request::CodeActionRequest {
 
         let (edit, disabled) = match file {
             Some(file) => {
-                let mut model = transformer::LLM::default();
-                model.set_file(&file);
-                model.set_workspace(&ws);
+                let model = transformer::LLMBuilder::default()
+                    .set_file(&file)
+                    .set_workspace(&ws)
+                    .build();
                 let point: Point = params
                     .range
                     .end
