@@ -83,36 +83,29 @@ pub enum FeatureVisibility {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum EiffelType {
-    ClassType(String),
+    /// The first string is the whole string.
+    /// The second string is the class name.
+    ClassType(String, String),
     TupleType(String),
     Anchored(String),
 }
-impl EiffelType {
-    fn as_str(&self) -> &str {
-        match self {
-            EiffelType::ClassType(s) => s.as_str(),
-            EiffelType::TupleType(s) => s.as_str(),
-            EiffelType::Anchored(s) => s.as_str(),
-        }
+impl Display for EiffelType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            EiffelType::ClassType(s, _) => s,
+            EiffelType::TupleType(s) => s,
+            EiffelType::Anchored(s) => s,
+        };
+        write!(f, "{text}")
     }
-    fn class_name(&self) -> &str {
-        let mut open_brackets: usize = 0;
-        self.as_str()
-            .trim_end_matches(|c| match c {
-                '[' => {
-                    // The pattern filters from the end to the start
-                    open_brackets -= 1;
-                    true
-                }
-                ']' => {
-                    // The pattern filters from the end to the start
-                    open_brackets += 1;
-                    true
-                }
-                _ if open_brackets > 0 => true,
-                _ => false,
-            })
-            .trim_end()
+}
+impl EiffelType {
+    fn class_name(&self) -> Result<&str, &str> {
+        match self {
+            EiffelType::ClassType(_, s) => Ok(s),
+            EiffelType::TupleType(_) => Err("tuple type"),
+            EiffelType::Anchored(_) => Err("anchored type"),
+        }
     }
 }
 
@@ -152,7 +145,7 @@ impl Parse for Parameters {
             r#"(entity_declaration_group
                 (identifier) @name
                 [
-                    (class_type) @classtype
+                    (class_type (class_name) @classname) @classtype
                     (tuple_type) @tupletype
                     (anchored) @anchoredtype
                 ])"#,
@@ -179,10 +172,16 @@ impl Parse for Parameters {
                     "classtype" => {
                         debug_assert!(eiffel_type.is_none());
                         eiffel_type = Some(EiffelType::ClassType(
-                            text.expect("fails to retrieve parameter class type")
-                                .to_string(),
-                        ))
+                            text.expect("retrieve parameter class type").to_string(),
+                            String::new(),
+                        ));
                     }
+                    "classname" => match eiffel_type {
+                        Some(EiffelType::ClassType(_, ref mut s)) => {
+                            s.push_str(text.expect("retrieve parameter class type"))
+                        }
+                        _ => unreachable!("eiffeltype is class type."),
+                    },
                     "tupletype" => {
                         debug_assert!(eiffel_type.is_none());
                         eiffel_type = Some(EiffelType::TupleType(
@@ -217,7 +216,7 @@ impl Display for Parameters {
             |mut acc, (parameter_name, parameter_type)| {
                 acc.push_str(parameter_name.as_str());
                 acc.push_str(": ");
-                acc.push_str(parameter_type.as_str());
+                acc.push_str(format!("{parameter_type}").as_str());
                 acc
             },
         );
@@ -550,11 +549,17 @@ end
             &Parameters(vec![
                 (
                     "y".to_string(),
-                    EiffelType::ClassType("MML_SEQUENCE [INTEGER]".to_string())
+                    EiffelType::ClassType(
+                        "MML_SEQUENCE [INTEGER]".to_string(),
+                        "MML_SEQUENCE".to_string()
+                    )
                 ),
                 (
                     "z".to_string(),
-                    EiffelType::ClassType("MML_SEQUENCE [INTEGER]".to_string())
+                    EiffelType::ClassType(
+                        "MML_SEQUENCE [INTEGER]".to_string(),
+                        "MML_SEQUENCE".to_string()
+                    )
                 )
             ])
         );
@@ -588,11 +593,10 @@ end
 
     #[test]
     fn eiffel_type_class_name() {
-        let eiffeltype = EiffelType::ClassType(String::from("MML_SEQUENCE[INTEGER]"));
-        assert_eq!(
-            eiffeltype.class_name(),
-            "MML_SEQUENCE",
-            "The instantiation of the generic must be skipped."
+        let eiffeltype = EiffelType::ClassType(
+            "MML_SEQUENCE [INTEGER]".to_string(),
+            "MML_SEQUENCE".to_string(),
         );
+        assert_eq!(eiffeltype.class_name(), Ok("MML_SEQUENCE"));
     }
 }
