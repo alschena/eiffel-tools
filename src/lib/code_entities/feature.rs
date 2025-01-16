@@ -1,4 +1,6 @@
 use super::prelude::*;
+use crate::lib::tree_sitter_extension::capture_name_to_nodes;
+use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
 use async_lsp::lsp_types;
 use contract::{Block, Postcondition, Precondition};
@@ -144,6 +146,7 @@ impl Parse for Parameters {
             lang,
             r#"(entity_declaration_group
                 (identifier) @name
+                ("," (identifier) @name)*
                 [
                     (class_type (class_name) @classname) @classtype
                     (tuple_type) @tupletype
@@ -155,56 +158,37 @@ impl Parse for Parameters {
 
         let mut parameters = Parameters(Vec::new());
 
-        while let Some(parameter_match) = parameters_matches.next() {
-            let mut name = String::new();
-            let mut eiffel_type: Option<EiffelType> = None;
+        while let Some(mat) = parameters_matches.next() {
+            let name_to_nodes = |name: &str| capture_name_to_nodes(name, &parameter_query, mat);
+            let node_to_text = |node: Node<'_>| node_to_text(&node, &src);
 
-            for parameter_capture in parameter_match.captures {
-                let node = parameter_capture.node;
+            let names = name_to_nodes("name").map(|node| node_to_text(node).to_string());
 
-                let text = node.utf8_text(src.as_bytes());
+            let class_type = name_to_nodes("classtype").next().map(|node| {
+                EiffelType::ClassType(
+                    node_to_text(node).to_string(),
+                    node_to_text(
+                        name_to_nodes("classname")
+                            .next()
+                            .expect("class type has class name."),
+                    )
+                    .to_string(),
+                )
+            });
 
-                match parameter_query.capture_names()[parameter_capture.index as usize] {
-                    "name" => {
-                        debug_assert!(name.is_empty());
-                        name.push_str(text.expect("fails to retrieve parameter name."));
-                    }
-                    "classtype" => {
-                        debug_assert!(eiffel_type.is_none());
-                        eiffel_type = Some(EiffelType::ClassType(
-                            text.expect("retrieve parameter class type").to_string(),
-                            String::new(),
-                        ));
-                    }
-                    "classname" => match eiffel_type {
-                        Some(EiffelType::ClassType(_, ref mut s)) => {
-                            s.push_str(text.expect("retrieve parameter class type"))
-                        }
-                        _ => unreachable!("eiffeltype is class type."),
-                    },
-                    "tupletype" => {
-                        debug_assert!(eiffel_type.is_none());
-                        eiffel_type = Some(EiffelType::TupleType(
-                            text.expect("fails to retrieve parameter tuple type")
-                                .to_string(),
-                        ))
-                    }
-                    "anchoredtype" => {
-                        debug_assert!(eiffel_type.is_none());
-                        eiffel_type = Some(EiffelType::Anchored(
-                            text.expect("fails to retrieve parameter anchored type")
-                                .to_string(),
-                        ))
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            debug_assert!(!name.is_empty(), "name must be set at this point");
+            let tuple_type = name_to_nodes("tupletype")
+                .next()
+                .map(|node| EiffelType::TupleType(node_to_text(node).to_string()));
 
-            parameters.add_parameter(
-                name,
-                eiffel_type.expect("eiffel type must be set at this point."),
-            )
+            let anchored_type = name_to_nodes("anchoredtype")
+                .next()
+                .map(|node| EiffelType::Anchored(node_to_text(node).to_string()));
+
+            let eiffeltype = class_type
+                .or(tuple_type.or(anchored_type))
+                .expect("type is found.");
+
+            names.for_each(|name| parameters.add_parameter(name, eiffeltype.clone()));
         }
         Ok(parameters)
     }
