@@ -1,5 +1,5 @@
 use crate::lib::language_server_protocol::prelude::{HandleRequest, ServerState};
-use async_lsp::lsp_types::{request, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse};
+use async_lsp::lsp_types::{request, DocumentSymbolParams, DocumentSymbolResponse};
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::future::Future;
@@ -18,8 +18,8 @@ impl HandleRequest for request::DocumentSymbolRequest {
                 .into_iter()
                 .find(|&x| x.path() == path);
             if let Some(file) = file {
-                let class = file.class();
-                let symbol: DocumentSymbol = (class)
+                let symbol = file
+                    .class()
                     .try_into()
                     .expect("class conversion to document symbol");
                 let classes = vec![symbol];

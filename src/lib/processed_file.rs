@@ -1,10 +1,8 @@
 use super::code_entities::prelude::*;
 use super::tree_sitter_extension::Parse;
 use anyhow::{Context, Result};
-use std::{
-    io::BufRead,
-    path::{Path, PathBuf},
-};
+use async_lsp::lsp_types;
+use std::path::{Path, PathBuf};
 use tracing::info;
 use tracing::instrument;
 use tree_sitter::{Parser, Tree};
@@ -26,13 +24,11 @@ impl ProcessedFile {
             String::from_utf8(tokio::fs::read(&path).await.expect("Failed to read file."))
                 .expect("Source code must be UTF8 encoded");
         let tree = parser.parse(&src, None).unwrap();
-        let Ok(mut class) =
-            Class::parse(&tree.root_node(), src.as_str()).context("Parsing of class")
+        let Ok(class) = Class::parse(&tree.root_node(), src.as_str()).context("parsing class")
         else {
             info!("fails to parse {:?}", &path);
             return None;
         };
-        class.add_location(&path);
         Some(ProcessedFile { tree, path, class })
     }
     pub(crate) fn tree(&self) -> &Tree {
@@ -90,6 +86,46 @@ impl ProcessedFile {
                 }
             });
         Ok(feature_src)
+    }
+}
+
+/// Compatibility with LSP types.
+impl TryFrom<&ProcessedFile> for lsp_types::SymbolInformation {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &ProcessedFile) -> std::result::Result<Self, Self::Error> {
+        let class = value.class();
+        let name = class.name().into();
+        let kind = lsp_types::SymbolKind::CLASS;
+        let tags = None;
+        let deprecated = None;
+        let container_name = None;
+        let location: lsp_types::Location =
+            Location::new(value.path().to_path_buf()).to_lsp_location(class.range().clone())?;
+        Ok(lsp_types::SymbolInformation {
+            name,
+            kind,
+            tags,
+            deprecated,
+            location,
+            container_name,
+        })
+    }
+}
+impl TryFrom<&ProcessedFile> for lsp_types::WorkspaceSymbol {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &ProcessedFile) -> std::result::Result<Self, Self::Error> {
+        let name = value.class().name().to_string();
+        let location = (&Location::new(value.path().to_path_buf())).try_into()?;
+        Ok(lsp_types::WorkspaceSymbol {
+            name,
+            kind: lsp_types::SymbolKind::CLASS,
+            container_name: None,
+            location: lsp_types::OneOf::Right(location),
+            data: None,
+            tags: None,
+        })
     }
 }
 #[cfg(test)]
