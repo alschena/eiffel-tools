@@ -1,10 +1,13 @@
 use super::prelude::*;
+use crate::lib::tree_sitter_extension::capture_name_to_nodes;
+use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
 use async_lsp::lsp_types;
 use contract::{Block, Postcondition, Precondition};
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::ops::Deref;
+use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
 use tracing::warn;
@@ -81,13 +84,53 @@ pub enum FeatureVisibility {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-struct Parameters(Vec<(String, String)>);
+pub enum EiffelType {
+    /// The first string is the whole string.
+    /// The second string is the class name.
+    ClassType(String, String),
+    TupleType(String),
+    Anchored(String),
+}
+impl Display for EiffelType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            EiffelType::ClassType(s, _) => s,
+            EiffelType::TupleType(s) => s,
+            EiffelType::Anchored(s) => s,
+        };
+        write!(f, "{text}")
+    }
+}
+impl EiffelType {
+    fn class_name(&self) -> Result<&str, &str> {
+        match self {
+            EiffelType::ClassType(_, s) => Ok(s),
+            EiffelType::TupleType(_) => Err("tuple type"),
+            EiffelType::Anchored(_) => Err("anchored type"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct Parameters(Vec<(String, EiffelType)>);
+impl Deref for Parameters {
+    type Target = Vec<(String, EiffelType)>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for Parameters {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 impl Parameters {
-    fn add_parameter(&mut self, id: String, eiffel_type: String) {
-        self.0.push((id, eiffel_type));
+    fn add_parameter(&mut self, id: String, eiffel_type: EiffelType) {
+        self.push((id, eiffel_type));
     }
     fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.deref().is_empty()
     }
 }
 impl Parse for Parameters {
@@ -99,48 +142,53 @@ impl Parse for Parameters {
         let mut cursor = QueryCursor::new();
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
 
-        let entity_declaration_group_query =
-            Query::new(lang, "(entity_declaration_group) @declarationgroup")
-                .expect("Query for `entity_declaration_group` nodes must succeed.");
+        let parameter_query = Query::new(
+            lang,
+            r#"(entity_declaration_group
+                (identifier) @name
+                ("," (identifier) @name)*
+                [
+                    (class_type (class_name) @classname) @classtype
+                    (tuple_type) @tupletype
+                    (anchored) @anchoredtype
+                ])"#,
+        )
+        .expect("fails to query parameter.");
+        let mut parameters_matches = cursor.matches(&parameter_query, node.clone(), src.as_bytes());
 
-        let mut entity_declaration_group_cursor = cursor.matches(
-            &entity_declaration_group_query,
-            node.clone(),
-            src.as_bytes(),
-        );
         let mut parameters = Parameters(Vec::new());
-        while let Some(entity_declaration_match) = entity_declaration_group_cursor.next() {
-            for entity_declaration_capture in entity_declaration_match.captures {
-                let mut query_cursor = QueryCursor::new();
-                let node = entity_declaration_capture.node;
 
-                let parameter_name_query = Query::new(lang, "(identifier) @parameter_name")
-                    .expect("Query parameter's name for a certain entity declaration block.");
-                let parameter_type_query = Query::new(lang, "type: (_) @parameter_type")
-                    .expect("Query parameter's type for a certain entity declaration block.");
+        while let Some(mat) = parameters_matches.next() {
+            let name_to_nodes = |name: &str| capture_name_to_nodes(name, &parameter_query, mat);
+            let node_to_text = |node: Node<'_>| node_to_text(&node, &src);
 
-                let parameter_type: String = src[match query_cursor
-                    .matches(&parameter_type_query, node.clone(), src.as_bytes())
-                    .next()
-                {
-                    Some(mat) => mat.captures[0].node.byte_range(),
-                    None => {
-                        warn!("There must be a type for each entity declaration match.");
-                        break;
-                    }
-                }]
-                .into();
-                query_cursor
-                    .matches(&parameter_name_query, node.clone(), src.as_bytes())
-                    .for_each(|mat| {
-                        mat.captures.iter().for_each(|cap| {
-                            parameters.add_parameter(
-                                src[cap.node.byte_range()].into(),
-                                parameter_type.clone(),
-                            )
-                        })
-                    });
-            }
+            let names = name_to_nodes("name").map(|node| node_to_text(node).to_string());
+
+            let class_type = name_to_nodes("classtype").next().map(|node| {
+                EiffelType::ClassType(
+                    node_to_text(node).to_string(),
+                    node_to_text(
+                        name_to_nodes("classname")
+                            .next()
+                            .expect("class type has class name."),
+                    )
+                    .to_string(),
+                )
+            });
+
+            let tuple_type = name_to_nodes("tupletype")
+                .next()
+                .map(|node| EiffelType::TupleType(node_to_text(node).to_string()));
+
+            let anchored_type = name_to_nodes("anchoredtype")
+                .next()
+                .map(|node| EiffelType::Anchored(node_to_text(node).to_string()));
+
+            let eiffeltype = class_type
+                .or(tuple_type.or(anchored_type))
+                .expect("type is found.");
+
+            names.for_each(|name| parameters.add_parameter(name, eiffeltype.clone()));
         }
         Ok(parameters)
     }
@@ -152,7 +200,7 @@ impl Display for Parameters {
             |mut acc, (parameter_name, parameter_type)| {
                 acc.push_str(parameter_name.as_str());
                 acc.push_str(": ");
-                acc.push_str(parameter_type.as_str());
+                acc.push_str(format!("{parameter_type}").as_str());
                 acc
             },
         );
@@ -182,8 +230,11 @@ impl Feature {
     pub fn name(&self) -> &str {
         &self.name
     }
-    fn parameters(&self) -> &Parameters {
+    pub fn parameters(&self) -> &Parameters {
         &self.parameters
+    }
+    pub fn number_parameters(&self) -> usize {
+        self.parameters().len()
     }
     fn return_type(&self) -> &str {
         &self.return_type
@@ -480,8 +531,20 @@ end
         assert_eq!(
             feature.parameters(),
             &Parameters(vec![
-                ("y".to_string(), "MML_SEQUENCE [INTEGER]".to_string()),
-                ("z".to_string(), "MML_SEQUENCE [INTEGER]".to_string())
+                (
+                    "y".to_string(),
+                    EiffelType::ClassType(
+                        "MML_SEQUENCE [INTEGER]".to_string(),
+                        "MML_SEQUENCE".to_string()
+                    )
+                ),
+                (
+                    "z".to_string(),
+                    EiffelType::ClassType(
+                        "MML_SEQUENCE [INTEGER]".to_string(),
+                        "MML_SEQUENCE".to_string()
+                    )
+                )
             ])
         );
     }
@@ -510,5 +573,14 @@ end
         let feature = Feature::parse(&node, src).expect("fails to parse feature.");
 
         assert_eq!(feature.return_type(), "MML_SEQUENCE [INTEGER]".to_string());
+    }
+
+    #[test]
+    fn eiffel_type_class_name() {
+        let eiffeltype = EiffelType::ClassType(
+            "MML_SEQUENCE [INTEGER]".to_string(),
+            "MML_SEQUENCE".to_string(),
+        );
+        assert_eq!(eiffeltype.class_name(), Ok("MML_SEQUENCE"));
     }
 }

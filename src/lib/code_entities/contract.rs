@@ -5,20 +5,36 @@ use anyhow::anyhow;
 use gemini::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tracing::info;
-use tree_sitter::{Node, Query, QueryCursor};
+use tree_sitter::{Node, Query, QueryCursor, Tree};
 pub(crate) trait Valid: Debug {
-    fn valid(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+    fn valid(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> bool {
         self.decorated_valid_syntax()
-            && self.decorated_valid_identifiers(system_classes, current_class)
+            && self.decorated_valid_identifiers(system_classes, current_class, current_feature)
+            && self.decorated_valid_calls(system_classes, current_class)
     }
     fn valid_syntax(&self) -> bool;
-    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool;
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> bool;
+    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
+        true
+    }
+
     fn decorated_valid_syntax(&self) -> bool {
         let value = self.valid_syntax();
         if !value {
@@ -30,10 +46,19 @@ pub(crate) trait Valid: Debug {
         &self,
         system_classes: &[&Class],
         current_class: &Class,
+        current_feature: &Feature,
     ) -> bool {
-        let value = self.valid_identifiers(system_classes, current_class);
+        let value =
+            self.valid_top_level_identifiers(system_classes, current_class, current_feature);
         if !value {
             info!(target: "gemini","filtered by invalid identifier {self:?}");
+        }
+        value
+    }
+    fn decorated_valid_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        let value = self.valid_top_level_calls(system_classes, current_class);
+        if !value {
+            info!(target: "gemini","filtered by invalid top level call {self:?}");
         }
         value
     }
@@ -123,10 +148,17 @@ impl Valid for Clause {
     fn valid_syntax(&self) -> bool {
         self.predicate.valid_syntax() && self.tag.valid_syntax()
     }
-    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> bool {
         self.predicate
-            .valid_identifiers(system_classes, current_class)
-            && self.tag.valid_identifiers(system_classes, current_class)
+            .valid_top_level_identifiers(system_classes, current_class, current_feature)
+            && self
+                .tag
+                .valid_top_level_identifiers(system_classes, current_class, current_feature)
     }
 }
 impl Parse for Clause {
@@ -191,7 +223,12 @@ impl Valid for Tag {
     fn valid_syntax(&self) -> bool {
         !self.as_str().contains(" ")
     }
-    fn valid_identifiers(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
+    fn valid_top_level_identifiers(
+        &self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        _current_feature: &Feature,
+    ) -> bool {
         true
     }
 }
@@ -213,6 +250,92 @@ impl Predicate {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    fn parse(&self) -> Option<Tree> {
+        let text: &str = self.as_str();
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&lang)
+            .expect("parser must load grammar.");
+        parser.parse(text, None)
+    }
+
+    fn top_level_identifiers(&self) -> HashSet<&str> {
+        let tree = self.parse().expect("fails to parse predicate.");
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        let text = self.as_str();
+
+        let query_id = Query::new(&lang, "(call (unqualified_call (identifier) @id) !target)")
+            .expect("Fails to construct query for top-level identifiers (names of unqualified features and targets) in predicate: {self}");
+
+        let mut query_cursor = QueryCursor::new();
+
+        let mut matches = query_cursor.matches(&query_id, tree.root_node(), text.as_bytes());
+
+        let mut ids = HashSet::new();
+        while let Some(mat) = matches.next() {
+            for cap in mat.captures.iter() {
+                let id = cap
+                    .node
+                    .utf8_text(text.as_bytes())
+                    .expect("The capture must contain valid text.");
+                ids.insert(id);
+            }
+        }
+        ids
+    }
+
+    fn top_level_calls_with_arguments(&self) -> Vec<(&str, Vec<&str>)> {
+        let tree = self.parse().expect("fails to parse predicate.");
+        let lang = tree_sitter_eiffel::LANGUAGE.into();
+        let text = self.as_str();
+
+        let query_id = Query::new(
+            &lang,
+            r#"(call (unqualified_call (identifier) @id
+            (actuals (expression) @argument
+                ("," (expression) @argument)*) !target))"#,
+        )
+        .expect("Fails to construct query for top-level calls with arguments in predicate: {self}");
+
+        let mut query_cursor = QueryCursor::new();
+
+        let mut matches = query_cursor.matches(&query_id, tree.root_node(), text.as_bytes());
+
+        let mut calls_with_args = Vec::new();
+        while let Some(mat) = matches.next() {
+            let mut args = Vec::new();
+            let name: &str;
+
+            mat.nodes_for_capture_index(
+                query_id
+                    .capture_index_for_name("argument")
+                    .expect("`argument` is a capture name."),
+            )
+            .for_each(|node| {
+                args.push(
+                    node.utf8_text(text.as_bytes())
+                        .expect("valid capture for call's argument."),
+                )
+            });
+
+            let id_node = mat
+                .nodes_for_capture_index(
+                    query_id
+                        .capture_index_for_name("id")
+                        .expect("`id` is a capture name."),
+                )
+                .next()
+                .expect("Calls must have an identifier.");
+            name = id_node
+                .utf8_text(text.as_bytes())
+                .expect("valid capture for call's identifier.");
+
+            calls_with_args.push((name, args));
+        }
+        calls_with_args
+    }
 }
 
 impl Default for Predicate {
@@ -223,53 +346,47 @@ impl Default for Predicate {
 
 impl Valid for Predicate {
     fn valid_syntax(&self) -> bool {
-        let text: &str = self.as_str();
-        let lang = tree_sitter_eiffel::LANGUAGE.into();
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang)
-            .expect("parser must load grammar.");
-        let Some(tree) = parser.parse(text, None) else {
-            info!("Parsing predicate fails.");
-            return false;
-        };
-        !tree.root_node().has_error()
+        match self.parse() {
+            Some(tree) => !tree.root_node().has_error(),
+            None => {
+                info!("fails to parse predicate: {}", self.as_str());
+                false
+            }
+        }
     }
-    // For now only unqualified calls are validated against immediate features and inheritance without renaming.
-    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
-        let text: &str = self.as_str();
-        let lang = tree_sitter_eiffel::LANGUAGE.into();
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang)
-            .expect("parser must load grammar.");
-        let Some(tree) = parser.parse(text, None) else {
-            info!("Parsing predicate fails.");
-            return false;
-        };
-        let query_unqualified_calls =
-            Query::new(&lang, "(call (unqualified_call) @unqualified !target)")
-                .expect("Fails to query unqualified calls.");
-        let mut query_cursor = QueryCursor::new();
-        let mut captures =
-            query_cursor.captures(&query_unqualified_calls, tree.root_node(), text.as_bytes());
-        captures.all(|cap| {
-            cap.0
-                .captures
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> bool {
+        let ids = self.top_level_identifiers();
+        ids.iter().all(|&identifier| {
+            current_class
+                .features()
                 .iter()
-                .map(|c| c.node)
-                .map(|node| &text[node.byte_range()])
-                .inspect(|identifier| {
-                    info!("the generated expression used the identifiers: {identifier}")
-                })
-                .all(|identifier| {
-                    current_class
-                        .features()
+                .map(|feature| std::borrow::Cow::Borrowed(feature))
+                .chain(current_class.inhereted_features(system_classes))
+                .any(|feature| {
+                    current_feature
+                        .parameters()
                         .iter()
-                        .map(|feature| std::borrow::Cow::Borrowed(feature))
-                        .chain(current_class.inhereted_features(system_classes))
-                        .any(|feature| feature.name() == identifier)
+                        .any(|(name, _)| name == identifier)
+                        || (identifier == feature.name())
                 })
+        })
+    }
+    /// NOTE: For now only checks the number of arguments of each unqualified call is correct.
+    fn valid_top_level_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        let calls = self.top_level_calls_with_arguments();
+        calls.iter().all(|&(id, ref args)| {
+            current_class
+                .features()
+                .iter()
+                .map(|feature| std::borrow::Cow::Borrowed(feature))
+                .chain(current_class.inhereted_features(system_classes))
+                .find(|feature| feature.name() == id)
+                .is_some_and(|feature| feature.number_parameters() == args.len())
         })
     }
 }
@@ -310,9 +427,15 @@ impl Valid for Precondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
     }
-    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
-        self.iter()
-            .all(|clause| clause.valid_identifiers(system_classes, current_class))
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> bool {
+        self.iter().all(|clause| {
+            clause.valid_top_level_identifiers(system_classes, current_class, current_feature)
+        })
     }
 }
 impl From<Vec<Clause>> for Precondition {
@@ -434,9 +557,15 @@ impl Valid for Postcondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
     }
-    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
-        self.iter()
-            .all(|clause| clause.valid_identifiers(system_classes, current_class))
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> bool {
+        self.iter().all(|clause| {
+            clause.valid_top_level_identifiers(system_classes, current_class, current_feature)
+        })
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
@@ -448,12 +577,21 @@ impl Valid for RoutineSpecification {
     fn valid_syntax(&self) -> bool {
         self.precondition.valid_syntax() && self.postcondition.valid_syntax()
     }
-    fn valid_identifiers(&self, system_classes: &[&Class], current_class: &Class) -> bool {
-        self.precondition
-            .valid_identifiers(system_classes, current_class)
-            && self
-                .postcondition
-                .valid_identifiers(system_classes, current_class)
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> bool {
+        self.precondition.valid_top_level_identifiers(
+            system_classes,
+            current_class,
+            current_feature,
+        ) && self.postcondition.valid_top_level_identifiers(
+            system_classes,
+            current_class,
+            current_feature,
+        )
     }
 }
 impl From<Vec<Clause>> for Postcondition {
@@ -536,12 +674,8 @@ impl Described for RoutineSpecification {
 }
 #[cfg(test)]
 mod tests {
-    use crate::lib::code_entities::class::Ancestor;
-
     use super::*;
     use anyhow::Result;
-    use assert_fs::prelude::*;
-    use assert_fs::{fixture::FileWriteStr, TempDir};
     use gemini::SchemaType;
     use Clause;
 
@@ -782,23 +916,50 @@ end"#;
         );
     }
     #[test]
+    fn predicate_identifiers() {
+        let p = Predicate("x < y.z.w".to_string());
+        let ids = p.top_level_identifiers();
+        assert!(ids.contains("x"));
+        assert!(ids.contains("y"));
+        assert!(ids.len() == 2);
+    }
+    #[test]
+    fn predicate_identifiers_unqualified_calls() {
+        let p = Predicate("x (y) < y (l).z.w".to_string());
+        let ids = p.top_level_identifiers();
+        eprintln!("{ids:?}");
+        assert!(ids.contains("x"));
+        assert!(ids.contains("y"));
+        assert!(ids.contains("l"));
+        assert!(ids.len() == 3);
+    }
+    #[test]
     fn valid_and_invalid_predicates() {
         let src = "
             class
                 A
             feature
                 x: BOOLEAN
+                y: BOOLEAN
+                    do
+                        Result := True
+                    end
             end
         ";
         let class = Class::from_source(src);
+        let feature = class
+            .features()
+            .iter()
+            .find(|f| f.name() == "y".to_string())
+            .expect("parse feature y");
         let system_classes = vec![&class];
 
         // Create an invalid and a valid predicates.
         let invalid_predicate = Predicate(String::from("z"));
         let valid_predicate = Predicate(String::from("x"));
 
-        assert!(!invalid_predicate.valid(&system_classes, &class));
-        assert!(valid_predicate.valid(&system_classes, &class));
+        assert!(!invalid_predicate.valid(&system_classes, &class, feature));
+        assert!(valid_predicate.valid(&system_classes, &class, feature));
     }
     #[test]
     fn valid_predicates_in_ancestors() {
@@ -814,11 +975,21 @@ end"#;
                 A
             inherit
                 B
+            feature
+                y: BOOLEAN
+                    do
+                        Result := True
+                    end
             end
         ";
 
-        let mut parent = Class::from_source(parent_src);
-        let mut child = Class::from_source(child_src);
+        let parent = Class::from_source(parent_src);
+        let child = Class::from_source(child_src);
+        let feature = child
+            .features()
+            .iter()
+            .find(|f| f.name() == "y")
+            .expect("parse feature y");
 
         assert!(child
             .features()
@@ -828,6 +999,59 @@ end"#;
 
         let system_classes = vec![&child, &parent];
         let valid_predicate = Predicate(String::from("x"));
-        assert!(valid_predicate.valid(&system_classes, &child));
+        assert!(valid_predicate.valid(&system_classes, &child, feature));
+    }
+    #[test]
+    fn valid_predicate_of_parameters() {
+        let src = "
+            class
+                A
+            feature
+                x (f: BOOLEAN): BOOLEAN
+                    do
+                        Result := f
+                    end
+            end
+        ";
+        let c = Class::from_source(src);
+        let f = c.features().first().expect("first feature exists.");
+        let vp = Predicate::new("f".to_string());
+        let ip = Predicate::new("r".to_string());
+        let system_classes = vec![&c];
+        assert!(vp.valid(&system_classes, &c, f));
+        assert!(!ip.valid(&system_classes, &c, f));
+    }
+    #[test]
+    fn invalid_predicate_for_number_of_arguments() {
+        let src = "
+            class
+                A
+            feature
+                z: BOOLEAN
+                x (f: BOOLEAN): BOOLEAN
+                    do
+                        Result := f
+                    end
+                y: BOOLEAN
+                    do
+                        Result := x
+                    end
+            end
+        ";
+        let c = Class::from_source(src);
+        let f = c
+            .features()
+            .iter()
+            .find(|f| f.name() == "y")
+            .expect("first feature exists.");
+        let system_classes = vec![&c];
+
+        let vp = Predicate::new("x (z)".to_string());
+        let ip = Predicate::new("x (z, z)".to_string());
+        let ip2 = Predicate::new("x ()".to_string());
+
+        assert!(vp.valid(&system_classes, &c, f));
+        assert!(!ip.valid(&system_classes, &c, f));
+        assert!(!ip2.valid(&system_classes, &c, f));
     }
 }
