@@ -11,19 +11,49 @@ use gemini::ToResponseSchema;
 use std::collections::HashMap;
 use tracing::info;
 
-pub struct LLM<'a, 'b> {
+pub struct LLMBuilder<'a, 'b> {
     model_config: gemini::Config,
     client: reqwest::Client,
     file: Option<&'a ProcessedFile>,
     workspace: Option<&'b Workspace>,
 }
-impl<'a, 'b> LLM<'a, 'b> {
-    pub fn set_file(&mut self, file: &'a ProcessedFile) {
+impl<'a, 'b> LLMBuilder<'a, 'b> {
+    pub fn set_file(mut self, file: &'a ProcessedFile) -> LLMBuilder<'a, 'b> {
         self.file = Some(file);
+        self
     }
-    pub fn set_workspace(&mut self, workspace: &'b Workspace) {
-        self.workspace = Some(workspace);
+    pub fn set_workspace(mut self, ws: &'b Workspace) -> LLMBuilder<'a, 'b> {
+        self.workspace = Some(ws);
+        self
     }
+    pub fn build(self) -> LLM<'a, 'b> {
+        LLM {
+            model_config: self.model_config,
+            client: self.client,
+            file: self.file.expect("llmbuilder has a file set."),
+            workspace: self.workspace.expect("llmbuilder has a workspace set."),
+        }
+    }
+}
+
+impl Default for LLMBuilder<'_, '_> {
+    fn default() -> Self {
+        Self {
+            model_config: gemini::Config::default(),
+            client: reqwest::Client::new(),
+            file: None,
+            workspace: None,
+        }
+    }
+}
+
+pub struct LLM<'a, 'b> {
+    model_config: gemini::Config,
+    client: reqwest::Client,
+    file: &'a ProcessedFile,
+    workspace: &'b Workspace,
+}
+impl<'a, 'b> LLM<'a, 'b> {
     fn model_config(&self) -> &gemini::Config {
         &self.model_config
     }
@@ -31,10 +61,7 @@ impl<'a, 'b> LLM<'a, 'b> {
         &self.client
     }
     fn target_url(&self) -> Result<Url, Error<'static>> {
-        let Some(file) = self.file else {
-            panic!("target file must be set in LLM.")
-        };
-        Url::from_file_path(file.path())
+        Url::from_file_path(self.file.path())
             .map_err(|_| Error::PassThroughError("fails to transform path into lsp_types::Url"))
     }
 }
@@ -43,12 +70,8 @@ impl<'a, 'b> LLM<'a, 'b> {
         &self,
         feature: &Feature,
     ) -> Result<(RoutineSpecification, Point, Point), Error<'static>> {
-        let Some(file) = self.file else {
-            panic!("target file must be set in LLM.")
-        };
-        let Some(workspace) = self.workspace else {
-            panic!("workspace must be set in LLM")
-        };
+        let file = self.file;
+        let workspace = self.workspace;
         let Some(point_insert_preconditions) = feature.point_end_preconditions() else {
             return Err(Error::CodeActionDisabled(
                 "Only attributes with an attribute block and routines support adding preconditions",
@@ -91,15 +114,40 @@ impl<'a, 'b> LLM<'a, 'b> {
         };
         let full_model_text;
         {
+            let system_classes = workspace.system_classes().collect::<Vec<_>>();
             // TODO add models of arguments and Result.
-            let mut setup = "The models of the current class and its ancestors are:\n".to_string();
-            file.class()
-                .full_model(workspace.system_classes().collect::<Vec<_>>().as_ref())
-                .for_each(|model| {
-                    setup.push_str(format!("{}{model}", ClassModel::indentation_string()).as_str());
-                    setup.push('\n');
-                });
-            full_model_text = setup;
+            let local_models_setup = "The models of the current class and its ancestors are:\n";
+            let mut text =
+                file.class()
+                    .full_model(&system_classes)
+                    .fold(String::new(), |mut acc, model| {
+                        acc.push_str(
+                            format!("{}{model}", ClassModel::indentation_string()).as_str(),
+                        );
+                        acc.push('\n');
+                        acc
+                    });
+            text.insert_str(0, local_models_setup);
+
+            let parameters_text = feature.parameters().full_model(&system_classes).fold(
+                String::new(),
+                |mut acc, (name, models)| {
+                    let parameter_model_setup = format!("The model of the arugment {name} is:\n");
+                    let model_text = models.fold(String::new(), |mut acc, model| {
+                        acc.push_str(
+                            format!("{}{model}", ClassModel::indentation_string()).as_str(),
+                        );
+                        acc.push('\n');
+                        acc
+                    });
+                    acc.push_str(&parameter_model_setup);
+                    acc.push_str(&model_text);
+                    acc
+                },
+            );
+
+            text.push_str(&parameters_text);
+            full_model_text = text;
         }
         let mut request = gemini::Request::from(format!(
             "You are an expert in formal methods, specifically design by contract for static verification. You are optionally adding model-based contracts to the following feature:```eiffel\n{feature_src}\n```\nRemember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.\n{full_model_text}"
@@ -153,9 +201,7 @@ impl<'a, 'b> LLM<'a, 'b> {
         point: &Point,
         workspace: &Workspace,
     ) -> Result<WorkspaceEdit, Error<'static>> {
-        let Some(file) = self.file else {
-            panic!("target must be set in LLM")
-        };
+        let file = self.file;
         let Some(feature) = file.feature_around_point(point) else {
             return Err(Error::CodeActionDisabled(
                 "A valid feature must surround the cursor.",
@@ -178,16 +224,5 @@ impl<'a, 'b> LLM<'a, 'b> {
                 text_edit_add_postcondition(&feature, postcondition_insertion_point, post),
             ],
         )])))
-    }
-}
-
-impl<'a, 'b> Default for LLM<'a, 'b> {
-    fn default() -> Self {
-        Self {
-            model_config: gemini::Config::default(),
-            client: reqwest::Client::new(),
-            file: None,
-            workspace: None,
-        }
     }
 }

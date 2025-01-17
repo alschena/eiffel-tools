@@ -33,11 +33,13 @@ impl Indent for Model {
 }
 impl Display for Model {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut display_text = String::new();
-        self.0.iter().for_each(|feature| {
-            display_text.push_str(format!("{feature}").as_str());
-            display_text.push(',');
-            display_text.push(' ');
+        let display_text = self.0.iter().fold(String::new(), |mut acc, feature| {
+            if !acc.is_empty() {
+                acc.push(',');
+                acc.push(' ');
+            }
+            acc.push_str(format!("{feature}").as_str());
+            acc
         });
         write!(f, "{display_text}")
     }
@@ -53,10 +55,14 @@ impl Parse for ModelNames {
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
         let name_query = Query::new(
             lang,
-            "(class_declaration (notes (note_entry (tag) @tag (identifier) @id)) \
-               (#eq? @tag \"model\"))",
+            r#"(class_declaration
+            (notes (note_entry
+                (tag) @tag
+                value: (_) @id
+                ("," value: (_) @id)*))
+            (#eq? @tag "model"))"#,
         )
-        .unwrap();
+        .expect("Model query is valid.");
 
         let mut binding = QueryCursor::new();
         let mut matches = binding.matches(&name_query, root.clone(), src.as_bytes());
@@ -712,5 +718,58 @@ end
             vec![parent.model(), child.model()]
         );
         Ok(())
+    }
+    #[test]
+    fn parameters_models() {
+        let current_class = r#"class
+    CLIENT
+feature
+    demo (a: NEW_INTEGER): INTEGER
+        do
+            a.value
+        end
+"#;
+        let current_class = Class::from_source(current_class);
+        let src_class_of_argument = r#"note
+	model: value
+class
+	NEW_INTEGER
+feature
+	value: INTEGER
+	smaller (other: NEW_INTEGER): BOOLEAN
+		do
+			Result := value < other.value
+		ensure
+			Result = (value < other.value)
+		end
+end
+    "#;
+        let class_of_argument = Class::from_source(src_class_of_argument);
+        let model = class_of_argument.model();
+        eprintln!("clas_of_argument {class_of_argument:#?}");
+        assert_eq!(format!("{model}"), "value: INTEGER", "model: {model}");
+
+        let system_classes = vec![&current_class, &class_of_argument];
+        let feature = current_class
+            .features()
+            .first()
+            .expect("demo is the first feature.");
+        let mut parameter_model = feature
+            .parameters()
+            .full_model(&system_classes)
+            .next()
+            .expect("parameter has model.");
+
+        assert_eq!(
+            parameter_model.0, "a",
+            "parameter name: {}",
+            parameter_model.0
+        );
+        let parameter_model = parameter_model.1.next().expect("`NEW_INTEGER` has model");
+        assert_eq!(
+            format!("{}", parameter_model),
+            "value: INTEGER",
+            "parameter name: {parameter_model}",
+        );
     }
 }

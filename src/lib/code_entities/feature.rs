@@ -109,6 +109,15 @@ impl EiffelType {
             EiffelType::Anchored(_) => Err("anchored type"),
         }
     }
+    pub fn class<'a, 'b: 'a>(
+        &'a self,
+        mut system_classes: impl Iterator<Item = &'b Class>,
+    ) -> &'b Class {
+        let class = system_classes
+            .find(|&c| c.name() == self.class_name().unwrap_or_default())
+            .expect("parameters' class name is in system.");
+        class
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -131,6 +140,19 @@ impl Parameters {
     }
     fn is_empty(&self) -> bool {
         self.deref().is_empty()
+    }
+    pub fn full_model<'a>(
+        &self,
+        system_classes: &'a [&'a Class],
+    ) -> impl Iterator<Item = (&str, impl Iterator<Item = &'a ClassModel>)> {
+        self.iter().map(|(name, eiffel_type)| {
+            (
+                name.as_str(),
+                eiffel_type
+                    .class(system_classes.iter().copied())
+                    .full_model(system_classes),
+            )
+        })
     }
 }
 impl Parse for Parameters {
