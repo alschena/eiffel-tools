@@ -114,7 +114,7 @@ impl EiffelType {
         mut system_classes: impl Iterator<Item = &'b Class>,
     ) -> &'b Class {
         let class = system_classes
-            .find(|&c| c.name() == self.as_str())
+            .find(|&c| c.name() == self.class_name().unwrap_or_default())
             .expect("parameters' class name is in system.");
         class
     }
