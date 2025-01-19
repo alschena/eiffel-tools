@@ -50,8 +50,6 @@ impl Parse for ModelNames {
     type Error = anyhow::Error;
 
     fn parse(root: &Node, src: &str) -> Result<Self, Self::Error> {
-        debug_assert!(root.parent().is_none());
-
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
         let name_query = Query::new(
             lang,
@@ -211,7 +209,6 @@ impl Parse for Class {
     type Error = anyhow::Error;
     #[instrument(skip_all)]
     fn parse(root: &Node, src: &str) -> anyhow::Result<Self> {
-        debug_assert!(root.parent().is_none());
         let mut cursor = QueryCursor::new();
         // Extract class name
         let lang = &tree_sitter_eiffel::LANGUAGE.into();
