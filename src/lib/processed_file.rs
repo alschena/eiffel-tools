@@ -5,6 +5,7 @@ use async_lsp::lsp_types;
 use std::path::{Path, PathBuf};
 use tracing::info;
 use tracing::instrument;
+use tree_sitter::QueryCursor;
 use tree_sitter::{Parser, Tree};
 
 /// Stores all the information of a file
@@ -24,7 +25,8 @@ impl ProcessedFile {
             String::from_utf8(tokio::fs::read(&path).await.expect("Failed to read file."))
                 .expect("Source code must be UTF8 encoded");
         let tree = parser.parse(&src, None).unwrap();
-        let Ok(class) = Class::parse(&tree.root_node(), src.as_str()).context("parsing class")
+        let Ok(class) = Class::parse(&tree.root_node(), &mut QueryCursor::new(), src.as_str())
+            .context("parsing class")
         else {
             info!("fails to parse {:?}", &path);
             return None;

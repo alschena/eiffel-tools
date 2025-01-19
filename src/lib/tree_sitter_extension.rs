@@ -1,5 +1,6 @@
 use tree_sitter::Node;
 use tree_sitter::Query;
+use tree_sitter::QueryCursor;
 use tree_sitter::QueryMatch;
 
 pub fn node_to_text<'a>(node: &Node<'_>, src: &'a str) -> &'a str {
@@ -20,5 +21,9 @@ pub fn capture_name_to_nodes<'tree, 'cursor, 'querymatch>(
 
 pub trait Parse: Sized {
     type Error;
-    fn parse(node: &Node, src: &str) -> Result<Self, Self::Error>;
+    fn query(sexp: &str) -> Query {
+        Query::new(&tree_sitter_eiffel::LANGUAGE.into(), sexp)
+            .unwrap_or_else(|e| panic!("query:\t{sexp}\n\thas error: {e}"))
+    }
+    fn parse(node: &Node, query_cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error>;
 }
