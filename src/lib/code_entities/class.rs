@@ -1,14 +1,14 @@
 use super::prelude::*;
-use crate::lib::tree_sitter_extension::Parse;
+use crate::lib::tree_sitter_extension::{capture_name_to_nodes, node_to_text, Parse};
 use anyhow::anyhow;
 use async_lsp::lsp_types;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt::Display;
-use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
-use tree_sitter::{Node, Query, QueryCursor};
+use tree_sitter::{Node, QueryCursor};
+
 // TODO accept only attributes of logical type in the model
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Model(Vec<Feature>);
@@ -49,27 +49,22 @@ struct ModelNames(Vec<String>);
 impl Parse for ModelNames {
     type Error = anyhow::Error;
 
-    fn parse(root: &Node, src: &str) -> Result<Self, Self::Error> {
-        let lang = &tree_sitter_eiffel::LANGUAGE.into();
-        let name_query = Query::new(
-            lang,
+    fn parse(node: &Node, query_cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+        let name_query = Self::query(
             r#"(class_declaration
             (notes (note_entry
                 (tag) @tag
                 value: (_) @id
                 ("," value: (_) @id)*))
             (#eq? @tag "model"))"#,
-        )
-        .expect("Model query is valid.");
+        );
 
-        let mut binding = QueryCursor::new();
-        let mut matches = binding.matches(&name_query, root.clone(), src.as_bytes());
+        let mut matches = query_cursor.matches(&name_query, *node, src.as_bytes());
 
         let mut names: Vec<String> = Vec::new();
         while let Some(mat) = matches.next() {
-            for n in mat.nodes_for_capture_index(1) {
-                names.push(src[n.byte_range()].to_string())
-            }
+            capture_name_to_nodes("id", &name_query, mat)
+                .for_each(|node| names.push(node_to_text(&node, src).to_string()));
         }
 
         Ok(ModelNames(names))
@@ -80,7 +75,7 @@ pub struct Class {
     name: String,
     model: Model,
     features: Vec<Feature>,
-    parents: Vec<Ancestor>,
+    parents: Vec<Parent>,
     range: Range,
 }
 
@@ -105,7 +100,7 @@ impl Class {
     pub fn into_features(self) -> Vec<Feature> {
         self.features
     }
-    fn parents(&self) -> &Vec<Ancestor> {
+    fn parents(&self) -> &Vec<Parent> {
         &self.parents
     }
     fn parent_classes<'a>(
@@ -116,7 +111,7 @@ impl Class {
             .into_iter()
             .filter_map(|parent| parent.class(system_classes))
     }
-    pub fn ancestors<'a>(&'a self, system_classes: &'a [&'a Class]) -> HashSet<&'a Ancestor> {
+    pub fn ancestors<'a>(&'a self, system_classes: &'a [&'a Class]) -> HashSet<&'a Parent> {
         let mut ancestors = HashSet::new();
         for parent in self.parents() {
             let Some(parent_class) = parent.class(system_classes) else {
@@ -186,7 +181,7 @@ impl Class {
     }
 
     #[cfg(test)]
-    pub fn add_parent(&mut self, parent: Ancestor) {
+    pub fn add_parent(&mut self, parent: Parent) {
         self.parents.push(parent)
     }
     #[cfg(test)]
@@ -197,7 +192,7 @@ impl Class {
             .set_language(&lang)
             .expect("Error loading Eiffel grammar");
         let tree = parser.parse(source, None).unwrap();
-        Class::parse(&tree.root_node(), source)
+        Class::parse(&tree.root_node(), &mut QueryCursor::new(), source)
             .expect("fails to parse class from given source code.")
     }
 }
@@ -207,58 +202,51 @@ impl Indent for Class {
 
 impl Parse for Class {
     type Error = anyhow::Error;
+
     #[instrument(skip_all)]
-    fn parse(root: &Node, src: &str) -> anyhow::Result<Self> {
-        let mut cursor = QueryCursor::new();
-        // Extract class name
-        let lang = &tree_sitter_eiffel::LANGUAGE.into();
-        let name_query = Query::new(lang, "(class_declaration (class_name) @name)").unwrap();
+    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> anyhow::Result<Self> {
+        let query = Self::query(
+            "(class_declaration
+            (class_name) @name
+            (inheritance (parent)* @parent)*
+            (feature_clause (feature_declaration)* @feature)*) @class",
+        );
 
-        let mut captures = cursor.captures(&name_query, root.clone(), src.as_bytes());
+        let mut matches = cursor.matches(&query, *node, src.as_bytes());
+        let class_match = matches.next().ok_or(anyhow!("File has no class."))?;
 
-        let name_node = match captures.next() {
-            Some(v) => v.0.captures[0].node,
-            None => return Err(anyhow!("fails to parse class name ")),
-        };
+        let name = node_to_text(
+            &capture_name_to_nodes("name", &query, class_match)
+                .next()
+                .expect("Each class has a name."),
+            src,
+        )
+        .to_string();
 
-        let name = src[name_node.byte_range()].into();
-        let range = name_node.range().into();
-        let mut class = Self::from_name_range(name, range);
+        let range = capture_name_to_nodes("class", &query, class_match)
+            .next()
+            .expect("Class match has no class capture")
+            .range()
+            .into();
 
-        // Extract ancestors
-        let ancestor_query = Query::new(lang, "(inheritance) @ancestors").map_err(|e| {
-            anyhow!(
-                "fails to query `(inheritance) @ancestors)))` with error: {:?}",
-                e
-            )
-        })?;
+        let parents: Vec<Parent> = capture_name_to_nodes("parent", &query, class_match)
+            .map(|ref node| {
+                Parent::parse(node, &mut QueryCursor::new(), src).expect("error parsing parent.")
+            })
+            .collect();
 
-        let mut inheritance_block = cursor.matches(&ancestor_query, root.clone(), src.as_bytes());
+        let features: Vec<Feature> = capture_name_to_nodes("feature", &query, class_match)
+            .filter_map(|ref node| Feature::parse(node, &mut QueryCursor::new(), src).ok())
+            .collect();
 
-        let mut ancestors = Vec::new();
-        while let Some(mat) = inheritance_block.next() {
-            for cap in mat.captures {
-                ancestors.append(&mut <Vec<Ancestor>>::parse(&cap.node, src)?)
-            }
-        }
-
-        // Extract features
-        let feature_query = Query::new(lang, "(feature_declaration) @dec").unwrap();
-
-        let mut feature_cursor = cursor.matches(&feature_query, root.clone(), src.as_bytes());
-
-        let mut features: Vec<Feature> = Vec::new();
-        while let Some(mat) = feature_cursor.next() {
-            for cap in mat.captures {
-                features.push(Feature::parse(&cap.node, src)?);
-            }
-        }
-
-        // Extract optional model
-        class.model = Model::from_model_names(ModelNames::parse(root, src)?, &features);
-        class.features = features;
-        class.parents = ancestors;
-        Ok(class)
+        let model = Model::from_model_names(ModelNames::parse(node, cursor, src)?, &features);
+        Ok(Class {
+            name,
+            model,
+            features,
+            parents,
+            range,
+        })
     }
 }
 impl TryFrom<&Class> for lsp_types::DocumentSymbol {
@@ -287,14 +275,14 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Ancestor {
+pub struct Parent {
     name: String,
     select: Vec<String>,
     rename: Vec<(String, String)>,
     redefine: Vec<String>,
     undefine: Vec<String>,
 }
-impl Ancestor {
+impl Parent {
     fn name(&self) -> &str {
         &self.name
     }
@@ -305,8 +293,8 @@ impl Ancestor {
             .copied()
     }
     #[cfg(test)]
-    pub fn from_name(name: String) -> Ancestor {
-        Ancestor {
+    pub fn from_name(name: String) -> Parent {
+        Parent {
             name,
             select: Vec::new(),
             rename: Vec::new(),
@@ -315,72 +303,50 @@ impl Ancestor {
         }
     }
 }
-impl Parse for Vec<Ancestor> {
+
+impl Parse for Parent {
     type Error = anyhow::Error;
 
     #[instrument(skip_all)]
-    fn parse(node: &Node, src: &str) -> Result<Self, Self::Error> {
-        debug_assert!(node.kind() == "inheritance");
-        let lang = &tree_sitter_eiffel::LANGUAGE.into();
+    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+        debug_assert!(node.kind() == "parent");
 
-        let ancestor_query = Query::new(
-            lang,
-            format!(
-                "(parent
-                (class_type (class_name) @name)
+        let query = Self::query(
+            "
+                (parent (class_type (class_name) @name)
                 (feature_adaptation (rename (rename_pair (identifier) @rename_before
-                        (extended_feature_name) @rename_after)* )?)?)",
-            )
-            .as_str(),
+                        (extended_feature_name) @rename_after)* )?)?)
+            ",
+        );
+
+        let mut matches = cursor.matches(&query, *node, src.as_bytes());
+        let parent_match = matches.next().expect("parent captures.");
+
+        let name = node_to_text(
+            &capture_name_to_nodes("name", &query, parent_match)
+                .next()
+                .expect("capture class name."),
+            src,
         )
-        .map_err(|e| anyhow!("fails to query parent with error: {:?}", e))?;
+        .to_string();
 
-        let mut query_cursor = QueryCursor::new();
-        let mut matches = query_cursor.matches(&ancestor_query, node.clone(), src.as_bytes());
-
-        let mut ancestors = Vec::new();
-
-        while let Some(mat) = matches.next() {
-            let mut name = "";
-            let mut rename: Vec<(String, String)> = Vec::new();
-            let mut rename_before: &str = "";
-
-            for cap in mat.captures {
-                let node = &cap.node;
-
-                match ancestor_query.capture_names()[cap.index as usize] {
-                    "name" => {
-                        name = node
-                            .utf8_text(src.as_bytes())
-                            .expect("fails to retrieve parent name.");
-                    }
-                    "rename_before" => {
-                        debug_assert!(rename_before.is_empty());
-                        rename_before = node
-                            .utf8_text(src.as_bytes())
-                            .expect("fails to retrieve old name of renamed feature.")
-                    }
-                    "rename_after" => {
-                        rename.push((
-                            rename_before.to_string(),
-                            node.utf8_text(src.as_bytes())
-                                .expect("fails to retrieve new name of renamed feature.")
-                                .to_string(),
-                        ));
-                        rename_before = "";
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            ancestors.push(Ancestor {
-                name: name.to_string(),
-                select: Vec::new(),
-                rename,
-                redefine: Vec::new(),
-                undefine: Vec::new(),
-            });
-        }
-        Ok(ancestors)
+        let rename: Vec<(String, String)> =
+            capture_name_to_nodes("rename_before", &query, parent_match)
+                .zip(capture_name_to_nodes("rename_after", &query, parent_match))
+                .map(|(before, after)| {
+                    (
+                        node_to_text(&before, src).to_string(),
+                        node_to_text(&after, src).to_string(),
+                    )
+                })
+                .collect();
+        Ok(Parent {
+            name,
+            select: Vec::new(),
+            rename,
+            redefine: Vec::new(),
+            undefine: Vec::new(),
+        })
     }
 }
 #[cfg(test)]
@@ -437,6 +403,7 @@ end
 ";
         let class = Class::from_source(src);
         assert_eq!(class.name(), "A".to_string());
+        eprintln!("{class:?}");
         assert_eq!(class.features().first().unwrap().name(), "f".to_string());
     }
 
@@ -450,6 +417,7 @@ end
 ";
         let class = Class::from_source(src);
         assert_eq!(class.name(), "A".to_string());
+        eprintln!("{class:?}");
         assert_eq!(class.features().first().unwrap().name(), "x".to_string());
     }
     #[test]
@@ -537,7 +505,7 @@ end
 
         assert_eq!(
             ancestors.next().expect("fails to parse first ancestor"),
-            &Ancestor {
+            &Parent {
                 name: "W".to_string(),
                 select: Vec::new(),
                 rename: vec![("e".to_string(), "f".to_string())],

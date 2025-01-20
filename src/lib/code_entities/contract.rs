@@ -1,5 +1,7 @@
 use super::prelude::*;
 use crate::lib::code_entities::feature::Notes;
+use crate::lib::tree_sitter_extension::capture_name_to_nodes;
+use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
 use anyhow::anyhow;
 use gemini::{Described, ResponseSchema, ToResponseSchema};
@@ -64,7 +66,6 @@ pub(crate) trait Valid: Debug {
     }
 }
 pub trait Type {
-    fn query() -> Query;
     fn keyword() -> Keyword;
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -163,34 +164,27 @@ impl Valid for Clause {
 }
 impl Parse for Clause {
     type Error = anyhow::Error;
-    fn parse(assertion_clause: &Node, src: &str) -> anyhow::Result<Self> {
+    fn parse(assertion_clause: &Node, cursor: &mut QueryCursor, src: &str) -> anyhow::Result<Self> {
         debug_assert_eq!(assertion_clause.kind(), "assertion_clause");
         debug_assert!(assertion_clause.child_count() > 0);
 
-        let lang = &tree_sitter_eiffel::LANGUAGE.into();
-        let clause_query =
-            ::tree_sitter::Query::new(lang, "((tag_mark (tag) @tag)? (expression) @expr)").unwrap();
+        let clause_query = Self::query("((tag_mark (tag) @tag)? (expression) @expr)");
 
-        let mut binding = QueryCursor::new();
-        let mut captures =
-            binding.captures(&clause_query, assertion_clause.clone(), src.as_bytes());
+        let mut matches = cursor.matches(&clause_query, assertion_clause.clone(), src.as_bytes());
+        let mat = matches.next().expect("match a clause.");
 
-        match captures.next() {
-            Some(&(ref m, _)) => {
-                let tag_node = m.nodes_for_capture_index(0).next();
-                let expression_node = m.nodes_for_capture_index(1).next().unwrap();
+        let tag: Tag = capture_name_to_nodes("tag", &clause_query, mat)
+            .next()
+            .map_or_else(
+                || Tag(String::new()),
+                |tag| Tag(node_to_text(&tag, src).to_string()),
+            );
 
-                let tag: Tag = match tag_node {
-                    Some(n) => src[n.byte_range()].to_string().into(),
-                    None => String::new().into(),
-                };
-
-                let predicate = Predicate::new(src[expression_node.byte_range()].to_string());
-
-                Ok(Self { predicate, tag })
-            }
-            None => Err(anyhow!("Wrong arguments, should match")),
-        }
+        let predicate: Predicate = capture_name_to_nodes("expr", &clause_query, mat)
+            .next()
+            .map(|predicate| Predicate::new(node_to_text(&predicate, src).to_string()))
+            .expect("clauses have predicates.");
+        Ok(Self { predicate, tag })
     }
 }
 impl Display for Clause {
@@ -447,10 +441,6 @@ impl Indent for Precondition {
     const INDENTATION_LEVEL: usize = 3;
 }
 impl Type for Precondition {
-    fn query() -> Query {
-        Query::new(&tree_sitter_eiffel::LANGUAGE.into(), "(precondition) @x")
-            .expect("fails to create precondition query.")
-    }
     fn keyword() -> Keyword {
         Keyword::Require
     }
@@ -458,38 +448,16 @@ impl Type for Precondition {
 impl Parse for Block<Precondition> {
     type Error = anyhow::Error;
 
-    fn parse(node: &Node, src: &str) -> Result<Self, Self::Error> {
-        debug_assert!(node.kind() == "attribute_or_routine");
+    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+        debug_assert!(node.kind() == "precondition");
+        let query = Self::query("(assertion_clause (expression))* @assertion_clause");
 
-        let mut cursor = QueryCursor::new();
-        let lang = &tree_sitter_eiffel::LANGUAGE.into();
-        let query = Precondition::query();
-        let mut contracts_captures = cursor.captures(&query, node.clone(), src.as_bytes());
-        let contracts_cap = contracts_captures.next();
-        let node = match contracts_cap {
-            Some(x) => x.0.captures[0].node,
-            None => {
-                let notes_query = Notes::query();
-                let point = match cursor
-                    .matches(&notes_query, node.clone(), src.as_bytes())
-                    .next()
-                {
-                    Some(notes) => Point::from(notes.captures[0].node.range().start_point),
-                    None => Point::from(node.range().start_point),
-                };
-                return Ok(Self::new_empty(point));
-            }
-        };
-
-        let query = Query::new(lang, "(assertion_clause (expression)) @x").unwrap();
-        let mut assertion_clause_matches = cursor.matches(&query, node.clone(), src.as_bytes());
-
-        let mut clauses: Vec<Clause> = Vec::new();
-        while let Some(mat) = assertion_clause_matches.next() {
-            for cap in mat.captures {
-                clauses.push(Clause::parse(&cap.node, src)?)
-            }
-        }
+        let clauses: Vec<_> = cursor
+            .matches(&query, node.clone(), src.as_bytes())
+            .map_deref(|mat| mat.captures)
+            .flatten()
+            .filter_map(|cap| Clause::parse(&cap.node, &mut QueryCursor::new(), src).ok())
+            .collect();
 
         Ok(Self::new(clauses.into(), node.range().into()))
     }
@@ -497,33 +465,16 @@ impl Parse for Block<Precondition> {
 impl Parse for Block<Postcondition> {
     type Error = anyhow::Error;
 
-    fn parse(node: &Node, src: &str) -> Result<Self, Self::Error> {
-        debug_assert!(node.kind() == "attribute_or_routine");
+    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+        debug_assert!(node.kind() == "postcondition");
+        let query = Self::query("(assertion_clause (expression))* @assertion_clause");
 
-        let mut cursor = QueryCursor::new();
-        let lang = &tree_sitter_eiffel::LANGUAGE.into();
-        let query = Postcondition::query();
-        let mut contracts_captures = cursor.captures(&query, node.clone(), src.as_bytes());
-        let contracts_cap = contracts_captures.next();
-        let node = match contracts_cap {
-            Some(x) => x.0.captures[0].node,
-            None => {
-                let mut point = Point::from(node.range().end_point);
-                // This compensates the keyword `end`.
-                point.shift_left(3);
-                return Ok(Self::new_empty(point));
-            }
-        };
-
-        let query = Query::new(lang, "(assertion_clause (expression)) @x").unwrap();
-        let mut assertion_clause_matches = cursor.matches(&query, node.clone(), src.as_bytes());
-
-        let mut clauses: Vec<Clause> = Vec::new();
-        while let Some(mat) = assertion_clause_matches.next() {
-            for cap in mat.captures {
-                clauses.push(Clause::parse(&cap.node, src)?)
-            }
-        }
+        let clauses: Vec<_> = cursor
+            .matches(&query, node.clone(), src.as_bytes())
+            .map_deref(|mat| mat.captures)
+            .flatten()
+            .filter_map(|cap| Clause::parse(&cap.node, &mut QueryCursor::new(), src).ok())
+            .collect();
 
         Ok(Self::new(clauses.into(), node.range().into()))
     }
@@ -600,10 +551,6 @@ impl From<Vec<Clause>> for Postcondition {
     }
 }
 impl Type for Postcondition {
-    fn query() -> Query {
-        Query::new(&tree_sitter_eiffel::LANGUAGE.into(), "(postcondition) @x")
-            .expect("fails to create postcondition query.")
-    }
     fn keyword() -> Keyword {
         Keyword::Ensure
     }
@@ -709,7 +656,7 @@ end"#;
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
 
         let node = captures.next().unwrap().0.captures[0].node;
-        let clause = Clause::parse(&node, &src).expect("Parse feature");
+        let clause = Clause::parse(&node, &mut binding, &src).expect("Parse feature");
         assert_eq!(clause.tag, Tag::from(String::new()));
         assert_eq!(clause.predicate, Predicate::new("True".to_string()));
     }
@@ -723,30 +670,29 @@ class A feature
     do
     end
 end"#;
-        let mut parser = ::tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-        let tree = parser.parse(src, None).unwrap();
+        let class = Class::from_source(src);
+        let feature = class
+            .features()
+            .first()
+            .expect("class `A` has feature `x`.");
+        eprintln!("{feature:?}");
 
-        let query = ::tree_sitter::Query::new(
-            &tree_sitter_eiffel::LANGUAGE.into(),
-            "(attribute_or_routine) @x",
-        )
-        .unwrap();
+        assert!(feature.supports_precondition_block());
+        assert!(feature.supports_postcondition_block());
 
-        let mut binding = QueryCursor::new();
-        let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
+        let precondition = feature
+            .preconditions()
+            .expect("feature has precondition block.");
 
-        let node = captures.next().unwrap().0.captures[0].node;
+        let clause = precondition
+            .first()
+            .expect("precondition block has trivial assertion clause.");
 
-        let mut precondition =
-            <Block<Precondition>>::parse(&node, &src).expect("fails to parse precondition.");
-        let predicate = Predicate::new("True".to_string());
-        let tag = Tag(String::new());
-        let clause = precondition.item.pop().expect("Parse clause");
-        assert_eq!(clause.predicate, predicate);
-        assert_eq!(clause.tag, tag);
+        let predicate = &clause.predicate;
+        let tag = &clause.tag;
+
+        assert_eq!(*predicate, Predicate::new("True".to_string()));
+        assert_eq!(*tag, Tag(String::new()));
     }
     #[test]
     fn parse_postcondition() {
@@ -758,30 +704,20 @@ class A feature
       True
     end
 end"#;
-        let mut parser = ::tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-        let tree = parser.parse(src, None).unwrap();
+        let class = Class::from_source(src);
+        let feature = class.features().first().expect("first feature is `x`.");
 
-        let query = ::tree_sitter::Query::new(
-            &tree_sitter_eiffel::LANGUAGE.into(),
-            "(attribute_or_routine) @x",
-        )
-        .unwrap();
+        let postcondition = feature
+            .postconditions()
+            .expect("postcondition block with trivial postcondition.");
 
-        let mut binding = QueryCursor::new();
-        let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
+        let clause = postcondition
+            .first()
+            .expect("trivial postcondition clause.");
+        assert_eq!(postcondition.len(), 1);
 
-        let node = captures.next().unwrap().0.captures[0].node;
-
-        let mut postcondition =
-            <Block<Postcondition>>::parse(&node, &src).expect("fails to parse postcondition.");
-        let predicate = Predicate::new("True".to_string());
-        let tag = Tag(String::new());
-        let clause = postcondition.item.pop().expect("Parse clause");
-        assert_eq!(clause.predicate, predicate);
-        assert_eq!(clause.tag, tag);
+        assert_eq!(&clause.predicate, &Predicate::new("True".to_string()));
+        assert_eq!(&clause.tag, &Tag(String::new()));
     }
     // For gemini completions.
     // When the LSP grows in maturity, gemini will be decoupled and these tests will be moved to a compatibility layer.
