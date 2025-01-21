@@ -40,6 +40,7 @@ async fn main() -> anyhow::Result<()> {
         router.set_handler_request::<request::CodeActionRequest>();
         router.set_handler_notification::<notification::Initialized>();
         router.set_handler_notification::<notification::DidOpenTextDocument>();
+        router.set_handler_notification::<notification::DidSaveTextDocument>();
         router.set_handler_notification::<notification::DidChangeTextDocument>();
         router.set_handler_notification::<notification::DidCloseTextDocument>();
         router.set_handler_notification::<notification::DidChangeConfiguration>();

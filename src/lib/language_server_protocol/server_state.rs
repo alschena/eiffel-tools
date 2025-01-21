@@ -1,13 +1,14 @@
-use crate::lib::code_entities::prelude::*;
 use crate::lib::config::System;
 use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use async_lsp::ClientSocket;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::task::JoinSet;
+use tracing::warn;
 
 #[derive(Clone)]
 pub struct ServerState {
@@ -15,13 +16,10 @@ pub struct ServerState {
     pub workspace: Arc<RwLock<Workspace>>,
     pub tasks: Arc<Mutex<Vec<Task>>>,
 }
+#[derive(Debug)]
 pub enum Task {
     LoadConfig(System),
-}
-impl From<System> for Task {
-    fn from(value: System) -> Self {
-        Task::LoadConfig(value)
-    }
+    ReloadFile(PathBuf),
 }
 impl ServerState {
     pub fn new(client: ClientSocket) -> ServerState {
@@ -39,6 +37,7 @@ impl ServerState {
         let tasks = self.tasks.clone();
         let mut tasks = tasks.lock().await;
         let Some(task) = tasks.pop() else { return };
+        warn!("processing task {task:?}");
         match task {
             Task::LoadConfig(system) => {
                 let eiffel_files = system.eiffel_files();
@@ -56,9 +55,20 @@ impl ServerState {
                     .into_iter()
                     .filter_map(|file| file)
                     .collect();
-                let ws = self.workspace.clone();
-                let mut ws = ws.write().await;
+                let mut ws = self.workspace.write().await;
                 ws.set_files(files);
+            }
+            Task::ReloadFile(file) => {
+                let mut ws = self.workspace.write().await;
+                if let Some(file) = ws.find_file_mut(&file) {
+                    let mut parser = tree_sitter::Parser::new();
+                    parser
+                        .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+                        .expect("Error loading Eiffel grammar");
+                    file.reload(&mut parser).await;
+                } else {
+                    warn!("file not found at path: {file:?}")
+                }
             }
         }
     }

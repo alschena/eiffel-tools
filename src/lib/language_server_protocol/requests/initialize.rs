@@ -1,9 +1,15 @@
 use crate::lib::config::System;
 use crate::lib::language_server_protocol::prelude::*;
-use async_lsp::lsp_types::{
-    request::{Initialize, Request},
-    HoverProviderCapability, InitializeResult, OneOf, ServerCapabilities,
-};
+use crate::lib::language_server_protocol::server_state::Task;
+use async_lsp::lsp_types::request::Initialize;
+use async_lsp::lsp_types::request::Request;
+use async_lsp::lsp_types::HoverProviderCapability;
+use async_lsp::lsp_types::InitializeResult;
+use async_lsp::lsp_types::OneOf;
+use async_lsp::lsp_types::ServerCapabilities;
+use async_lsp::lsp_types::TextDocumentSyncCapability;
+use async_lsp::lsp_types::TextDocumentSyncOptions;
+use async_lsp::lsp_types::TextDocumentSyncSaveOptions;
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::env;
@@ -45,7 +51,7 @@ impl HandleRequest for Initialize {
             panic!("fails to read config file")
         };
         async move {
-            st.add_task(system.into()).await;
+            st.add_task(Task::LoadConfig(system)).await;
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
                     hover_provider: Some(HoverProviderCapability::Simple(true)),
@@ -53,6 +59,12 @@ impl HandleRequest for Initialize {
                     document_symbol_provider: Some(OneOf::Left(true)),
                     workspace_symbol_provider: Some(OneOf::Left(true)),
                     code_action_provider: Some(true.into()),
+                    text_document_sync: Some(TextDocumentSyncCapability::Options(
+                        TextDocumentSyncOptions {
+                            save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                            ..TextDocumentSyncOptions::default()
+                        },
+                    )),
                     ..ServerCapabilities::default()
                 },
                 server_info: None,
