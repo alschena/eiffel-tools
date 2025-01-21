@@ -3,6 +3,7 @@ use crate::lib::language_server_protocol::prelude::*;
 use async_lsp::lsp_types::{
     request::{Initialize, Request},
     HoverProviderCapability, InitializeResult, OneOf, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncOptions, TextDocumentSyncSaveOptions,
 };
 use async_lsp::ResponseError;
 use async_lsp::Result;
@@ -53,6 +54,12 @@ impl HandleRequest for Initialize {
                     document_symbol_provider: Some(OneOf::Left(true)),
                     workspace_symbol_provider: Some(OneOf::Left(true)),
                     code_action_provider: Some(true.into()),
+                    text_document_sync: Some(TextDocumentSyncCapability::Options(
+                        TextDocumentSyncOptions {
+                            save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                            ..TextDocumentSyncOptions::default()
+                        },
+                    )),
                     ..ServerCapabilities::default()
                 },
                 server_info: None,
