@@ -5,6 +5,7 @@ use async_lsp::lsp_types::notification::{
 };
 use async_lsp::Result;
 use std::ops::ControlFlow;
+mod did_save_text_document;
 mod initialization;
 
 pub trait HandleNotification: Notification {

@@ -5,6 +5,7 @@ use async_lsp::lsp_types;
 use std::path::{Path, PathBuf};
 use tracing::info;
 use tracing::instrument;
+use tracing::warn;
 use tree_sitter::QueryCursor;
 use tree_sitter::{Parser, Tree};
 
@@ -45,6 +46,24 @@ impl ProcessedFile {
             None => None,
         }
     }
+    pub fn reload(&mut self, parser: &mut Parser) {
+        let src = std::fs::read_to_string(self.path()).expect("read file.");
+        let tree = parser.parse(&src, None).unwrap();
+        Class::parse(&tree.root_node(), &mut QueryCursor::new(), src.as_str())
+            .inspect(|val| {
+                info!("reloading file at {:#?}", self.path());
+                info!("old class {:#?}", self.class());
+                info!("new class {:#?}", val);
+            })
+            .inspect_err(|e| {
+                warn!(
+                    "fails to reload file at path: {:#?}\n\twith error {e:#?}",
+                    self.path()
+                )
+            })
+            .ok()
+            .map(|class| self.class = class);
+    }
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -76,9 +95,10 @@ impl ProcessedFile {
                     injections.next();
                 }
                 Some((&Point { row, column }, text)) if row == linenum => {
-                    feature_src.push_str(&line[..column]);
+                    let safe_column = std::primitive::usize::min(column, line.len());
+                    feature_src.push_str(&line[..safe_column]);
                     feature_src.push_str(text);
-                    feature_src.push_str(&line[column..]);
+                    feature_src.push_str(&line[safe_column..]);
                     feature_src.push('\n');
                     injections.next();
                 }
@@ -161,6 +181,53 @@ end
         assert_eq!("A", processed_file.class().name());
     }
     #[tokio::test]
+    async fn reload() {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+
+        let temp_dir = TempDir::new().expect("must create temporary directory.");
+        let file = temp_dir.child("processed_file_new.e");
+        file.write_str(
+            r#"
+class A
+feature
+  x: INTEGER
+end
+            "#,
+        )
+        .expect("write to file");
+        assert!(file.exists());
+
+        let mut processed_file = ProcessedFile::new(&mut parser, file.to_path_buf())
+            .await
+            .expect("processed file must be produced.");
+
+        assert_eq!(file.to_path_buf(), processed_file.path());
+
+        assert_eq!(processed_file.class().features().len(), 1);
+
+        file.write_str(
+            r#"
+class A
+feature
+  x: INTEGER
+  y: INTEGER
+end
+            "#,
+        )
+        .expect("temp file must be writable");
+
+        processed_file.reload(&mut parser);
+
+        assert_eq!(
+            processed_file.class().features().len(),
+            2,
+            "after reload there are two parsed features."
+        )
+    }
+    #[tokio::test]
     async fn feature_str_with_injections() {
         let temp_dir = TempDir::new().expect("must create temporary directory.");
         let file = temp_dir.child("processed_file_new.e");
@@ -188,9 +255,7 @@ end
             .features()
             .first()
             .expect("There is a feature");
-        let range = feature.range();
         let begin = feature.range().start();
-        let end = feature.range().end();
 
         let text_with_injection = processed_file
             .feature_src_with_injections(

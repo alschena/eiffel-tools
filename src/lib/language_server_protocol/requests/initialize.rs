@@ -3,6 +3,7 @@ use crate::lib::language_server_protocol::prelude::*;
 use async_lsp::lsp_types::{
     request::{Initialize, Request},
     HoverProviderCapability, InitializeResult, OneOf, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncOptions, TextDocumentSyncSaveOptions,
 };
 use async_lsp::ResponseError;
 use async_lsp::Result;
@@ -13,7 +14,7 @@ use std::path::PathBuf;
 
 impl HandleRequest for Initialize {
     fn handle_request(
-        mut st: ServerState,
+        st: ServerState,
         params: <Self as Request>::Params,
     ) -> impl Future<Output = Result<<Self as Request>::Result, ResponseError>> + Send + 'static
     {
@@ -45,7 +46,10 @@ impl HandleRequest for Initialize {
             panic!("fails to read config file")
         };
         async move {
-            st.add_task(system.into()).await;
+            tokio::spawn(async move {
+                let mut ws = st.workspace.write().await;
+                ws.load_system(&system).await;
+            });
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
                     hover_provider: Some(HoverProviderCapability::Simple(true)),
@@ -53,6 +57,12 @@ impl HandleRequest for Initialize {
                     document_symbol_provider: Some(OneOf::Left(true)),
                     workspace_symbol_provider: Some(OneOf::Left(true)),
                     code_action_provider: Some(true.into()),
+                    text_document_sync: Some(TextDocumentSyncCapability::Options(
+                        TextDocumentSyncOptions {
+                            save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                            ..TextDocumentSyncOptions::default()
+                        },
+                    )),
                     ..ServerCapabilities::default()
                 },
                 server_info: None,
