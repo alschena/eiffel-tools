@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 impl HandleRequest for Initialize {
     fn handle_request(
-        mut st: ServerState,
+        st: ServerState,
         params: <Self as Request>::Params,
     ) -> impl Future<Output = Result<<Self as Request>::Result, ResponseError>> + Send + 'static
     {
@@ -46,7 +46,10 @@ impl HandleRequest for Initialize {
             panic!("fails to read config file")
         };
         async move {
-            st.add_task(system.into()).await;
+            tokio::spawn(async move {
+                let mut ws = st.workspace.write().await;
+                ws.load_system(&system).await;
+            });
             Ok(InitializeResult {
                 capabilities: ServerCapabilities {
                     hover_provider: Some(HoverProviderCapability::Simple(true)),

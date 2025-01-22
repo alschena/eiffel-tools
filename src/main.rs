@@ -7,7 +7,6 @@ use async_lsp::tracing::TracingLayer;
 use async_lsp::{client_monitor::ClientProcessMonitorLayer, lsp_types::notification};
 use eiffel_tools::lib::language_server_protocol::prelude::*;
 use std::path::Path;
-use std::time::Duration;
 use tower::ServiceBuilder;
 use tracing_subscriber::filter;
 use tracing_subscriber::fmt::{self, format::FmtSpan};
@@ -19,17 +18,6 @@ use tracing_subscriber::{Layer, Registry};
 async fn main() -> anyhow::Result<()> {
     let (server, _) = async_lsp::MainLoop::new_server(|client| {
         let server_state = ServerState::new(client.clone());
-
-        tokio::spawn({
-            let mut server = server_state.clone();
-            async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(1));
-                loop {
-                    interval.tick().await;
-                    server.process_task().await
-                }
-            }
-        });
 
         let mut router = Router::new(server_state);
         router.set_handler_request::<request::Initialize>();
