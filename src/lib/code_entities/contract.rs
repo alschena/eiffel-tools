@@ -1,9 +1,7 @@
 use super::prelude::*;
-use crate::lib::code_entities::feature::Notes;
 use crate::lib::tree_sitter_extension::capture_name_to_nodes;
 use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
-use anyhow::anyhow;
 use gemini::{Described, ResponseSchema, ToResponseSchema};
 use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
@@ -23,20 +21,15 @@ pub(crate) trait Valid: Debug {
         current_feature: &Feature,
     ) -> bool {
         self.decorated_valid_syntax()
-            && self.decorated_valid_identifiers(system_classes, current_class, current_feature)
+            && self.decorated_valid_top_level_identifiers(
+                system_classes,
+                current_class,
+                current_feature,
+            )
             && self.decorated_valid_calls(system_classes, current_class)
+            && self.decorated_valid_no_repetition(system_classes, current_class, current_feature)
     }
     fn valid_syntax(&self) -> bool;
-    fn valid_top_level_identifiers(
-        &self,
-        system_classes: &[&Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool;
-    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
-        true
-    }
-
     fn decorated_valid_syntax(&self) -> bool {
         let value = self.valid_syntax();
         if !value {
@@ -44,7 +37,13 @@ pub(crate) trait Valid: Debug {
         }
         value
     }
-    fn decorated_valid_identifiers(
+    fn valid_top_level_identifiers(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> bool;
+    fn decorated_valid_top_level_identifiers(
         &self,
         system_classes: &[&Class],
         current_class: &Class,
@@ -57,10 +56,33 @@ pub(crate) trait Valid: Debug {
         }
         value
     }
+    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
+        true
+    }
     fn decorated_valid_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
         let value = self.valid_top_level_calls(system_classes, current_class);
         if !value {
             info!(target: "gemini","filtered by invalid top level call {self:?}");
+        }
+        value
+    }
+    fn valid_no_repetition(
+        &self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        _current_feature: &Feature,
+    ) -> bool {
+        true
+    }
+    fn decorated_valid_no_repetition(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> bool {
+        let value = self.valid_no_repetition(system_classes, current_class, current_feature);
+        if !value {
+            info!(target: "gemini","filter because the clause is repeated.");
         }
         value
     }
@@ -161,6 +183,17 @@ impl Valid for Clause {
                 .tag
                 .valid_top_level_identifiers(system_classes, current_class, current_feature)
     }
+    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
+        todo!()
+    }
+    fn valid_no_repetition(
+        &self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        _current_feature: &Feature,
+    ) -> bool {
+        todo!()
+    }
 }
 impl Parse for Clause {
     type Error = anyhow::Error;
@@ -224,6 +257,17 @@ impl Valid for Tag {
         _current_feature: &Feature,
     ) -> bool {
         true
+    }
+    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
+        todo!()
+    }
+    fn valid_no_repetition(
+        &self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        _current_feature: &Feature,
+    ) -> bool {
+        todo!()
     }
 }
 impl Display for Tag {
@@ -383,6 +427,14 @@ impl Valid for Predicate {
                 .is_some_and(|feature| feature.number_parameters() == args.len())
         })
     }
+    fn valid_no_repetition(
+        &self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> bool {
+        todo!()
+    }
 }
 impl Display for Predicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -430,6 +482,17 @@ impl Valid for Precondition {
         self.iter().all(|clause| {
             clause.valid_top_level_identifiers(system_classes, current_class, current_feature)
         })
+    }
+    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
+        todo!()
+    }
+    fn valid_no_repetition(
+        &self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        _current_feature: &Feature,
+    ) -> bool {
+        todo!()
     }
 }
 impl From<Vec<Clause>> for Precondition {
@@ -518,6 +581,17 @@ impl Valid for Postcondition {
             clause.valid_top_level_identifiers(system_classes, current_class, current_feature)
         })
     }
+    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
+        todo!()
+    }
+    fn valid_no_repetition(
+        &self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        _current_feature: &Feature,
+    ) -> bool {
+        todo!()
+    }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
 pub struct RoutineSpecification {
@@ -543,6 +617,17 @@ impl Valid for RoutineSpecification {
             current_class,
             current_feature,
         )
+    }
+    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
+        todo!()
+    }
+    fn valid_no_repetition(
+        &self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        _current_feature: &Feature,
+    ) -> bool {
+        todo!()
     }
 }
 impl From<Vec<Clause>> for Postcondition {
