@@ -470,11 +470,15 @@ impl Valid for Precondition {
         _current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
-        current_feature.preconditions().is_none_or(|pre| {
-            self.iter()
-                .map(|clause| &clause.predicate)
-                .all(|predicate| pre.iter().any(|c| &c.predicate == predicate))
-        })
+        self.iter()
+            .map(|clause| &clause.predicate)
+            .enumerate()
+            .all(|(n, predicate)| {
+                self.iter().skip(n + 1).all(|c| &c.predicate != predicate)
+                    && current_feature
+                        .preconditions()
+                        .is_none_or(|pre| pre.iter().all(|c| &c.predicate != predicate))
+            })
     }
 }
 impl From<Vec<Clause>> for Precondition {
@@ -573,11 +577,15 @@ impl Valid for Postcondition {
         _current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
-        current_feature.postconditions().is_none_or(|post| {
-            self.iter()
-                .map(|clause| &clause.predicate)
-                .all(|postdicate| post.iter().any(|c| &c.predicate == postdicate))
-        })
+        self.iter()
+            .map(|clause| &clause.predicate)
+            .enumerate()
+            .all(|(n, predicate)| {
+                self.iter().skip(n + 1).all(|c| &c.predicate != predicate)
+                    && current_feature
+                        .postconditions()
+                        .is_none_or(|pre| pre.iter().all(|c| &c.predicate != predicate))
+            })
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
@@ -1071,5 +1079,84 @@ end"#;
         assert!(vp.valid(&system_classes, &c, f));
         assert!(!ip.valid(&system_classes, &c, f));
         assert!(!ip2.valid(&system_classes, &c, f));
+    }
+
+    #[test]
+    fn invalid_routine_specification_for_repetition() {
+        let src = "
+            class
+                A
+            feature
+                x (f: BOOLEAN, r: BOOLEAN): BOOLEAN
+                    require
+                        t: f = True
+                    do
+                        Result := f
+                    ensure
+                        res: Result = True
+                    end
+            end
+        ";
+        let c = Class::from_source(src);
+        let f = c.features().first().unwrap();
+        let system_classes = vec![&c];
+
+        let vpr = Precondition(vec![Clause::new(
+            Tag("q".to_string()),
+            Predicate("f = r".to_string()),
+        )]);
+        let ipr = Precondition(vec![Clause::new(
+            Tag("s".to_string()),
+            Predicate("f = True".to_string()),
+        )]);
+        let ipr2 = Precondition(vec![
+            Clause::new(Tag("s".to_string()), Predicate("f = r".to_string())),
+            Clause::new(Tag("ss".to_string()), Predicate("f = r".to_string())),
+        ]);
+
+        let vpo = Postcondition(vec![Clause::new(
+            Tag("q".to_string()),
+            Predicate("Result = f".to_string()),
+        )]);
+        let ipo = Postcondition(vec![Clause::new(
+            Tag("t".to_string()),
+            Predicate("Result = True".to_string()),
+        )]);
+        let ipo2 = Postcondition(vec![
+            Clause::new(Tag("q".to_string()), Predicate("Result = f".to_string())),
+            Clause::new(Tag("qq".to_string()), Predicate("Result = f".to_string())),
+        ]);
+
+        assert!(
+            vpr.valid(&system_classes, &c, f),
+            "feature's precondition: {}\nvalid precondition: {vpr}",
+            f.preconditions().unwrap()
+        );
+        assert!(
+            !ipr.valid(&system_classes, &c, f),
+            "feature's precondition: {}\ninvalid precondition: {ipr}",
+            f.preconditions().unwrap()
+        );
+        assert!(
+            !ipr2.valid(&system_classes, &c, f),
+            "feature's precondition: {}\ninvalid precondition: {ipr2}",
+            f.preconditions().unwrap()
+        );
+
+        assert!(
+            vpo.valid(&system_classes, &c, f),
+            "feature's postcondition: {}\nvalid postcondition: {vpo}",
+            f.postconditions().unwrap()
+        );
+        assert!(
+            !ipo.valid(&system_classes, &c, f),
+            "feature's postcondition: {}\ninvalid postcondition: {ipo}",
+            f.postconditions().unwrap()
+        );
+        assert!(
+            !ipo2.valid(&system_classes, &c, f),
+            "feature's postcondition: {}\ninvalid precondition: {ipo2}",
+            f.postconditions().unwrap()
+        );
     }
 }
