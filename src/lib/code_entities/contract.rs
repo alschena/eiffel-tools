@@ -183,16 +183,12 @@ impl Valid for Clause {
                 .tag
                 .valid_top_level_identifiers(system_classes, current_class, current_feature)
     }
-    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
-        todo!()
-    }
-    fn valid_no_repetition(
-        &self,
-        _system_classes: &[&Class],
-        _current_class: &Class,
-        _current_feature: &Feature,
-    ) -> bool {
-        todo!()
+    fn valid_top_level_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.tag
+            .valid_top_level_calls(system_classes, current_class)
+            && self
+                .predicate
+                .valid_top_level_calls(system_classes, current_class)
     }
 }
 impl Parse for Clause {
@@ -257,17 +253,6 @@ impl Valid for Tag {
         _current_feature: &Feature,
     ) -> bool {
         true
-    }
-    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
-        todo!()
-    }
-    fn valid_no_repetition(
-        &self,
-        _system_classes: &[&Class],
-        _current_class: &Class,
-        _current_feature: &Feature,
-    ) -> bool {
-        todo!()
     }
 }
 impl Display for Tag {
@@ -427,14 +412,6 @@ impl Valid for Predicate {
                 .is_some_and(|feature| feature.number_parameters() == args.len())
         })
     }
-    fn valid_no_repetition(
-        &self,
-        system_classes: &[&Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        todo!()
-    }
 }
 impl Display for Predicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -483,16 +460,21 @@ impl Valid for Precondition {
             clause.valid_top_level_identifiers(system_classes, current_class, current_feature)
         })
     }
-    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
-        todo!()
+    fn valid_top_level_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.iter()
+            .all(|clause| clause.valid_top_level_calls(system_classes, current_class))
     }
     fn valid_no_repetition(
         &self,
         _system_classes: &[&Class],
         _current_class: &Class,
-        _current_feature: &Feature,
+        current_feature: &Feature,
     ) -> bool {
-        todo!()
+        current_feature.preconditions().is_none_or(|pre| {
+            self.iter()
+                .map(|clause| &clause.predicate)
+                .all(|predicate| pre.iter().any(|c| &c.predicate == predicate))
+        })
     }
 }
 impl From<Vec<Clause>> for Precondition {
@@ -581,16 +563,21 @@ impl Valid for Postcondition {
             clause.valid_top_level_identifiers(system_classes, current_class, current_feature)
         })
     }
-    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
-        todo!()
+    fn valid_top_level_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.iter()
+            .all(|clause| clause.valid_top_level_calls(system_classes, current_class))
     }
     fn valid_no_repetition(
         &self,
         _system_classes: &[&Class],
         _current_class: &Class,
-        _current_feature: &Feature,
+        current_feature: &Feature,
     ) -> bool {
-        todo!()
+        current_feature.postconditions().is_none_or(|post| {
+            self.iter()
+                .map(|clause| &clause.predicate)
+                .all(|postdicate| post.iter().any(|c| &c.predicate == postdicate))
+        })
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
@@ -618,16 +605,26 @@ impl Valid for RoutineSpecification {
             current_feature,
         )
     }
-    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
-        todo!()
+    fn valid_top_level_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.precondition
+            .valid_top_level_calls(system_classes, current_class)
+            && self
+                .postcondition
+                .valid_top_level_calls(system_classes, current_class)
     }
     fn valid_no_repetition(
         &self,
-        _system_classes: &[&Class],
-        _current_class: &Class,
-        _current_feature: &Feature,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
     ) -> bool {
-        todo!()
+        self.precondition
+            .valid_no_repetition(system_classes, current_class, current_feature)
+            && self.postcondition.valid_no_repetition(
+                system_classes,
+                current_class,
+                current_feature,
+            )
     }
 }
 impl From<Vec<Clause>> for Postcondition {
