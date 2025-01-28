@@ -13,58 +13,48 @@ use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tracing::info;
 use tree_sitter::{Node, Query, QueryCursor, Tree};
+
+#[derive(Debug)]
+pub enum ValidityError {
+    Syntax,
+    Identifiers,
+    Calls,
+    Repetition,
+}
 pub(crate) trait Valid: Debug {
-    fn valid(
+    fn validity(
         &self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> bool {
-        self.decorated_valid_syntax()
-            && self.decorated_valid_top_level_identifiers(
-                system_classes,
-                current_class,
-                current_feature,
-            )
-            && self.decorated_valid_calls(system_classes, current_class)
-            && self.decorated_valid_no_repetition(system_classes, current_class, current_feature)
+    ) -> Result<(), ValidityError> {
+        if !self.valid_syntax() {
+            info!("invalid syntax: {self:#?}");
+            return Err(ValidityError::Syntax);
+        }
+        if !self.valid_identifiers(system_classes, current_class, current_feature) {
+            info!("invalid identifiers: {self:#?}");
+            return Err(ValidityError::Identifiers);
+        }
+        if !self.valid_calls(system_classes, current_class) {
+            info!("invalid calls: {self:#?}");
+            return Err(ValidityError::Calls);
+        }
+        if !self.valid_no_repetition(system_classes, current_class, current_feature) {
+            info!("invalid for repetition: {self:#?}");
+            return Err(ValidityError::Repetition);
+        }
+        Ok(())
     }
     fn valid_syntax(&self) -> bool;
-    fn decorated_valid_syntax(&self) -> bool {
-        let value = self.valid_syntax();
-        if !value {
-            info!(target: "gemini","filtered by syntax {self:?}");
-        }
-        value
-    }
-    fn valid_top_level_identifiers(
+    fn valid_identifiers(
         &self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool;
-    fn decorated_valid_top_level_identifiers(
-        &self,
-        system_classes: &[&Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        let value =
-            self.valid_top_level_identifiers(system_classes, current_class, current_feature);
-        if !value {
-            info!(target: "gemini","filtered by invalid identifier {self:?}");
-        }
-        value
-    }
-    fn valid_top_level_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
+    fn valid_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
         true
-    }
-    fn decorated_valid_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
-        let value = self.valid_top_level_calls(system_classes, current_class);
-        if !value {
-            info!(target: "gemini","filtered by invalid top level call {self:?}");
-        }
-        value
     }
     fn valid_no_repetition(
         &self,
@@ -74,17 +64,68 @@ pub(crate) trait Valid: Debug {
     ) -> bool {
         true
     }
-    fn decorated_valid_no_repetition(
-        &self,
+}
+pub(crate) trait Fix: Valid {
+    fn fix(
+        &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> bool {
-        let value = self.valid_no_repetition(system_classes, current_class, current_feature);
-        if !value {
-            info!(target: "gemini","filter because the clause is repeated.");
+    ) -> Result<(), ValidityError> {
+        while let Err(e) = self.validity(system_classes, current_class, current_feature) {
+            eprintln!("{e:#?}");
+            match e {
+                ValidityError::Syntax => {
+                    self.fix_syntax(system_classes, current_class, current_feature)?;
+                    info!("applied syntax fix to {self:#?}");
+                }
+                ValidityError::Identifiers => {
+                    self.fix_identifiers(system_classes, current_class, current_feature)?;
+                    info!("applied identifiers fix to {self:#?}");
+                }
+                ValidityError::Calls => {
+                    self.fix_calls(system_classes, current_class, current_feature)?;
+                    info!("applied calls fix to {self:#?}");
+                }
+                ValidityError::Repetition => {
+                    self.fix_repetition(system_classes, current_class, current_feature)?;
+                    info!("applied repetition fix to {self:#?}");
+                }
+            }
         }
-        value
+        Ok(())
+    }
+    fn fix_syntax(
+        &mut self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        _current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        return Err(ValidityError::Syntax);
+    }
+    fn fix_identifiers(
+        &mut self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        _current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        return Err(ValidityError::Identifiers);
+    }
+    fn fix_calls(
+        &mut self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        _current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        return Err(ValidityError::Calls);
+    }
+    fn fix_repetition(
+        &mut self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        _current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        return Err(ValidityError::Repetition);
     }
 }
 pub trait Type {
@@ -171,24 +212,21 @@ impl Valid for Clause {
     fn valid_syntax(&self) -> bool {
         self.predicate.valid_syntax() && self.tag.valid_syntax()
     }
-    fn valid_top_level_identifiers(
+    fn valid_identifiers(
         &self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
         self.predicate
-            .valid_top_level_identifiers(system_classes, current_class, current_feature)
+            .valid_identifiers(system_classes, current_class, current_feature)
             && self
                 .tag
-                .valid_top_level_identifiers(system_classes, current_class, current_feature)
+                .valid_identifiers(system_classes, current_class, current_feature)
     }
-    fn valid_top_level_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
-        self.tag
-            .valid_top_level_calls(system_classes, current_class)
-            && self
-                .predicate
-                .valid_top_level_calls(system_classes, current_class)
+    fn valid_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.tag.valid_calls(system_classes, current_class)
+            && self.predicate.valid_calls(system_classes, current_class)
     }
 }
 impl Parse for Clause {
@@ -246,7 +284,7 @@ impl Valid for Tag {
     fn valid_syntax(&self) -> bool {
         !self.as_str().contains(" ")
     }
-    fn valid_top_level_identifiers(
+    fn valid_identifiers(
         &self,
         _system_classes: &[&Class],
         _current_class: &Class,
@@ -377,7 +415,7 @@ impl Valid for Predicate {
             }
         }
     }
-    fn valid_top_level_identifiers(
+    fn valid_identifiers(
         &self,
         system_classes: &[&Class],
         current_class: &Class,
@@ -400,7 +438,7 @@ impl Valid for Predicate {
         })
     }
     /// NOTE: For now only checks the number of arguments of each unqualified call is correct.
-    fn valid_top_level_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+    fn valid_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
         let calls = self.top_level_calls_with_arguments();
         calls.iter().all(|&(id, ref args)| {
             current_class
@@ -423,9 +461,26 @@ impl Predicate {
         Predicate(s)
     }
 }
+
 #[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone, Hash)]
 #[serde(transparent)]
 pub struct Precondition(Vec<Clause>);
+
+impl Precondition {
+    fn redundant_clauses_wrt_feature<'a>(
+        &self,
+        feature: &'a Feature,
+    ) -> impl Iterator<Item = (usize, &Clause)> + use<'_, 'a> {
+        self.iter().enumerate().filter(|(n, c)| {
+            self.iter()
+                .skip(n + 1)
+                .any(|nc| &nc.predicate == &c.predicate)
+                || feature
+                    .preconditions()
+                    .is_some_and(|pre| pre.iter().any(|nc| &nc.predicate == &c.predicate))
+        })
+    }
+}
 
 impl Deref for Precondition {
     type Target = Vec<Clause>;
@@ -450,19 +505,18 @@ impl Valid for Precondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
     }
-    fn valid_top_level_identifiers(
+    fn valid_identifiers(
         &self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
-        self.iter().all(|clause| {
-            clause.valid_top_level_identifiers(system_classes, current_class, current_feature)
-        })
-    }
-    fn valid_top_level_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
         self.iter()
-            .all(|clause| clause.valid_top_level_calls(system_classes, current_class))
+            .all(|clause| clause.valid_identifiers(system_classes, current_class, current_feature))
+    }
+    fn valid_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.iter()
+            .all(|clause| clause.valid_calls(system_classes, current_class))
     }
     fn valid_no_repetition(
         &self,
@@ -470,15 +524,28 @@ impl Valid for Precondition {
         _current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
-        self.iter()
-            .map(|clause| &clause.predicate)
-            .enumerate()
-            .all(|(n, predicate)| {
-                self.iter().skip(n + 1).all(|c| &c.predicate != predicate)
-                    && current_feature
-                        .preconditions()
-                        .is_none_or(|pre| pre.iter().all(|c| &c.predicate != predicate))
-            })
+        self.redundant_clauses_wrt_feature(current_feature)
+            .next()
+            .is_none()
+    }
+}
+impl Fix for Precondition {
+    fn fix_repetition(
+        &mut self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        let indexes_to_remove: Vec<usize> = self
+            .redundant_clauses_wrt_feature(current_feature)
+            .map(|(n, _)| n)
+            .collect();
+
+        indexes_to_remove.into_iter().for_each(|i| {
+            self.swap_remove(i);
+        });
+
+        Ok(())
     }
 }
 impl From<Vec<Clause>> for Precondition {
@@ -533,6 +600,22 @@ impl Parse for Block<Postcondition> {
 #[serde(transparent)]
 pub struct Postcondition(Vec<Clause>);
 
+impl Postcondition {
+    fn redundant_clauses_wrt_feature<'a>(
+        &self,
+        feature: &'a Feature,
+    ) -> impl Iterator<Item = (usize, &Clause)> + use<'_, 'a> {
+        self.iter().enumerate().filter(|(n, c)| {
+            self.iter()
+                .skip(n + 1)
+                .any(|nc| &nc.predicate == &c.predicate)
+                || feature
+                    .postconditions()
+                    .is_some_and(|pre| pre.iter().any(|nc| &nc.predicate == &c.predicate))
+        })
+    }
+}
+
 impl Deref for Postcondition {
     type Target = Vec<Clause>;
 
@@ -557,19 +640,18 @@ impl Valid for Postcondition {
     fn valid_syntax(&self) -> bool {
         self.iter().all(|clause| clause.valid_syntax())
     }
-    fn valid_top_level_identifiers(
+    fn valid_identifiers(
         &self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
-        self.iter().all(|clause| {
-            clause.valid_top_level_identifiers(system_classes, current_class, current_feature)
-        })
-    }
-    fn valid_top_level_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
         self.iter()
-            .all(|clause| clause.valid_top_level_calls(system_classes, current_class))
+            .all(|clause| clause.valid_identifiers(system_classes, current_class, current_feature))
+    }
+    fn valid_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.iter()
+            .all(|clause| clause.valid_calls(system_classes, current_class))
     }
     fn valid_no_repetition(
         &self,
@@ -577,15 +659,28 @@ impl Valid for Postcondition {
         _current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
-        self.iter()
-            .map(|clause| &clause.predicate)
-            .enumerate()
-            .all(|(n, predicate)| {
-                self.iter().skip(n + 1).all(|c| &c.predicate != predicate)
-                    && current_feature
-                        .postconditions()
-                        .is_none_or(|pre| pre.iter().all(|c| &c.predicate != predicate))
-            })
+        self.redundant_clauses_wrt_feature(current_feature)
+            .next()
+            .is_none()
+    }
+}
+
+impl Fix for Postcondition {
+    fn fix_repetition(
+        &mut self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        let index_of_redundant_clauses: Vec<usize> = self
+            .redundant_clauses_wrt_feature(current_feature)
+            .map(|(n, _)| n)
+            .collect();
+
+        index_of_redundant_clauses.into_iter().for_each(|i| {
+            self.swap_remove(i);
+        });
+        Ok(())
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
@@ -597,28 +692,23 @@ impl Valid for RoutineSpecification {
     fn valid_syntax(&self) -> bool {
         self.precondition.valid_syntax() && self.postcondition.valid_syntax()
     }
-    fn valid_top_level_identifiers(
+    fn valid_identifiers(
         &self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
-        self.precondition.valid_top_level_identifiers(
-            system_classes,
-            current_class,
-            current_feature,
-        ) && self.postcondition.valid_top_level_identifiers(
-            system_classes,
-            current_class,
-            current_feature,
-        )
-    }
-    fn valid_top_level_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
         self.precondition
-            .valid_top_level_calls(system_classes, current_class)
+            .valid_identifiers(system_classes, current_class, current_feature)
             && self
                 .postcondition
-                .valid_top_level_calls(system_classes, current_class)
+                .valid_identifiers(system_classes, current_class, current_feature)
+    }
+    fn valid_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
+        self.precondition.valid_calls(system_classes, current_class)
+            && self
+                .postcondition
+                .valid_calls(system_classes, current_class)
     }
     fn valid_no_repetition(
         &self,
@@ -633,6 +723,30 @@ impl Valid for RoutineSpecification {
                 current_class,
                 current_feature,
             )
+    }
+}
+impl Fix for RoutineSpecification {
+    fn fix_repetition(
+        &mut self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        if !self
+            .precondition
+            .valid_no_repetition(system_classes, current_class, current_feature)
+        {
+            self.precondition
+                .fix_repetition(system_classes, current_class, current_feature)?;
+        }
+        if !self
+            .postcondition
+            .valid_no_repetition(system_classes, current_class, current_feature)
+        {
+            self.postcondition
+                .fix_repetition(system_classes, current_class, current_feature)?;
+        }
+        Ok(())
     }
 }
 impl From<Vec<Clause>> for Postcondition {
@@ -984,8 +1098,12 @@ end"#;
         let invalid_predicate = Predicate(String::from("z"));
         let valid_predicate = Predicate(String::from("x"));
 
-        assert!(!invalid_predicate.valid(&system_classes, &class, feature));
-        assert!(valid_predicate.valid(&system_classes, &class, feature));
+        assert!(!invalid_predicate
+            .validity(&system_classes, &class, feature)
+            .is_ok());
+        assert!(valid_predicate
+            .validity(&system_classes, &class, feature)
+            .is_ok());
     }
     #[test]
     fn valid_predicates_in_ancestors() {
@@ -1025,7 +1143,9 @@ end"#;
 
         let system_classes = vec![&child, &parent];
         let valid_predicate = Predicate(String::from("x"));
-        assert!(valid_predicate.valid(&system_classes, &child, feature));
+        assert!(valid_predicate
+            .validity(&system_classes, &child, feature)
+            .is_ok());
     }
     #[test]
     fn valid_predicate_of_parameters() {
@@ -1044,8 +1164,8 @@ end"#;
         let vp = Predicate::new("f".to_string());
         let ip = Predicate::new("r".to_string());
         let system_classes = vec![&c];
-        assert!(vp.valid(&system_classes, &c, f));
-        assert!(!ip.valid(&system_classes, &c, f));
+        assert!(vp.validity(&system_classes, &c, f).is_ok());
+        assert!(!ip.validity(&system_classes, &c, f).is_ok());
     }
     #[test]
     fn invalid_predicate_for_number_of_arguments() {
@@ -1076,9 +1196,9 @@ end"#;
         let ip = Predicate::new("x (z, z)".to_string());
         let ip2 = Predicate::new("x ()".to_string());
 
-        assert!(vp.valid(&system_classes, &c, f));
-        assert!(!ip.valid(&system_classes, &c, f));
-        assert!(!ip2.valid(&system_classes, &c, f));
+        assert!(vp.validity(&system_classes, &c, f).is_ok());
+        assert!(!ip.validity(&system_classes, &c, f).is_ok());
+        assert!(!ip2.validity(&system_classes, &c, f).is_ok());
     }
 
     #[test]
@@ -1128,35 +1248,68 @@ end"#;
         ]);
 
         assert!(
-            vpr.valid(&system_classes, &c, f),
+            vpr.validity(&system_classes, &c, f).is_ok(),
             "feature's precondition: {}\nvalid precondition: {vpr}",
             f.preconditions().unwrap()
         );
         assert!(
-            !ipr.valid(&system_classes, &c, f),
+            !ipr.validity(&system_classes, &c, f).is_ok(),
             "feature's precondition: {}\ninvalid precondition: {ipr}",
             f.preconditions().unwrap()
         );
         assert!(
-            !ipr2.valid(&system_classes, &c, f),
+            !ipr2.validity(&system_classes, &c, f).is_ok(),
             "feature's precondition: {}\ninvalid precondition: {ipr2}",
             f.preconditions().unwrap()
         );
 
         assert!(
-            vpo.valid(&system_classes, &c, f),
+            vpo.validity(&system_classes, &c, f).is_ok(),
             "feature's postcondition: {}\nvalid postcondition: {vpo}",
             f.postconditions().unwrap()
         );
         assert!(
-            !ipo.valid(&system_classes, &c, f),
+            !ipo.validity(&system_classes, &c, f).is_ok(),
             "feature's postcondition: {}\ninvalid postcondition: {ipo}",
             f.postconditions().unwrap()
         );
         assert!(
-            !ipo2.valid(&system_classes, &c, f),
+            !ipo2.validity(&system_classes, &c, f).is_ok(),
             "feature's postcondition: {}\ninvalid precondition: {ipo2}",
             f.postconditions().unwrap()
         );
+    }
+
+    #[test]
+    fn fix_repetition_in_preconditions() {
+        let src = "
+            class
+                A
+            feature
+                x (f: BOOLEAN, r: BOOLEAN): BOOLEAN
+                    require
+                        t: f = True
+                    do
+                        Result := f
+                    ensure
+                        res: Result = True
+                    end
+            end
+        ";
+        let c = Class::from_source(src);
+        let f = c.features().first().unwrap();
+        let sc = vec![&c];
+
+        let mut fp = Precondition(vec![
+            Clause::new(Tag("s".to_string()), Predicate("f = r".to_string())),
+            Clause::new(Tag("ss".to_string()), Predicate("f = r".to_string())),
+        ]);
+
+        fp.fix(&sc, &c, f)
+            .unwrap_or_else(|e| eprintln!("Fails fix with error:\t{e:#?}"));
+
+        assert!(fp
+            .first()
+            .is_some_and(|p| p.predicate == Predicate("f = r".to_string())))
     }
 }
