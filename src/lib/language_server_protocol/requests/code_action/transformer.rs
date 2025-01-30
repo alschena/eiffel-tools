@@ -5,10 +5,9 @@ use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use async_lsp::lsp_types::{Url, WorkspaceEdit};
 use async_lsp::Result;
-use contract::{Block, Fix, Postcondition, Precondition, RoutineSpecification, Valid};
+use contract::{Block, Fix, Postcondition, Precondition, RoutineSpecification};
 use gemini;
 use gemini::ToResponseSchema;
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use tracing::info;
 
@@ -172,9 +171,8 @@ impl<'a, 'b> LLM<'a, 'b> {
                 });
                 let mut fixed_responses = responses
                     .filter_map(|mut spec: RoutineSpecification| {
-                        spec.fix(&system_classes, file.class(), feature)
-                            .ok()
-                            .map(|_| spec)
+                        spec.fix(&system_classes, file.class(), feature).ok()?;
+                        if !spec.is_empty() {Some(spec)} else {None}
                     })
                     .inspect(|s: &RoutineSpecification| {
                         info!(target: "gemini", "Fixed routine specificatins\n\tpreconditions:\t{}\n\tpostcondition{}", s.precondition, s.postcondition);

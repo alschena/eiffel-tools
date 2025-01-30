@@ -18,7 +18,7 @@ pub struct Block<T> {
     pub item: T,
     pub range: Range,
 }
-impl<T: Type> Block<T> {
+impl<T: Contract> Block<T> {
     pub fn item(&self) -> &T {
         &self.item
     }
@@ -29,7 +29,7 @@ impl<T: Type> Block<T> {
         Self { item, range }
     }
 }
-impl<T: Type + Default> Block<T> {
+impl<T: Contract + Default> Block<T> {
     pub fn new_empty(point: Point) -> Self {
         Self {
             item: T::default(),
@@ -40,7 +40,7 @@ impl<T: Type + Default> Block<T> {
 impl<T: Indent> Indent for Block<T> {
     const INDENTATION_LEVEL: usize = T::INDENTATION_LEVEL - 1;
 }
-impl<T: Display + Indent + Type + Deref<Target = Vec<Clause>>> Display for Block<T> {
+impl<T: Display + Indent + Contract + Deref<Target = Vec<Clause>>> Display for Block<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.item().is_empty() {
             write!(f, "")
@@ -94,50 +94,18 @@ impl Default for Precondition {
     }
 }
 
-impl Valid for Precondition {
-    fn valid_syntax(&self) -> bool {
-        self.iter().all(|clause| clause.valid_syntax())
-    }
-    fn valid_identifiers(
-        &self,
-        system_classes: &[&Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.iter()
-            .all(|clause| clause.valid_identifiers(system_classes, current_class, current_feature))
-    }
-    fn valid_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
-        self.iter()
-            .all(|clause| clause.valid_calls(system_classes, current_class))
-    }
-    fn valid_no_repetition(
-        &self,
-        _system_classes: &[&Class],
-        _current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.redundant_clauses_wrt_feature(current_feature)
-            .next()
-            .is_none()
-    }
-}
 impl Fix for Precondition {
     fn fix_syntax(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        let mut remove_at = Vec::new();
-        for (index, clause) in self.iter_mut().enumerate() {
-            if let Err(_) = clause.fix_syntax(system_classes, current_class, current_feature) {
-                remove_at.push(index)
-            }
-        }
-        for i in remove_at {
-            self.swap_remove(i);
-        }
+    ) -> Result<(), ()> {
+        self.retain_mut(|clause| {
+            clause
+                .fix_syntax(system_classes, current_class, current_feature)
+                .is_ok()
+        });
         Ok(())
     }
     fn fix_identifiers(
@@ -145,16 +113,12 @@ impl Fix for Precondition {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        let mut remove_at = Vec::new();
-        for (index, clause) in self.iter_mut().enumerate() {
-            if let Err(_) = clause.fix_identifiers(system_classes, current_class, current_feature) {
-                remove_at.push(index)
-            }
-        }
-        for i in remove_at {
-            self.swap_remove(i);
-        }
+    ) -> Result<(), ()> {
+        self.retain_mut(|clause| {
+            clause
+                .fix_identifiers(system_classes, current_class, current_feature)
+                .is_ok()
+        });
         Ok(())
     }
     fn fix_calls(
@@ -162,16 +126,12 @@ impl Fix for Precondition {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        let mut remove_at = Vec::new();
-        for (index, clause) in self.iter_mut().enumerate() {
-            if let Err(_) = clause.fix_calls(system_classes, current_class, current_feature) {
-                remove_at.push(index)
-            }
-        }
-        for i in remove_at {
-            self.swap_remove(i);
-        }
+    ) -> Result<(), ()> {
+        self.retain_mut(|clause| {
+            clause
+                .fix_calls(system_classes, current_class, current_feature)
+                .is_ok()
+        });
         Ok(())
     }
     fn fix_repetition(
@@ -179,16 +139,11 @@ impl Fix for Precondition {
         _system_classes: &[&Class],
         _current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        let indexes_to_remove: Vec<usize> = self
-            .redundant_clauses_wrt_feature(current_feature)
-            .map(|(n, _)| n)
-            .collect();
-
-        for i in indexes_to_remove {
-            self.swap_remove(i);
+    ) -> Result<(), ()> {
+        match current_feature.preconditions() {
+            Some(pr) => self.remove_redundant_clauses(pr),
+            None => self.remove_self_redundant_clauses(),
         }
-
         Ok(())
     }
 }
@@ -197,10 +152,7 @@ impl From<Vec<Clause>> for Precondition {
         Self(value)
     }
 }
-impl Indent for Precondition {
-    const INDENTATION_LEVEL: usize = 3;
-}
-impl Type for Precondition {
+impl Contract for Precondition {
     fn keyword() -> Keyword {
         Keyword::Require
     }
@@ -265,64 +217,15 @@ impl Default for Postcondition {
     }
 }
 
-impl Type for Postcondition {
+impl Contract for Postcondition {
     fn keyword() -> Keyword {
         Keyword::Ensure
     }
 }
 
-impl Indent for Postcondition {
-    const INDENTATION_LEVEL: usize = 3;
-}
-
 impl From<Vec<Clause>> for Postcondition {
     fn from(value: Vec<Clause>) -> Self {
         Self(value)
-    }
-}
-
-impl Postcondition {
-    fn redundant_clauses_wrt_feature<'a>(
-        &self,
-        feature: &'a Feature,
-    ) -> impl Iterator<Item = (usize, &Clause)> + use<'_, 'a> {
-        self.iter().enumerate().filter(|(n, c)| {
-            self.iter()
-                .skip(n + 1)
-                .any(|nc| &nc.predicate == &c.predicate)
-                || feature
-                    .postconditions()
-                    .is_some_and(|pre| pre.iter().any(|nc| &nc.predicate == &c.predicate))
-        })
-    }
-}
-
-impl Valid for Postcondition {
-    fn valid_syntax(&self) -> bool {
-        self.iter().all(|clause| clause.valid_syntax())
-    }
-    fn valid_identifiers(
-        &self,
-        system_classes: &[&Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.iter()
-            .all(|clause| clause.valid_identifiers(system_classes, current_class, current_feature))
-    }
-    fn valid_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
-        self.iter()
-            .all(|clause| clause.valid_calls(system_classes, current_class))
-    }
-    fn valid_no_repetition(
-        &self,
-        _system_classes: &[&Class],
-        _current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.redundant_clauses_wrt_feature(current_feature)
-            .next()
-            .is_none()
     }
 }
 
@@ -332,16 +235,12 @@ impl Fix for Postcondition {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        let mut remove_at = Vec::new();
-        for (index, clause) in self.iter_mut().enumerate() {
-            if let Err(_) = clause.fix_syntax(system_classes, current_class, current_feature) {
-                remove_at.push(index)
-            }
-        }
-        for i in remove_at {
-            self.swap_remove(i);
-        }
+    ) -> Result<(), ()> {
+        self.retain_mut(|clause| {
+            clause
+                .fix_syntax(system_classes, current_class, current_feature)
+                .is_ok()
+        });
         Ok(())
     }
     fn fix_identifiers(
@@ -349,16 +248,12 @@ impl Fix for Postcondition {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        let mut remove_at = Vec::new();
-        for (index, clause) in self.iter_mut().enumerate() {
-            if let Err(_) = clause.fix_identifiers(system_classes, current_class, current_feature) {
-                remove_at.push(index)
-            }
-        }
-        for i in remove_at {
-            self.swap_remove(i);
-        }
+    ) -> Result<(), ()> {
+        self.retain_mut(|clause| {
+            clause
+                .fix_identifiers(system_classes, current_class, current_feature)
+                .is_ok()
+        });
         Ok(())
     }
     fn fix_calls(
@@ -366,16 +261,12 @@ impl Fix for Postcondition {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        let mut remove_at = Vec::new();
-        for (index, clause) in self.iter_mut().enumerate() {
-            if let Err(_) = clause.fix_calls(system_classes, current_class, current_feature) {
-                remove_at.push(index)
-            }
-        }
-        for i in remove_at {
-            self.swap_remove(i);
-        }
+    ) -> Result<(), ()> {
+        self.retain_mut(|clause| {
+            clause
+                .fix_calls(system_classes, current_class, current_feature)
+                .is_ok()
+        });
         Ok(())
     }
     fn fix_repetition(
@@ -383,15 +274,11 @@ impl Fix for Postcondition {
         _system_classes: &[&Class],
         _current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        let index_of_redundant_clauses: Vec<usize> = self
-            .redundant_clauses_wrt_feature(current_feature)
-            .map(|(n, _)| n)
-            .collect();
-
-        index_of_redundant_clauses.into_iter().for_each(|i| {
-            self.swap_remove(i);
-        });
+    ) -> Result<(), ()> {
+        match current_feature.postconditions() {
+            Some(pos) => self.remove_redundant_clauses(pos),
+            None => self.remove_self_redundant_clauses(),
+        }
         Ok(())
     }
 }
@@ -440,110 +327,56 @@ pub struct RoutineSpecification {
     pub precondition: Precondition,
     pub postcondition: Postcondition,
 }
-impl Valid for RoutineSpecification {
-    fn valid_syntax(&self) -> bool {
-        self.precondition.valid_syntax() && self.postcondition.valid_syntax()
-    }
-    fn valid_identifiers(
-        &self,
-        system_classes: &[&Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.precondition
-            .valid_identifiers(system_classes, current_class, current_feature)
-            && self
-                .postcondition
-                .valid_identifiers(system_classes, current_class, current_feature)
-    }
-    fn valid_calls(&self, system_classes: &[&Class], current_class: &Class) -> bool {
-        self.precondition.valid_calls(system_classes, current_class)
-            && self
-                .postcondition
-                .valid_calls(system_classes, current_class)
-    }
-    fn valid_no_repetition(
-        &self,
-        system_classes: &[&Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.precondition
-            .valid_no_repetition(system_classes, current_class, current_feature)
-            && self.postcondition.valid_no_repetition(
-                system_classes,
-                current_class,
-                current_feature,
-            )
+impl RoutineSpecification {
+    pub fn is_empty(&self) -> bool {
+        self.precondition.is_empty() && self.postcondition.is_empty()
     }
 }
+
 impl Fix for RoutineSpecification {
     fn fix_syntax(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        let pre = &mut self.precondition;
-        let post = &mut self.postcondition;
-
-        if !pre.valid_syntax() {
-            pre.fix_syntax(system_classes, current_class, current_feature)?;
-        }
-        if !post.valid_syntax() {
-            post.fix_syntax(system_classes, current_class, current_feature)?;
-        }
-        Ok(())
+    ) -> Result<(), ()> {
+        self.precondition
+            .fix_syntax(system_classes, current_class, current_feature)?;
+        self.postcondition
+            .fix_syntax(system_classes, current_class, current_feature)
     }
     fn fix_identifiers(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        let pre = &mut self.precondition;
-        let post = &mut self.postcondition;
-
-        if !pre.valid_identifiers(system_classes, current_class, current_feature) {
-            pre.fix_identifiers(system_classes, current_class, current_feature)?;
-        }
-        if !post.valid_identifiers(system_classes, current_class, current_feature) {
-            post.fix_identifiers(system_classes, current_class, current_feature)?;
-        }
-        Ok(())
+    ) -> Result<(), ()> {
+        self.precondition
+            .fix_identifiers(system_classes, current_class, current_feature)?;
+        self.postcondition
+            .fix_identifiers(system_classes, current_class, current_feature)
     }
     fn fix_calls(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        let pre = &mut self.precondition;
-        let post = &mut self.postcondition;
-
-        if !pre.valid_calls(system_classes, current_class) {
-            pre.fix_calls(system_classes, current_class, current_feature)?;
-        }
-        if !post.valid_calls(system_classes, current_class) {
-            post.fix_calls(system_classes, current_class, current_feature)?;
-        }
-        Ok(())
+    ) -> Result<(), ()> {
+        self.precondition
+            .fix_calls(system_classes, current_class, current_feature)?;
+        self.postcondition
+            .fix_calls(system_classes, current_class, current_feature)
     }
     fn fix_repetition(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        let pre = &mut self.precondition;
-        let post = &mut self.postcondition;
-        if !pre.valid_no_repetition(system_classes, current_class, current_feature) {
-            pre.fix_repetition(system_classes, current_class, current_feature)?;
-        }
-        if !post.valid_no_repetition(system_classes, current_class, current_feature) {
-            post.fix_repetition(system_classes, current_class, current_feature)?;
-        }
-        Ok(())
+    ) -> Result<(), ()> {
+        self.precondition
+            .fix_repetition(system_classes, current_class, current_feature)?;
+        self.postcondition
+            .fix_repetition(system_classes, current_class, current_feature)
     }
 }
 impl Described for RoutineSpecification {
@@ -704,7 +537,7 @@ end"#;
         );
     }
     #[test]
-    fn invalid_routine_specification_for_repetition() {
+    fn fix_routine_specification_wrt_repetition() {
         let src = "
             class
                 A
@@ -723,56 +556,60 @@ end"#;
         let f = c.features().first().unwrap();
         let system_classes = vec![&c];
 
-        let vpr = Precondition(vec![Clause::new(Tag::new("q"), Predicate::new("f = r"))]);
-        let ipr = Precondition(vec![Clause::new(Tag::new("s"), Predicate::new("f = True"))]);
-        let ipr2 = Precondition(vec![
-            Clause::new(Tag::new("s"), Predicate::new("f = r")),
-            Clause::new(Tag::new("ss"), Predicate::new("f = r")),
+        let mut vpr = Precondition(vec![Clause::new(Tag::new("q"), Predicate::new("f = r"))]);
+        let mut ipr = Precondition(vec![Clause::new(Tag::new("s"), Predicate::new("f = True"))]);
+        let mut ipr2 = Precondition(vec![
+            Clause::new(Tag::new("qq"), Predicate::new("f = r")),
+            Clause::new(Tag::new("q"), Predicate::new("f = r")),
         ]);
 
-        let vpo = Postcondition(vec![Clause::new(
+        let mut vpo = Postcondition(vec![Clause::new(
             Tag::new("q"),
             Predicate::new("Result = f"),
         )]);
-        let ipo = Postcondition(vec![Clause::new(
+        let mut ipo = Postcondition(vec![Clause::new(
             Tag::new("t"),
             Predicate::new("Result = True"),
         )]);
-        let ipo2 = Postcondition(vec![
-            Clause::new(Tag::new("q"), Predicate::new("Result = f")),
+        let mut ipo2 = Postcondition(vec![
             Clause::new(Tag::new("qq"), Predicate::new("Result = f")),
+            Clause::new(Tag::new("q"), Predicate::new("Result = f")),
         ]);
 
         assert!(
-            vpr.validity(&system_classes, &c, f).is_ok(),
+            vpr.fix(&system_classes, &c, f).is_ok(),
             "feature's precondition: {}\nvalid precondition: {vpr}",
             f.preconditions().unwrap()
         );
         assert!(
-            !ipr.validity(&system_classes, &c, f).is_ok(),
+            ipr.fix(&system_classes, &c, f).is_ok(),
             "feature's precondition: {}\ninvalid precondition: {ipr}",
             f.preconditions().unwrap()
         );
+        assert_eq!(ipr.len(), 0);
         assert!(
-            !ipr2.validity(&system_classes, &c, f).is_ok(),
+            ipr2.fix(&system_classes, &c, f).is_ok(),
             "feature's precondition: {}\ninvalid precondition: {ipr2}",
             f.preconditions().unwrap()
         );
+        assert_eq!(ipr2, vpr);
 
         assert!(
-            vpo.validity(&system_classes, &c, f).is_ok(),
+            vpo.fix(&system_classes, &c, f).is_ok(),
             "feature's postcondition: {}\nvalid postcondition: {vpo}",
             f.postconditions().unwrap()
         );
         assert!(
-            !ipo.validity(&system_classes, &c, f).is_ok(),
+            ipo.fix(&system_classes, &c, f).is_ok(),
             "feature's postcondition: {}\ninvalid postcondition: {ipo}",
             f.postconditions().unwrap()
         );
+        assert_eq!(ipo.len(), 0);
         assert!(
-            !ipo2.validity(&system_classes, &c, f).is_ok(),
+            ipo2.fix(&system_classes, &c, f).is_ok(),
             "feature's postcondition: {}\ninvalid precondition: {ipo2}",
             f.postconditions().unwrap()
         );
+        assert_eq!(ipo2, vpo);
     }
 }

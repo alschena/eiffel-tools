@@ -1,7 +1,7 @@
 use super::prelude::*;
 use std::fmt::Debug;
 use std::fmt::Display;
-use tracing::info;
+use std::ops::DerefMut;
 
 mod blocks;
 pub use blocks::Block;
@@ -10,86 +10,19 @@ pub use blocks::Precondition;
 pub use blocks::RoutineSpecification;
 
 mod clause;
+use clause::Clause;
 
-#[derive(Debug)]
-pub enum ValidityError {
-    Syntax,
-    Identifiers,
-    Calls,
-    Repetition,
-}
-pub(crate) trait Valid: Debug {
-    fn validity(
-        &self,
-        system_classes: &[&Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        if !self.valid_syntax() {
-            info!("invalid syntax: {self:#?}");
-            return Err(ValidityError::Syntax);
-        }
-        if !self.valid_identifiers(system_classes, current_class, current_feature) {
-            info!("invalid identifiers: {self:#?}");
-            return Err(ValidityError::Identifiers);
-        }
-        if !self.valid_calls(system_classes, current_class) {
-            info!("invalid calls: {self:#?}");
-            return Err(ValidityError::Calls);
-        }
-        if !self.valid_no_repetition(system_classes, current_class, current_feature) {
-            info!("invalid for repetition: {self:#?}");
-            return Err(ValidityError::Repetition);
-        }
-        Ok(())
-    }
-    fn valid_syntax(&self) -> bool;
-    fn valid_identifiers(
-        &self,
-        system_classes: &[&Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool;
-    fn valid_calls(&self, _system_classes: &[&Class], _current_class: &Class) -> bool {
-        true
-    }
-    fn valid_no_repetition(
-        &self,
-        _system_classes: &[&Class],
-        _current_class: &Class,
-        _current_feature: &Feature,
-    ) -> bool {
-        true
-    }
-}
-pub(crate) trait Fix: Valid {
+pub(crate) trait Fix {
     fn fix(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        while let Err(e) = self.validity(system_classes, current_class, current_feature) {
-            eprintln!("{e:#?}");
-            match e {
-                ValidityError::Syntax => {
-                    self.fix_syntax(system_classes, current_class, current_feature)?;
-                    info!("applied syntax fix to {self:#?}");
-                }
-                ValidityError::Identifiers => {
-                    self.fix_identifiers(system_classes, current_class, current_feature)?;
-                    info!("applied identifiers fix to {self:#?}");
-                }
-                ValidityError::Calls => {
-                    self.fix_calls(system_classes, current_class, current_feature)?;
-                    info!("applied calls fix to {self:#?}");
-                }
-                ValidityError::Repetition => {
-                    self.fix_repetition(system_classes, current_class, current_feature)?;
-                    info!("applied repetition fix to {self:#?}");
-                }
-            }
-        }
+    ) -> Result<(), ()> {
+        self.fix_syntax(system_classes, current_class, current_feature)?;
+        self.fix_identifiers(system_classes, current_class, current_feature)?;
+        self.fix_calls(system_classes, current_class, current_feature)?;
+        self.fix_repetition(system_classes, current_class, current_feature)?;
         Ok(())
     }
     fn fix_syntax(
@@ -97,36 +30,58 @@ pub(crate) trait Fix: Valid {
         _system_classes: &[&Class],
         _current_class: &Class,
         _current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        return Err(ValidityError::Syntax);
+    ) -> Result<(), ()> {
+        Ok(())
     }
     fn fix_identifiers(
         &mut self,
         _system_classes: &[&Class],
         _current_class: &Class,
         _current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        return Err(ValidityError::Identifiers);
+    ) -> Result<(), ()> {
+        Ok(())
     }
     fn fix_calls(
         &mut self,
         _system_classes: &[&Class],
         _current_class: &Class,
         _current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        return Err(ValidityError::Calls);
+    ) -> Result<(), ()> {
+        Ok(())
     }
     fn fix_repetition(
         &mut self,
         _system_classes: &[&Class],
         _current_class: &Class,
         _current_feature: &Feature,
-    ) -> Result<(), ValidityError> {
-        return Err(ValidityError::Repetition);
+    ) -> Result<(), ()> {
+        Ok(())
     }
 }
-pub trait Type {
+
+pub trait Contract: DerefMut<Target = Vec<Clause>> {
     fn keyword() -> Keyword;
+    fn remove_self_redundant_clauses(&mut self) {
+        let mut remove = self
+            .iter()
+            .enumerate()
+            .map(|(n, c)| {
+                self.iter()
+                    .skip(n + 1)
+                    .any(|nc| &nc.predicate == &c.predicate)
+            })
+            .collect::<Vec<bool>>()
+            .into_iter();
+
+        self.retain(|_| !remove.next().expect("`keep` has the same count as `self`."));
+    }
+    fn remove_redundant_clauses(&mut self, block: &Self) {
+        self.remove_self_redundant_clauses();
+        self.retain(|clause| block.iter().all(|c| &c.predicate != &clause.predicate));
+    }
+}
+impl<T: Contract> Indent for T {
+    const INDENTATION_LEVEL: usize = 3;
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Keyword {
