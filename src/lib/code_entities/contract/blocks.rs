@@ -129,8 +129,48 @@ impl Fix for Precondition {
         current_class: &Class,
         current_feature: &Feature,
     ) -> Result<(), ValidityError> {
-        for clause in self.iter_mut() {
-            clause.fix_syntax(system_classes, current_class, current_feature)?
+        let mut remove_at = Vec::new();
+        for (index, clause) in self.iter_mut().enumerate() {
+            if let Err(_) = clause.fix_syntax(system_classes, current_class, current_feature) {
+                remove_at.push(index)
+            }
+        }
+        for i in remove_at {
+            self.swap_remove(i);
+        }
+        Ok(())
+    }
+    fn fix_identifiers(
+        &mut self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        let mut remove_at = Vec::new();
+        for (index, clause) in self.iter_mut().enumerate() {
+            if let Err(_) = clause.fix_identifiers(system_classes, current_class, current_feature) {
+                remove_at.push(index)
+            }
+        }
+        for i in remove_at {
+            self.swap_remove(i);
+        }
+        Ok(())
+    }
+    fn fix_calls(
+        &mut self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        let mut remove_at = Vec::new();
+        for (index, clause) in self.iter_mut().enumerate() {
+            if let Err(_) = clause.fix_calls(system_classes, current_class, current_feature) {
+                remove_at.push(index)
+            }
+        }
+        for i in remove_at {
+            self.swap_remove(i);
         }
         Ok(())
     }
@@ -287,6 +327,57 @@ impl Valid for Postcondition {
 }
 
 impl Fix for Postcondition {
+    fn fix_syntax(
+        &mut self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        let mut remove_at = Vec::new();
+        for (index, clause) in self.iter_mut().enumerate() {
+            if let Err(_) = clause.fix_syntax(system_classes, current_class, current_feature) {
+                remove_at.push(index)
+            }
+        }
+        for i in remove_at {
+            self.swap_remove(i);
+        }
+        Ok(())
+    }
+    fn fix_identifiers(
+        &mut self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        let mut remove_at = Vec::new();
+        for (index, clause) in self.iter_mut().enumerate() {
+            if let Err(_) = clause.fix_identifiers(system_classes, current_class, current_feature) {
+                remove_at.push(index)
+            }
+        }
+        for i in remove_at {
+            self.swap_remove(i);
+        }
+        Ok(())
+    }
+    fn fix_calls(
+        &mut self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        let mut remove_at = Vec::new();
+        for (index, clause) in self.iter_mut().enumerate() {
+            if let Err(_) = clause.fix_calls(system_classes, current_class, current_feature) {
+                remove_at.push(index)
+            }
+        }
+        for i in remove_at {
+            self.swap_remove(i);
+        }
+        Ok(())
+    }
     fn fix_repetition(
         &mut self,
         _system_classes: &[&Class],
@@ -401,6 +492,40 @@ impl Fix for RoutineSpecification {
         }
         if !post.valid_syntax() {
             post.fix_syntax(system_classes, current_class, current_feature)?;
+        }
+        Ok(())
+    }
+    fn fix_identifiers(
+        &mut self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        let pre = &mut self.precondition;
+        let post = &mut self.postcondition;
+
+        if !pre.valid_identifiers(system_classes, current_class, current_feature) {
+            pre.fix_identifiers(system_classes, current_class, current_feature)?;
+        }
+        if !post.valid_identifiers(system_classes, current_class, current_feature) {
+            post.fix_identifiers(system_classes, current_class, current_feature)?;
+        }
+        Ok(())
+    }
+    fn fix_calls(
+        &mut self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        let pre = &mut self.precondition;
+        let post = &mut self.postcondition;
+
+        if !pre.valid_calls(system_classes, current_class) {
+            pre.fix_calls(system_classes, current_class, current_feature)?;
+        }
+        if !post.valid_calls(system_classes, current_class) {
+            post.fix_calls(system_classes, current_class, current_feature)?;
         }
         Ok(())
     }
