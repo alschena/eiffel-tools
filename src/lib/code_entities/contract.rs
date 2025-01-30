@@ -18,44 +18,43 @@ pub(crate) trait Fix {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
-        self.fix_syntax(system_classes, current_class, current_feature)?;
-        self.fix_identifiers(system_classes, current_class, current_feature)?;
-        self.fix_calls(system_classes, current_class, current_feature)?;
-        self.fix_repetition(system_classes, current_class, current_feature)?;
-        Ok(())
+    ) -> bool {
+        self.fix_syntax(system_classes, current_class, current_feature)
+            && self.fix_identifiers(system_classes, current_class, current_feature)
+            && self.fix_calls(system_classes, current_class, current_feature)
+            && self.fix_repetition(system_classes, current_class, current_feature)
     }
     fn fix_syntax(
         &mut self,
         _system_classes: &[&Class],
         _current_class: &Class,
         _current_feature: &Feature,
-    ) -> Result<(), ()> {
-        Ok(())
+    ) -> bool {
+        true
     }
     fn fix_identifiers(
         &mut self,
         _system_classes: &[&Class],
         _current_class: &Class,
         _current_feature: &Feature,
-    ) -> Result<(), ()> {
-        Ok(())
+    ) -> bool {
+        true
     }
     fn fix_calls(
         &mut self,
         _system_classes: &[&Class],
         _current_class: &Class,
         _current_feature: &Feature,
-    ) -> Result<(), ()> {
-        Ok(())
+    ) -> bool {
+        true
     }
     fn fix_repetition(
         &mut self,
         _system_classes: &[&Class],
         _current_class: &Class,
         _current_feature: &Feature,
-    ) -> Result<(), ()> {
-        Ok(())
+    ) -> bool {
+        true
     }
 }
 

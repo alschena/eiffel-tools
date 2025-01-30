@@ -100,51 +100,41 @@ impl Fix for Precondition {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
-        self.retain_mut(|clause| {
-            clause
-                .fix_syntax(system_classes, current_class, current_feature)
-                .is_ok()
-        });
-        Ok(())
+    ) -> bool {
+        self.retain_mut(|clause| clause.fix_syntax(system_classes, current_class, current_feature));
+        !self.is_empty()
     }
     fn fix_identifiers(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         self.retain_mut(|clause| {
-            clause
-                .fix_identifiers(system_classes, current_class, current_feature)
-                .is_ok()
+            clause.fix_identifiers(system_classes, current_class, current_feature)
         });
-        Ok(())
+        !self.is_empty()
     }
     fn fix_calls(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
-        self.retain_mut(|clause| {
-            clause
-                .fix_calls(system_classes, current_class, current_feature)
-                .is_ok()
-        });
-        Ok(())
+    ) -> bool {
+        self.retain_mut(|clause| clause.fix_calls(system_classes, current_class, current_feature));
+        !self.is_empty()
     }
     fn fix_repetition(
         &mut self,
         _system_classes: &[&Class],
         _current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         match current_feature.preconditions() {
             Some(pr) => self.remove_redundant_clauses(pr),
             None => self.remove_self_redundant_clauses(),
         }
-        Ok(())
+        !self.is_empty()
     }
 }
 impl From<Vec<Clause>> for Precondition {
@@ -235,51 +225,41 @@ impl Fix for Postcondition {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
-        self.retain_mut(|clause| {
-            clause
-                .fix_syntax(system_classes, current_class, current_feature)
-                .is_ok()
-        });
-        Ok(())
+    ) -> bool {
+        self.retain_mut(|clause| clause.fix_syntax(system_classes, current_class, current_feature));
+        !self.is_empty()
     }
     fn fix_identifiers(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         self.retain_mut(|clause| {
-            clause
-                .fix_identifiers(system_classes, current_class, current_feature)
-                .is_ok()
+            clause.fix_identifiers(system_classes, current_class, current_feature)
         });
-        Ok(())
+        !self.is_empty()
     }
     fn fix_calls(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
-        self.retain_mut(|clause| {
-            clause
-                .fix_calls(system_classes, current_class, current_feature)
-                .is_ok()
-        });
-        Ok(())
+    ) -> bool {
+        self.retain_mut(|clause| clause.fix_calls(system_classes, current_class, current_feature));
+        !self.is_empty()
     }
     fn fix_repetition(
         &mut self,
         _system_classes: &[&Class],
         _current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         match current_feature.postconditions() {
             Some(pos) => self.remove_redundant_clauses(pos),
             None => self.remove_self_redundant_clauses(),
         }
-        Ok(())
+        !self.is_empty()
     }
 }
 impl Display for Postcondition {
@@ -339,44 +319,48 @@ impl Fix for RoutineSpecification {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         self.precondition
-            .fix_syntax(system_classes, current_class, current_feature)?;
-        self.postcondition
             .fix_syntax(system_classes, current_class, current_feature)
+            && self
+                .postcondition
+                .fix_syntax(system_classes, current_class, current_feature)
     }
     fn fix_identifiers(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         self.precondition
-            .fix_identifiers(system_classes, current_class, current_feature)?;
-        self.postcondition
             .fix_identifiers(system_classes, current_class, current_feature)
+            && self
+                .postcondition
+                .fix_identifiers(system_classes, current_class, current_feature)
     }
     fn fix_calls(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         self.precondition
-            .fix_calls(system_classes, current_class, current_feature)?;
-        self.postcondition
             .fix_calls(system_classes, current_class, current_feature)
+            && self
+                .postcondition
+                .fix_calls(system_classes, current_class, current_feature)
     }
     fn fix_repetition(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         self.precondition
-            .fix_repetition(system_classes, current_class, current_feature)?;
-        self.postcondition
             .fix_repetition(system_classes, current_class, current_feature)
+            && self
+                .postcondition
+                .fix_repetition(system_classes, current_class, current_feature)
     }
 }
 impl Described for RoutineSpecification {
@@ -418,9 +402,7 @@ mod tests {
             Clause::new(Tag::new("ss"), Predicate::new("f = r")),
         ]);
 
-        fp.fix(&sc, &c, f)
-            .unwrap_or_else(|e| panic!("Fails to fix precondition redundancy with error:\t{e:#?}"));
-
+        assert!(fp.fix(&sc, &c, f));
         assert!(fp
             .first()
             .is_some_and(|p| p.predicate == Predicate::new("f = r")))
@@ -577,36 +559,36 @@ end"#;
         ]);
 
         assert!(
-            vpr.fix(&system_classes, &c, f).is_ok(),
+            vpr.fix(&system_classes, &c, f),
             "feature's precondition: {}\nvalid precondition: {vpr}",
             f.preconditions().unwrap()
         );
         assert!(
-            ipr.fix(&system_classes, &c, f).is_ok(),
+            ipr.fix(&system_classes, &c, f),
             "feature's precondition: {}\ninvalid precondition: {ipr}",
             f.preconditions().unwrap()
         );
         assert_eq!(ipr.len(), 0);
         assert!(
-            ipr2.fix(&system_classes, &c, f).is_ok(),
+            ipr2.fix(&system_classes, &c, f),
             "feature's precondition: {}\ninvalid precondition: {ipr2}",
             f.preconditions().unwrap()
         );
         assert_eq!(ipr2, vpr);
 
         assert!(
-            vpo.fix(&system_classes, &c, f).is_ok(),
+            vpo.fix(&system_classes, &c, f),
             "feature's postcondition: {}\nvalid postcondition: {vpo}",
             f.postconditions().unwrap()
         );
         assert!(
-            ipo.fix(&system_classes, &c, f).is_ok(),
+            ipo.fix(&system_classes, &c, f),
             "feature's postcondition: {}\ninvalid postcondition: {ipo}",
             f.postconditions().unwrap()
         );
         assert_eq!(ipo.len(), 0);
         assert!(
-            ipo2.fix(&system_classes, &c, f).is_ok(),
+            ipo2.fix(&system_classes, &c, f),
             "feature's postcondition: {}\ninvalid precondition: {ipo2}",
             f.postconditions().unwrap()
         );

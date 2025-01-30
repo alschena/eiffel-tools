@@ -32,11 +32,12 @@ impl Fix for Clause {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         self.tag
-            .fix_syntax(system_classes, current_class, current_feature)?;
-        self.predicate
             .fix_syntax(system_classes, current_class, current_feature)
+            && self
+                .predicate
+                .fix_syntax(system_classes, current_class, current_feature)
     }
 
     fn fix_identifiers(
@@ -44,11 +45,12 @@ impl Fix for Clause {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         self.tag
-            .fix_identifiers(system_classes, current_class, current_feature)?;
-        self.predicate
             .fix_identifiers(system_classes, current_class, current_feature)
+            && self
+                .predicate
+                .fix_identifiers(system_classes, current_class, current_feature)
     }
 
     fn fix_calls(
@@ -56,11 +58,12 @@ impl Fix for Clause {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         self.tag
-            .fix_calls(system_classes, current_class, current_feature)?;
-        self.predicate
             .fix_calls(system_classes, current_class, current_feature)
+            && self
+                .predicate
+                .fix_calls(system_classes, current_class, current_feature)
     }
 }
 impl Parse for Clause {
@@ -123,9 +126,9 @@ impl Fix for Tag {
         _system_classes: &[&Class],
         _current_class: &Class,
         _current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         self.0 = self.0.to_lowercase().replace(" ", "_");
-        Ok(())
+        true
     }
 }
 impl Display for Tag {
@@ -251,18 +254,12 @@ impl Fix for Predicate {
         _system_classes: &[&Class],
         _current_class: &Class,
         _current_feature: &Feature,
-    ) -> Result<(), ()> {
+    ) -> bool {
         match self.parse() {
-            Some(tree) => {
-                if tree.root_node().has_error() {
-                    Err(())
-                } else {
-                    Ok(())
-                }
-            }
+            Some(tree) => !tree.root_node().has_error(),
             None => {
                 info!("fails to parse predicate: {}", self.as_str());
-                Err(())
+                false
             }
         }
     }
@@ -272,8 +269,8 @@ impl Fix for Predicate {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
-        if self.top_level_identifiers().iter().all(|&identifier| {
+    ) -> bool {
+        self.top_level_identifiers().iter().all(|&identifier| {
             current_class
                 .features()
                 .iter()
@@ -286,11 +283,7 @@ impl Fix for Predicate {
                         .any(|(name, _)| name == identifier)
                         || (identifier == feature.name())
                 })
-        }) {
-            Ok(())
-        } else {
-            Err(())
-        }
+        })
     }
 
     /// NOTE: For now only checks the number of arguments of each unqualified call is correct.
@@ -299,9 +292,8 @@ impl Fix for Predicate {
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
-    ) -> Result<(), ()> {
-        if self
-            .top_level_calls_with_arguments()
+    ) -> bool {
+        self.top_level_calls_with_arguments()
             .iter()
             .all(|&(id, ref args)| {
                 current_class
@@ -312,11 +304,6 @@ impl Fix for Predicate {
                     .find(|feature| feature.name() == id)
                     .is_some_and(|feature| feature.number_parameters() == args.len())
             })
-        {
-            Ok(())
-        } else {
-            Err(())
-        }
     }
 }
 
@@ -474,8 +461,8 @@ end"#;
 
         let mut invalid_predicate = Predicate::new("min min");
         let mut valid_predicate = Predicate::new("min (x, y)");
-        assert!(invalid_predicate.fix_syntax(&sc, &c, f).is_err());
-        assert!(valid_predicate.fix_syntax(&sc, &c, f).is_ok());
+        assert!(!invalid_predicate.fix_syntax(&sc, &c, f));
+        assert!(valid_predicate.fix_syntax(&sc, &c, f));
         assert_eq!(valid_predicate, Predicate::new("min (x, y)"));
     }
     #[test]
@@ -500,9 +487,9 @@ end"#;
 
         let mut invalid_tag: Tag = String::from("this was not valid").into();
         let mut valid_tag: Tag = String::from("this_is_valid").into();
-        assert!(invalid_tag.fix_syntax(&sc, &c, f).is_ok());
+        assert!(invalid_tag.fix_syntax(&sc, &c, f));
         assert!(invalid_tag == Tag::new("this_was_not_valid"));
-        assert!(valid_tag.fix_syntax(&sc, &c, f).is_ok());
+        assert!(valid_tag.fix_syntax(&sc, &c, f));
         assert!(valid_tag == Tag::new("this_is_valid"));
     }
     #[test]
@@ -548,12 +535,8 @@ end"#;
         let mut invalid_predicate = Predicate(String::from("z"));
         let mut valid_predicate = Predicate(String::from("x"));
 
-        assert!(invalid_predicate
-            .fix_identifiers(&system_classes, &class, feature)
-            .is_err());
-        assert!(valid_predicate
-            .fix_identifiers(&system_classes, &class, feature)
-            .is_ok());
+        assert!(!invalid_predicate.fix_identifiers(&system_classes, &class, feature));
+        assert!(valid_predicate.fix_identifiers(&system_classes, &class, feature));
     }
     #[test]
     fn fix_identifiers_predicate_ancestor() {
@@ -593,9 +576,7 @@ end"#;
 
         let system_classes = vec![&child, &parent];
         let mut valid_predicate = Predicate(String::from("x"));
-        assert!(valid_predicate
-            .fix_identifiers(&system_classes, &child, feature)
-            .is_ok());
+        assert!(valid_predicate.fix_identifiers(&system_classes, &child, feature));
     }
     #[test]
     fn fix_identifiers_in_predicate() {
@@ -614,8 +595,8 @@ end"#;
         let mut vp = Predicate::new("f".to_string());
         let mut ip = Predicate::new("r".to_string());
         let system_classes = vec![&c];
-        assert!(vp.fix_identifiers(&system_classes, &c, f).is_ok());
-        assert!(ip.fix_identifiers(&system_classes, &c, f).is_err());
+        assert!(vp.fix_identifiers(&system_classes, &c, f));
+        assert!(!ip.fix_identifiers(&system_classes, &c, f));
     }
     #[test]
     fn fix_calls_in_predicate() {
@@ -646,9 +627,9 @@ end"#;
         let mut ip = Predicate::new("x (z, z)".to_string());
         let mut ip2 = Predicate::new("x ()".to_string());
 
-        assert!(vp.fix_calls(&system_classes, &c, f).is_ok());
-        assert!(ip.fix_calls(&system_classes, &c, f).is_err());
-        assert!(ip2.fix_calls(&system_classes, &c, f).is_err());
+        assert!(vp.fix_calls(&system_classes, &c, f));
+        assert!(!ip.fix_calls(&system_classes, &c, f));
+        assert!(!ip2.fix_calls(&system_classes, &c, f));
     }
     #[test]
     fn fix_tag() {
@@ -671,8 +652,7 @@ end"#;
         let sc = vec![&c];
 
         let mut tag = Tag("Not good enough".to_string());
-        tag.fix(&sc, &c, &f)
-            .unwrap_or_else(|e| panic!("Fails to fix tag syntax with error:\t{e:#?}"));
+        assert!(tag.fix(&sc, &c, &f));
 
         assert_eq!(
             tag,

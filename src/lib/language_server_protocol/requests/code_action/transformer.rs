@@ -171,8 +171,9 @@ impl<'a, 'b> LLM<'a, 'b> {
                 });
                 let mut fixed_responses = responses
                     .filter_map(|mut spec: RoutineSpecification| {
-                        spec.fix(&system_classes, file.class(), feature).ok()?;
-                        if !spec.is_empty() {Some(spec)} else {None}
+                        if spec.fix(&system_classes, file.class(), feature) {
+                            Some(spec)
+                        } else {None}
                     })
                     .inspect(|s: &RoutineSpecification| {
                         info!(target: "gemini", "Fixed routine specificatins\n\tpreconditions:\t{}\n\tpostcondition{}", s.precondition, s.postcondition);
