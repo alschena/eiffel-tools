@@ -229,6 +229,24 @@ impl Valid for Clause {
             && self.predicate.valid_calls(system_classes, current_class)
     }
 }
+impl Fix for Clause {
+    fn fix_syntax(
+        &mut self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        let tag = &mut self.tag;
+        let pred = &mut self.predicate;
+        if !tag.valid_syntax() {
+            tag.fix_syntax(system_classes, current_class, current_feature)?;
+        }
+        if !pred.valid_syntax() {
+            pred.fix_syntax(system_classes, current_class, current_feature)?;
+        }
+        Ok(())
+    }
+}
 impl Parse for Clause {
     type Error = anyhow::Error;
     fn parse(assertion_clause: &Node, cursor: &mut QueryCursor, src: &str) -> anyhow::Result<Self> {
@@ -291,6 +309,21 @@ impl Valid for Tag {
         _current_feature: &Feature,
     ) -> bool {
         true
+    }
+}
+impl Fix for Tag {
+    fn fix_syntax(
+        &mut self,
+        _system_classes: &[&Class],
+        _current_class: &Class,
+        _current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        {
+            if !self.valid_syntax() {
+                self.0 = self.0.to_lowercase().replace(" ", "_");
+            }
+            Ok(())
+        }
     }
 }
 impl Display for Tag {
@@ -451,6 +484,8 @@ impl Valid for Predicate {
         })
     }
 }
+impl Fix for Predicate {}
+
 impl Display for Predicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
@@ -530,6 +565,17 @@ impl Valid for Precondition {
     }
 }
 impl Fix for Precondition {
+    fn fix_syntax(
+        &mut self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        for clause in self.iter_mut() {
+            clause.fix_syntax(system_classes, current_class, current_feature)?
+        }
+        Ok(())
+    }
     fn fix_repetition(
         &mut self,
         _system_classes: &[&Class],
@@ -541,9 +587,9 @@ impl Fix for Precondition {
             .map(|(n, _)| n)
             .collect();
 
-        indexes_to_remove.into_iter().for_each(|i| {
+        for i in indexes_to_remove {
             self.swap_remove(i);
-        });
+        }
 
         Ok(())
     }
@@ -726,25 +772,36 @@ impl Valid for RoutineSpecification {
     }
 }
 impl Fix for RoutineSpecification {
+    fn fix_syntax(
+        &mut self,
+        system_classes: &[&Class],
+        current_class: &Class,
+        current_feature: &Feature,
+    ) -> Result<(), ValidityError> {
+        let pre = &mut self.precondition;
+        let post = &mut self.postcondition;
+
+        if !pre.valid_syntax() {
+            pre.fix_syntax(system_classes, current_class, current_feature)?;
+        }
+        if !post.valid_syntax() {
+            post.fix_syntax(system_classes, current_class, current_feature)?;
+        }
+        Ok(())
+    }
     fn fix_repetition(
         &mut self,
         system_classes: &[&Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> Result<(), ValidityError> {
-        if !self
-            .precondition
-            .valid_no_repetition(system_classes, current_class, current_feature)
-        {
-            self.precondition
-                .fix_repetition(system_classes, current_class, current_feature)?;
+        let pre = &mut self.precondition;
+        let post = &mut self.postcondition;
+        if !pre.valid_no_repetition(system_classes, current_class, current_feature) {
+            pre.fix_repetition(system_classes, current_class, current_feature)?;
         }
-        if !self
-            .postcondition
-            .valid_no_repetition(system_classes, current_class, current_feature)
-        {
-            self.postcondition
-                .fix_repetition(system_classes, current_class, current_feature)?;
+        if !post.valid_no_repetition(system_classes, current_class, current_feature) {
+            post.fix_repetition(system_classes, current_class, current_feature)?;
         }
         Ok(())
     }
@@ -1306,10 +1363,41 @@ end"#;
         ]);
 
         fp.fix(&sc, &c, f)
-            .unwrap_or_else(|e| eprintln!("Fails fix with error:\t{e:#?}"));
+            .unwrap_or_else(|e| panic!("Fails to fix precondition redundancy with error:\t{e:#?}"));
 
         assert!(fp
             .first()
             .is_some_and(|p| p.predicate == Predicate("f = r".to_string())))
+    }
+
+    #[test]
+    fn fix_tag() {
+        let src = "
+            class
+                A
+            feature
+                x (f: BOOLEAN, r: BOOLEAN): BOOLEAN
+                    require
+                        t: f = True
+                    do
+                        Result := f
+                    ensure
+                        res: Result = True
+                    end
+            end
+        ";
+        let c = Class::from_source(src);
+        let f = c.features().first().unwrap();
+        let sc = vec![&c];
+
+        let mut tag = Tag("Not good enough".to_string());
+        tag.fix(&sc, &c, &f)
+            .unwrap_or_else(|e| panic!("Fails to fix tag syntax with error:\t{e:#?}"));
+
+        assert_eq!(
+            tag,
+            Tag("not_good_enough".to_string()),
+            "tag is:\t{tag}\nBut it must be:\t`not_good_enough`"
+        )
     }
 }
