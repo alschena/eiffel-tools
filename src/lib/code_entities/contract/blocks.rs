@@ -564,7 +564,7 @@ end"#;
             f.preconditions().unwrap()
         );
         assert!(
-            ipr.fix(&system_classes, &c, f),
+            !ipr.fix(&system_classes, &c, f),
             "feature's precondition: {}\ninvalid precondition: {ipr}",
             f.preconditions().unwrap()
         );
@@ -582,7 +582,7 @@ end"#;
             f.postconditions().unwrap()
         );
         assert!(
-            ipo.fix(&system_classes, &c, f),
+            !ipo.fix(&system_classes, &c, f),
             "feature's postcondition: {}\ninvalid postcondition: {ipo}",
             f.postconditions().unwrap()
         );
