@@ -5,7 +5,7 @@ use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use async_lsp::lsp_types::{Url, WorkspaceEdit};
 use async_lsp::Result;
-use contract::{Block, Postcondition, Precondition, RoutineSpecification, Valid};
+use contract::{Block, Fix, Postcondition, Precondition, RoutineSpecification};
 use gemini;
 use gemini::ToResponseSchema;
 use std::collections::HashMap;
@@ -164,25 +164,21 @@ impl<'a, 'b> LLM<'a, 'b> {
         {
             Ok(response) => {
                 info!(target:"gemini", "Request to llm: {request:?}\nResponse from llm: {response:?}");
-                match response
-                    .parsed()
-                    .inspect(|pre: &RoutineSpecification| {
-                        info!(target: "gemini", "generated preconditions {}", pre.precondition);
-                        info!(target: "gemini", "generated postconditions {}", pre.postcondition);
+
+                let system_classes = workspace.system_classes().collect::<Vec<_>>();
+                let responses = response.parsed().inspect(|s: &RoutineSpecification| {
+                    info!(target: "gemini", "Generated routine specifications\n\tpreconditions:\t{}\n\tpostconditions:\t{}", s.precondition, s.postcondition);
+                });
+                let mut fixed_responses = responses
+                    .filter_map(|mut spec: RoutineSpecification| {
+                        if spec.fix(&system_classes, file.class(), feature) {
+                            Some(spec)
+                        } else {None}
                     })
-                    .filter(|spec: &RoutineSpecification| {
-                        spec.valid(
-                            workspace.system_classes().collect::<Vec<_>>().as_ref(),
-                            file.class(),
-                            feature,
-                        )
-                    })
-                    .inspect(|post: &RoutineSpecification| {
-                        info!(target: "gemini", "valid preconditions {}", post.precondition);
-                        info!(target: "gemini", "valid postconditions {}", post.postcondition);
-                    })
-                    .next()
-                {
+                    .inspect(|s: &RoutineSpecification| {
+                        info!(target: "gemini", "Fixed routine specificatins\n\tpreconditions:\t{}\n\tpostcondition{}", s.precondition, s.postcondition);
+                    });
+                match fixed_responses.next() {
                     Some(spec) => Ok((
                         spec,
                         point_insert_preconditions.clone(),
