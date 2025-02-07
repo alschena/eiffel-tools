@@ -88,7 +88,7 @@ impl Display for EiffelType {
     }
 }
 impl EiffelType {
-    fn class_name(&self) -> Result<&str, &str> {
+    pub fn class_name(&self) -> Result<&str, &str> {
         match self {
             EiffelType::ClassType(_, s) => Ok(s),
             EiffelType::TupleType(_) => Err("tuple type"),
@@ -103,6 +103,21 @@ impl EiffelType {
             .find(|&c| c.name() == self.class_name().unwrap_or_default())
             .expect("parameters' class name is in system.");
         class
+    }
+    pub fn is_terminal_for_model(&self) -> bool {
+        match self.class_name() {
+            Ok("BOOLEAN") => true,
+            Ok("INTEGER") => true,
+            Ok("REAL") => true,
+            Ok("MML_SEQUENCE") => true,
+            Ok("MML_BAG") => true,
+            Ok("MML_SET") => true,
+            Ok("MML_MAP") => true,
+            Ok("MML_PAIR") => true,
+            Ok("MML_RELATION") => true,
+            Err("tuple type") => unimplemented!(),
+            _ => false,
+        }
     }
 }
 

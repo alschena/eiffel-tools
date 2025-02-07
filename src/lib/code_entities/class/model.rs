@@ -49,6 +49,12 @@ impl Parse for ModelNames {
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct ModelTypes(Vec<EiffelType>);
 
+impl ModelTypes {
+    pub fn new(types: Vec<EiffelType>) -> ModelTypes {
+        ModelTypes(types)
+    }
+}
+
 impl Extend<EiffelType> for ModelTypes {
     fn extend<T: IntoIterator<Item = EiffelType>>(&mut self, iter: T) {
         iter.into_iter().for_each(|t| self.0.push(t));
@@ -115,5 +121,90 @@ impl Display for Model {
             },
         );
         write!(f, "{display_text}")
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct ModelExtended<'names>(&'names Model, Vec<ModelExtended<'names>>);
+
+impl Model {
+    fn extended<'s, 'system: 's>(&'s self, system_classes: &'system [&Class]) -> ModelExtended<'s> {
+        let ext: Vec<ModelExtended<'_>> = self
+            .types()
+            .iter()
+            .flat_map(|r#type| {
+                if r#type.is_terminal_for_model() {
+                    Vec::new()
+                } else {
+                    let base_class_name = r#type.class(system_classes.iter().copied());
+                    base_class_name
+                        .full_model(system_classes)
+                        .map(|nested_model| nested_model.extended(system_classes))
+                        .collect()
+                }
+            })
+            .collect();
+        ModelExtended(self, ext)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extended_model() {
+        let src_client = "
+    note
+        model: nested
+    class NEW_CLIENT
+    feature
+        x: INTEGER
+        nested: NEW_INTEGER
+    end
+    ";
+        let src_supplier = "
+    note
+    	model: value
+    class
+    	NEW_INTEGER
+    feature
+    	value: INTEGER
+    	smaller (other: NEW_INTEGER): BOOLEAN
+    		do
+    			Result := value < other.value
+    		ensure
+    			Result = (value < other.value)
+    		end
+    end
+    ";
+        let client = Class::from_source(src_client);
+        let supplier = Class::from_source(src_supplier);
+        let system_classes = vec![&client, &supplier];
+
+        let ext = client.model().extended(&system_classes);
+
+        eprintln!("{ext:?}");
+
+        let model = ext.0;
+        let nested_model = ext.1.first().expect("Nested model.").0;
+
+        assert_eq!(model.names().len(), 1);
+        assert_eq!(model.names().first().unwrap(), "nested");
+
+        assert_eq!(model.types().len(), 1);
+        assert_eq!(
+            model.types().first().unwrap().class_name().unwrap(),
+            "NEW_INTEGER"
+        );
+
+        assert_eq!(nested_model.names().len(), 1);
+        assert_eq!(nested_model.names().first().unwrap(), "value");
+
+        assert_eq!(nested_model.types().len(), 1);
+        assert_eq!(
+            nested_model.types().first().unwrap().class_name().unwrap(),
+            "INTEGER"
+        );
     }
 }
