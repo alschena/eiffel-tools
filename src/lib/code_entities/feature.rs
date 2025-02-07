@@ -250,7 +250,7 @@ impl Feature {
     pub fn number_parameters(&self) -> usize {
         self.parameters().len()
     }
-    fn return_type(&self) -> Option<&EiffelType> {
+    pub fn return_type(&self) -> Option<&EiffelType> {
         self.return_type.as_ref()
     }
     pub fn range(&self) -> &Range {

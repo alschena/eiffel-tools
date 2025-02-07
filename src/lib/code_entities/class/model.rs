@@ -3,56 +3,25 @@ use crate::lib::tree_sitter_extension::{capture_name_to_nodes, node_to_text, Par
 use std::fmt::Display;
 use std::ops::Deref;
 use streaming_iterator::StreamingIterator;
+use tracing::warn;
 use tree_sitter::{Node, QueryCursor};
-// TODO accept only attributes of logical type in the model
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Model(Vec<Feature>);
-impl Model {
-    pub fn from_model_names(names: ModelNames, features: &Vec<Feature>) -> Model {
-        Model(
-            names
-                .0
-                .iter()
-                .filter_map(|name| {
-                    features
-                        .iter()
-                        .find(|feature| feature.name() == name)
-                        .cloned()
-                })
-                .collect(),
-        )
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
+pub struct ModelNames(Vec<String>);
+
+impl Extend<String> for ModelNames {
+    fn extend<T: IntoIterator<Item = String>>(&mut self, iter: T) {
+        iter.into_iter().for_each(|s| self.0.push(s))
     }
 }
-impl Default for Model {
-    fn default() -> Self {
-        Model(Vec::new())
-    }
-}
-impl Deref for Model {
-    type Target = Vec<Feature>;
+
+impl Deref for ModelNames {
+    type Target = Vec<String>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl Indent for Model {
-    const INDENTATION_LEVEL: usize = 1;
-}
-impl Display for Model {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let display_text = self.0.iter().fold(String::new(), |mut acc, feature| {
-            if !acc.is_empty() {
-                acc.push(',');
-                acc.push(' ');
-            }
-            acc.push_str(format!("{feature}").as_str());
-            acc
-        });
-        write!(f, "{display_text}")
-    }
-}
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct ModelNames(Vec<String>);
+
 impl Parse for ModelNames {
     type Error = anyhow::Error;
 
@@ -75,5 +44,76 @@ impl Parse for ModelNames {
         }
 
         Ok(ModelNames(names))
+    }
+}
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
+pub struct ModelTypes(Vec<EiffelType>);
+
+impl Extend<EiffelType> for ModelTypes {
+    fn extend<T: IntoIterator<Item = EiffelType>>(&mut self, iter: T) {
+        iter.into_iter().for_each(|t| self.0.push(t));
+    }
+}
+
+impl Deref for ModelTypes {
+    type Target = Vec<EiffelType>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
+pub struct Model(ModelNames, ModelTypes);
+
+impl Model {
+    pub fn names(&self) -> &ModelNames {
+        &self.0
+    }
+    pub fn types(&self) -> &ModelTypes {
+        &self.1
+    }
+    pub fn from_model_names<'feature>(
+        names: ModelNames,
+        features: impl IntoIterator<Item = &'feature Feature> + Copy,
+    ) -> Model {
+        let (names, types) = names
+            .iter()
+            .map(|name| features.into_iter().find(|feature| feature.name() == name))
+            .inspect(|feature| {
+                if feature.is_none() {
+                    warn!("Model feature not found {feature:?}")
+                }
+            })
+            .zip(names.iter())
+            .filter_map(|(feature, name)| feature.map(|feature| (feature, name)))
+            .map(|(feature, name)| (feature.return_type(), name))
+            .inspect(|(feature, _)| {
+                if feature.is_none() {
+                    warn!("Model feature {feature:?} cannot be a procedure")
+                }
+            })
+            .filter_map(|(feature, name)| feature.map(|f| (name.clone(), f.clone())))
+            .collect::<(ModelNames, ModelTypes)>();
+        Model(names, types)
+    }
+}
+impl Indent for Model {
+    const INDENTATION_LEVEL: usize = 1;
+}
+impl Display for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let display_text = self.names().iter().zip(self.types().iter()).fold(
+            String::new(),
+            |mut acc, (name, r#type)| {
+                if !acc.is_empty() {
+                    acc.push(',');
+                    acc.push(' ');
+                }
+                acc.push_str(format!("{name}: {type}").as_str());
+                acc
+            },
+        );
+        write!(f, "{display_text}")
     }
 }

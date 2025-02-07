@@ -382,10 +382,7 @@ end
                 .name(),
             "x".to_string()
         );
-        assert_eq!(
-            (class.model().first().expect("Parsed model")).name(),
-            "seq".to_string()
-        );
+        assert_eq!((class.model().names().first().expect("Model name")), "seq");
     }
     #[test]
     fn parse_ancestors_names() {
