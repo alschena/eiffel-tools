@@ -181,25 +181,27 @@ impl ModelExtended {
         &self.0
     }
     fn fmt_helper(&self, indent: usize) -> String {
-        let model = self.0.names().iter().zip(self.0.types().iter());
-        let mut extensions = self.1.iter();
+        self.0
+            .names()
+            .iter()
+            .zip(self.0.types().iter())
+            .zip(self.1.iter())
+            .fold(String::new(), |mut acc, ((name, r#type), ext)| {
+                if !acc.is_empty() {
+                    acc.push(';');
+                    acc.push('\n');
+                }
 
-        model.fold(String::new(), |mut acc, (name, r#type)| {
-            if !acc.is_empty() {
-                acc.push(';');
-                acc.push('\n');
-            }
+                (0..indent).for_each(|_| acc.push('\t'));
 
-            (0..indent).for_each(|_| acc.push('\t'));
+                acc.push_str(format!("{name}: {type}").as_str());
 
-            acc.push_str(format!("{name}: {type}").as_str());
-
-            if let Some(Some(ext)) = extensions.next() {
-                acc.push('\n');
-                acc.push_str(ext.fmt_helper(indent + 1).as_str());
-            }
-            acc
-        })
+                if let Some(ext) = ext {
+                    acc.push('\n');
+                    acc.push_str(ext.fmt_helper(indent + 1).as_str());
+                }
+                acc
+            })
     }
 }
 
