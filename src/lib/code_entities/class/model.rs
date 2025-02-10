@@ -312,19 +312,29 @@ mod tests {
         let system_classes = vec![&client, &client2, &supplier];
 
         let ext = client.model().clone().extended(&system_classes);
+        let ext2 = client2.model().clone().extended(&system_classes);
 
-        eprintln!("{ext:?}");
+        eprintln!("f: {ext:?}");
+        eprintln!("s: {ext2:?}");
 
         let model = ext.0;
 
         let mut ext_models = ext.1.iter();
-        let f = ext_models.next();
+        let nested = ext_models.next();
 
-        assert!(f.is_none());
+        assert!(nested.unwrap().is_none());
 
-        let s = ext_models.next().unwrap().as_ref().unwrap().model();
+        assert_eq!(model.names().len(), 1);
+        assert_eq!(model.names().first().unwrap(), "x");
 
-        assert!(false);
+        assert_eq!(model.types().len(), 1);
+        assert_eq!(
+            model.types().first().unwrap().class_name().unwrap(),
+            "INTEGER"
+        );
+
+        let model = ext2.0;
+        let nested = ext2.1.iter().next().unwrap().as_ref().unwrap().model();
 
         assert_eq!(model.names().len(), 1);
         assert_eq!(model.names().first().unwrap(), "nested");
@@ -335,11 +345,14 @@ mod tests {
             "NEW_INTEGER"
         );
 
-        assert_eq!(s.names().len(), 1);
-        assert_eq!(s.names().first().unwrap(), "value");
+        assert_eq!(nested.names().len(), 1);
+        assert_eq!(nested.names().first().unwrap(), "value");
 
-        assert_eq!(s.types().len(), 1);
-        assert_eq!(s.types().first().unwrap().class_name().unwrap(), "INTEGER");
+        assert_eq!(nested.types().len(), 1);
+        assert_eq!(
+            nested.types().first().unwrap().class_name().unwrap(),
+            "INTEGER"
+        );
     }
 
     #[test]
