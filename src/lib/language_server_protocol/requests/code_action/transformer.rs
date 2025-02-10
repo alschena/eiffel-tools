@@ -115,24 +115,22 @@ impl<'a, 'b> LLM<'a, 'b> {
         let full_model_text;
         {
             let system_classes = workspace.system_classes().collect::<Vec<_>>();
-            // TODO add models of arguments and Result.
+            // TODO add model of Result.
             let local_models_setup = "The models of the current class and its ancestors are:\n";
-            let mut text =
-                file.class()
-                    .full_model(&system_classes)
-                    .fold(String::new(), |mut acc, model| {
-                        acc.push_str(
-                            format!("{}{model}", ClassModel::indentation_string()).as_str(),
-                        );
-                        acc.push('\n');
-                        acc
-                    });
+            let mut text = file.class().full_extended_model(&system_classes).fold(
+                String::new(),
+                |mut acc, model| {
+                    acc.push_str(format!("{}{model}", ClassModel::indentation_string()).as_str());
+                    acc.push('\n');
+                    acc
+                },
+            );
             text.insert_str(0, local_models_setup);
 
             let parameters_text = feature.parameters().full_model(&system_classes).fold(
                 String::new(),
                 |mut acc, (name, models)| {
-                    let parameter_model_setup = format!("The model of the arugment {name} is:\n");
+                    let parameter_model_setup = format!("The model of the argument {name} is:\n");
                     let model_text = models.fold(String::new(), |mut acc, model| {
                         acc.push_str(
                             format!("{}{model}", ClassModel::indentation_string()).as_str(),

@@ -35,6 +35,14 @@ impl Class {
             .map(|ancestor| ancestor.model())
             .chain(std::iter::once(self.model()))
     }
+    pub fn full_extended_model<'class, 'system: 'class>(
+        &'class self,
+        system_classes: &'system [&Class],
+    ) -> impl Iterator<Item = ModelExtended> + use<'class> {
+        self.full_model(system_classes)
+            .cloned()
+            .map(|model| model.extended(system_classes))
+    }
     pub fn features(&self) -> &Vec<Feature> {
         &self.features
     }
