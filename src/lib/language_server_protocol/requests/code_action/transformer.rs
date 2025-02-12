@@ -28,17 +28,18 @@ impl LLM {
     }
 }
 impl LLM {
-    async fn add_specification_to_feature(
+    async fn add_contracts_to_feature(
         &self,
         feature: &Feature,
         file: &ProcessedFile,
         workspace: &Workspace,
-    ) -> Result<(RoutineSpecification, Point, Point), Error<'static>> {
+    ) -> Result<WorkspaceEdit, Error<'static>> {
         let system_classes = workspace.system_classes().collect::<Vec<_>>();
         let mut prompt = prompt::Prompt::default();
         prompt.append_preamble_text();
         prompt.append_feature_src_with_contract_holes(feature, file)?;
         prompt.append_full_model_text(feature, file.class(), &system_classes);
+
         let mut request = gemini::Request::from(prompt.into_string());
 
         let mut request_config =
@@ -46,39 +47,52 @@ impl LLM {
         request_config.set_temperature(Some(2.0));
         request.set_config(request_config);
 
-        match request
+        let Ok(response) = request
             .process_with_async_client(self.model_config(), self.client())
             .await
-        {
-            Ok(response) => {
-                info!(target:"gemini", "Request to llm: {request:?}\nResponse from llm: {response:?}");
+        else {
+            return Err(Error::CodeActionDisabled("fails to process llm request"));
+        };
 
-                let system_classes = workspace.system_classes().collect::<Vec<_>>();
-                let responses = response.parsed().inspect(|s: &RoutineSpecification| {
-                    info!(target: "gemini", "Generated routine specifications\n\tpreconditions:\t{}\n\tpostconditions:\t{}", s.precondition, s.postcondition);
-                });
-                let mut fixed_responses = responses
-                    .filter_map(|mut spec: RoutineSpecification| {
-                        if spec.fix(&system_classes, file.class(), feature) {
-                            Some(spec)
-                        } else {None}
-                    })
-                    .inspect(|s: &RoutineSpecification| {
-                        info!(target: "gemini", "Fixed routine specificatins\n\tpreconditions:\t{}\n\tpostcondition{}", s.precondition, s.postcondition);
-                    });
-                match fixed_responses.next() {
-                    Some(spec) => Ok((
-                        spec,
-                        feature.point_end_preconditions().unwrap().clone(),
-                        feature.point_end_postconditions().unwrap().clone(),
-                    )),
-                    None => Err(Error::CodeActionDisabled(
-                        "No added specification for routine was produced",
-                    )),
-                }
-            }
-            Err(_) => Err(Error::CodeActionDisabled("fails to process llm request")),
-        }
+        info!(target:"gemini", "Request to llm: {request:?}\nResponse from llm: {response:?}");
+
+        let system_classes = workspace.system_classes().collect::<Vec<_>>();
+        let responses = response.parsed().inspect(|s: &RoutineSpecification| {
+            info!(target: "gemini", "Generated routine specifications\n\tpreconditions:\t{}\n\tpostconditions:\t{}", s.precondition, s.postcondition);
+        });
+        let mut fixed_responses = responses
+            .filter_map(|mut spec: RoutineSpecification| {
+                if spec.fix(&system_classes, file.class(), feature) {
+                    Some(spec)
+                } else {None}
+            })
+            .inspect(|s: &RoutineSpecification| {
+                info!(target: "gemini", "Fixed routine specificatins\n\tpreconditions:\t{}\n\tpostcondition{}", s.precondition, s.postcondition);
+            });
+        let Some(spec) = fixed_responses.next() else {
+            return Err(Error::CodeActionDisabled(
+                "No added specification for routine was produced",
+            ));
+        };
+        let Ok(url) = Url::from_file_path(file.path()) else {
+            return Err(Error::PassThroughError("convert file path to url."));
+        };
+
+        Ok(WorkspaceEdit::new(HashMap::from([(
+            url,
+            vec![
+                text_edit_add_precondition(
+                    &feature,
+                    feature.point_end_preconditions().unwrap().clone(),
+                    spec.precondition,
+                ),
+                text_edit_add_postcondition(
+                    &feature,
+                    feature.point_end_postconditions().unwrap().clone(),
+                    spec.postcondition,
+                ),
+            ],
+        )])))
     }
     pub async fn add_contracts_at_point(
         &self,
@@ -91,27 +105,8 @@ impl LLM {
                 "A valid feature must surround the cursor.",
             ));
         };
-        let (
-            RoutineSpecification {
-                precondition: pre,
-                postcondition: post,
-            },
-            precondition_insertion_point,
-            postcondition_insertion_point,
-        ) = self
-            .add_specification_to_feature(feature, file, workspace)
-            .await?;
-
-        let Ok(url) = Url::from_file_path(file.path()) else {
-            return Err(Error::PassThroughError("convert file path to url."));
-        };
-
-        Ok(WorkspaceEdit::new(HashMap::from([(
-            url,
-            vec![
-                text_edit_add_precondition(&feature, precondition_insertion_point, pre),
-                text_edit_add_postcondition(&feature, postcondition_insertion_point, post),
-            ],
-        )])))
+        Ok(self
+            .add_contracts_to_feature(feature, file, workspace)
+            .await?)
     }
 }
