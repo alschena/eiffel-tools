@@ -31,23 +31,23 @@ impl Prompt {
         };
         let precondition_hole = if feature.has_precondition() {
             format!(
-                "\n{}<ADDED_PRECONDITION_CLAUSES>",
+                "\n{}<ADD_PRECONDITION_CLAUSES>",
                 contract::Precondition::indentation_string()
             )
         } else {
             format!(
-                "<NEW_PRECONDITION_BLOCK>\n{}",
+                "<ADD_PRECONDITION_CLAUSES>\n{}",
                 <contract::Block<contract::Precondition>>::indentation_string()
             )
         };
         let postcondition_hole = if feature.has_postcondition() {
             format!(
-                "\n{}<ADDED_POSTCONDITION_CLAUSES>",
+                "\n{}<ADD_POSTCONDITION_CLAUSES>",
                 contract::Postcondition::indentation_string()
             )
         } else {
             format!(
-                "<NEW_POSTCONDITION_BLOCK>\n{}",
+                "<ADD_POSTCONDITION_CLAUSES>\n{}",
                 <contract::Block<contract::Postcondition>>::indentation_string()
             )
         };
