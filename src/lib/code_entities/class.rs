@@ -31,17 +31,25 @@ impl Class {
         &'a self,
         system_classes: &'a [&'a Class],
     ) -> impl Iterator<Item = &'a Model> {
-        self.parent_classes(system_classes)
-            .map(|ancestor| ancestor.model())
-            .chain(std::iter::once(self.model()))
+        let model_ancestors = self
+            .ancestor_classes(system_classes)
+            .into_iter()
+            .map(|parents| parents.model());
+
+        std::iter::once(self.model()).chain(model_ancestors)
     }
     pub fn full_extended_model<'class, 'system: 'class>(
         &'class self,
         system_classes: &'system [&Class],
-    ) -> impl Iterator<Item = ModelExtended> + use<'class> {
+    ) -> ModelExtended {
         self.full_model(system_classes)
             .cloned()
             .map(|model| model.extended(system_classes))
+            .reduce(|mut acc, mut model| {
+                acc.append(&mut model);
+                acc
+            })
+            .unwrap_or_default()
     }
     pub fn features(&self) -> &Vec<Feature> {
         &self.features
@@ -626,7 +634,7 @@ end
         let parent = Class::from_source(src_parent);
         assert_eq!(
             child.full_model(&vec![&child, &parent]).collect::<Vec<_>>(),
-            vec![parent.model(), child.model()]
+            vec![child.model(), parent.model()]
         );
         Ok(())
     }
@@ -661,26 +669,38 @@ end
         assert_eq!(format!("{model}"), "value: INTEGER", "model: {model}");
 
         let system_classes = vec![&current_class, &class_of_argument];
+
         let feature = current_class
             .features()
             .first()
             .expect("demo is the first feature.");
-        let mut parameter_model = feature
-            .parameters()
-            .full_model(&system_classes)
+
+        let parameters = feature.parameters();
+
+        let parameter_name = parameters.names().first().unwrap();
+        let parameter_type = parameters.types().first().unwrap().class_name().unwrap();
+
+        assert_eq!(parameter_name, "a");
+        assert_eq!(parameter_type, "NEW_INTEGER");
+
+        let parameter_model = parameters
+            .full_extended_models(&system_classes)
             .next()
             .expect("parameter has model.");
 
-        assert_eq!(
-            parameter_model.0, "a",
-            "parameter name: {}",
-            parameter_model.0
-        );
-        let parameter_model = parameter_model.1.next().expect("`NEW_INTEGER` has model");
-        assert_eq!(
-            format!("{}", parameter_model),
-            "value: INTEGER",
-            "parameter name: {parameter_model}",
-        );
+        let parameter_model_first_name = parameter_model
+            .names()
+            .first()
+            .expect("name first parameter.")
+            .as_str();
+        let parameter_model_first_type = parameter_model
+            .types()
+            .first()
+            .unwrap()
+            .class_name()
+            .expect("parameter type's class name.");
+
+        assert_eq!(parameter_model_first_name, "value");
+        assert_eq!(parameter_model_first_type, "INTEGER");
     }
 }

@@ -141,7 +141,7 @@ impl Display for Model {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Default)]
 pub struct ModelExtended {
     names: ModelNames,
     types: ModelTypes,
@@ -149,7 +149,16 @@ pub struct ModelExtended {
 }
 
 impl ModelExtended {
-    fn append<'model>(&'model mut self, other: &'model mut ModelExtended) {
+    pub fn names(&self) -> &ModelNames {
+        &self.names
+    }
+    pub fn types(&self) -> &ModelTypes {
+        &self.types
+    }
+    pub fn extension(&self) -> &Vec<Option<ModelExtended>> {
+        &self.extension
+    }
+    pub fn append<'model>(&'model mut self, other: &'model mut ModelExtended) {
         self.names.append(&mut other.names);
         self.types.append(&mut other.types);
         self.extension.append(&mut other.extension);
@@ -186,7 +195,7 @@ impl Model {
 }
 
 impl ModelExtended {
-    fn fmt_helper(&self, indent: usize) -> String {
+    pub fn fmt_indented(&self, indent: usize) -> String {
         self.names
             .iter()
             .zip(self.types.iter())
@@ -203,7 +212,7 @@ impl ModelExtended {
 
                 if let Some(ext) = ext {
                     acc.push('\n');
-                    acc.push_str(ext.fmt_helper(indent + 1).as_str());
+                    acc.push_str(ext.fmt_indented(indent + 1).as_str());
                 }
                 acc
             })
@@ -212,7 +221,7 @@ impl ModelExtended {
 
 impl Display for ModelExtended {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = self.fmt_helper(0);
+        let text = self.fmt_indented(0);
         write!(f, "{text}")
     }
 }
@@ -380,10 +389,7 @@ mod tests {
         let supplier = Class::from_source(src_supplier);
         let system_classes = vec![&client, &supplier];
 
-        let mut ext_model = client.full_extended_model(&system_classes);
-        let first = ext_model.next().unwrap();
-        assert!(ext_model.next().is_none());
-        eprintln!("{first}");
-        assert_eq!(format!("{first}"), "nested: NEW_INTEGER\n\tvalue: INTEGER");
+        let model = client.full_extended_model(&system_classes);
+        assert_eq!(format!("{model}"), "nested: NEW_INTEGER\n\tvalue: INTEGER");
     }
 }

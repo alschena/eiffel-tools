@@ -279,8 +279,9 @@ impl Fix for Predicate {
                 .any(|feature| {
                     current_feature
                         .parameters()
+                        .names()
                         .iter()
-                        .any(|(name, _)| name == identifier)
+                        .any(|name| name == identifier)
                         || (identifier == feature.name())
                 })
         })
