@@ -11,6 +11,8 @@ use gemini::ToResponseSchema;
 use std::collections::HashMap;
 use tracing::info;
 
+mod prompt;
+
 #[derive(Default)]
 pub struct LLM {
     model_config: gemini::Config,
@@ -32,93 +34,12 @@ impl LLM {
         file: &ProcessedFile,
         workspace: &Workspace,
     ) -> Result<(RoutineSpecification, Point, Point), Error<'static>> {
-        let Some(point_insert_preconditions) = feature.point_end_preconditions() else {
-            return Err(Error::CodeActionDisabled(
-                "Only attributes with an attribute block and routines support adding preconditions",
-            ));
-        };
-        let Some(point_insert_postconditions) = feature.point_end_postconditions() else {
-            return Err(Error::CodeActionDisabled("Only attributes with an attribute block and routines support adding postconditions"));
-        };
-        let precondition_hole = if feature.has_precondition() {
-            format!(
-                "\n{}<ADDED_PRECONDITION_CLAUSES>",
-                Precondition::indentation_string()
-            )
-        } else {
-            format!(
-                "<NEW_PRECONDITION_BLOCK>\n{}",
-                <Block<Precondition>>::indentation_string()
-            )
-        };
-        let postcondition_hole = if feature.has_postcondition() {
-            format!(
-                "\n{}<ADDED_POSTCONDITION_CLAUSES>",
-                Postcondition::indentation_string()
-            )
-        } else {
-            format!(
-                "<NEW_POSTCONDITION_BLOCK>\n{}",
-                <Block<Postcondition>>::indentation_string()
-            )
-        };
-        let injections = vec![
-            (point_insert_preconditions, precondition_hole.as_str()),
-            (point_insert_postconditions, postcondition_hole.as_str()),
-        ];
-        let Ok(feature_src) = file.feature_src_with_injections(&feature, injections.into_iter())
-        else {
-            return Err(Error::PassThroughError(
-                "fails to extract source of feature from file",
-            ));
-        };
-        // TODO add model of Result.
-        let full_model_text;
-        {
-            let system_classes = workspace.system_classes().collect::<Vec<_>>();
-
-            let mut text = file
-                .class()
-                .full_extended_model(&system_classes)
-                .fmt_indented(ClassModel::INDENTATION_LEVEL);
-
-            if text.is_empty() {
-                text.push_str("The current class and its ancestors have no model.");
-            } else {
-                text.insert_str(0, "Models of the current class and its ancestors:\n{}");
-            }
-
-            let parameters = feature.parameters();
-            let parameters_models_fmt = parameters
-                .types()
-                .iter()
-                .map(|t| {
-                    t.class(system_classes.iter().copied())
-                        .full_extended_model(&system_classes)
-                })
-                .map(|ext_model| ext_model.fmt_indented(ClassModel::INDENTATION_LEVEL));
-
-            let parameters_models = parameters.names().iter().zip(parameters_models_fmt).fold(
-                String::new(),
-                |mut acc, (name, model_fmt)| {
-                    acc.push_str("Model of the argument ");
-                    acc.push_str(name);
-                    acc.push(':');
-                    acc.push('\n');
-                    acc.push_str(model_fmt.as_str());
-                    acc
-                },
-            );
-
-            if !parameters_models.is_empty() {
-                text.push_str(&parameters_models)
-            }
-
-            full_model_text = text;
-        }
-        let mut request = gemini::Request::from(format!(
-            "You are an expert in formal methods, specifically design by contract for static verification. You are optionally adding model-based contracts to the following feature:```eiffel\n{feature_src}\n```\nRemember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.\n{full_model_text}"
-        ));
+        let system_classes = workspace.system_classes().collect::<Vec<_>>();
+        let mut prompt = prompt::Prompt::default();
+        prompt.append_preamble_text();
+        prompt.append_feature_src_with_contract_holes(feature, file)?;
+        prompt.append_full_model_text(feature, file.class(), &system_classes);
+        let mut request = gemini::Request::from(prompt.into_string());
 
         let mut request_config =
             gemini::GenerationConfig::from(RoutineSpecification::to_response_schema());
@@ -148,8 +69,8 @@ impl LLM {
                 match fixed_responses.next() {
                     Some(spec) => Ok((
                         spec,
-                        point_insert_preconditions.clone(),
-                        point_insert_postconditions.clone(),
+                        feature.point_end_preconditions().unwrap().clone(),
+                        feature.point_end_postconditions().unwrap().clone(),
                     )),
                     None => Err(Error::CodeActionDisabled(
                         "No added specification for routine was produced",
