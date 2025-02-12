@@ -11,42 +11,6 @@ use gemini::ToResponseSchema;
 use std::collections::HashMap;
 use tracing::info;
 
-pub struct LLMBuilder<'a, 'b> {
-    model_config: gemini::Config,
-    client: reqwest::Client,
-    file: Option<&'a ProcessedFile>,
-    workspace: Option<&'b Workspace>,
-}
-impl<'a, 'b> LLMBuilder<'a, 'b> {
-    pub fn set_file(mut self, file: &'a ProcessedFile) -> LLMBuilder<'a, 'b> {
-        self.file = Some(file);
-        self
-    }
-    pub fn set_workspace(mut self, ws: &'b Workspace) -> LLMBuilder<'a, 'b> {
-        self.workspace = Some(ws);
-        self
-    }
-    pub fn build(self) -> LLM<'a, 'b> {
-        LLM {
-            model_config: self.model_config,
-            client: self.client,
-            file: self.file.expect("llmbuilder has a file set."),
-            workspace: self.workspace.expect("llmbuilder has a workspace set."),
-        }
-    }
-}
-
-impl Default for LLMBuilder<'_, '_> {
-    fn default() -> Self {
-        Self {
-            model_config: gemini::Config::default(),
-            client: reqwest::Client::new(),
-            file: None,
-            workspace: None,
-        }
-    }
-}
-
 pub struct LLM<'a, 'b> {
     model_config: gemini::Config,
     client: reqwest::Client,
@@ -54,6 +18,14 @@ pub struct LLM<'a, 'b> {
     workspace: &'b Workspace,
 }
 impl<'a, 'b> LLM<'a, 'b> {
+    pub fn new(file: &'a ProcessedFile, workspace: &'b Workspace) -> Self {
+        Self {
+            model_config: gemini::Config::default(),
+            client: reqwest::Client::new(),
+            file,
+            workspace,
+        }
+    }
     fn model_config(&self) -> &gemini::Config {
         &self.model_config
     }
