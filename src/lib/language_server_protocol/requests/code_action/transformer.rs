@@ -11,39 +11,27 @@ use gemini::ToResponseSchema;
 use std::collections::HashMap;
 use tracing::info;
 
-pub struct LLM<'a, 'b> {
+#[derive(Default)]
+pub struct LLM {
     model_config: gemini::Config,
     client: reqwest::Client,
-    file: &'a ProcessedFile,
-    workspace: &'b Workspace,
 }
-impl<'a, 'b> LLM<'a, 'b> {
-    pub fn new(file: &'a ProcessedFile, workspace: &'b Workspace) -> Self {
-        Self {
-            model_config: gemini::Config::default(),
-            client: reqwest::Client::new(),
-            file,
-            workspace,
-        }
-    }
+
+impl LLM {
     fn model_config(&self) -> &gemini::Config {
         &self.model_config
     }
     fn client(&self) -> &reqwest::Client {
         &self.client
     }
-    fn target_url(&self) -> Result<Url, Error<'static>> {
-        Url::from_file_path(self.file.path())
-            .map_err(|_| Error::PassThroughError("fails to transform path into lsp_types::Url"))
-    }
 }
-impl<'a, 'b> LLM<'a, 'b> {
-    async fn request_specification(
+impl LLM {
+    async fn add_specification_to_feature(
         &self,
         feature: &Feature,
+        file: &ProcessedFile,
+        workspace: &Workspace,
     ) -> Result<(RoutineSpecification, Point, Point), Error<'static>> {
-        let file = self.file;
-        let workspace = self.workspace;
         let Some(point_insert_preconditions) = feature.point_end_preconditions() else {
             return Err(Error::CodeActionDisabled(
                 "Only attributes with an attribute block and routines support adding preconditions",
@@ -84,39 +72,48 @@ impl<'a, 'b> LLM<'a, 'b> {
                 "fails to extract source of feature from file",
             ));
         };
+        // TODO add model of Result.
         let full_model_text;
         {
             let system_classes = workspace.system_classes().collect::<Vec<_>>();
-            // TODO add model of Result.
-            let local_models_setup = "The models of the current class and its ancestors are:\n";
-            let mut text = file.class().full_extended_model(&system_classes).fold(
+
+            let mut text = file
+                .class()
+                .full_extended_model(&system_classes)
+                .fmt_indented(ClassModel::INDENTATION_LEVEL);
+
+            if text.is_empty() {
+                text.push_str("The current class and its ancestors have no model.");
+            } else {
+                text.insert_str(0, "Models of the current class and its ancestors:\n{}");
+            }
+
+            let parameters = feature.parameters();
+            let parameters_models_fmt = parameters
+                .types()
+                .iter()
+                .map(|t| {
+                    t.class(system_classes.iter().copied())
+                        .full_extended_model(&system_classes)
+                })
+                .map(|ext_model| ext_model.fmt_indented(ClassModel::INDENTATION_LEVEL));
+
+            let parameters_models = parameters.names().iter().zip(parameters_models_fmt).fold(
                 String::new(),
-                |mut acc, model| {
-                    acc.push_str(format!("{}{model}", ClassModel::indentation_string()).as_str());
+                |mut acc, (name, model_fmt)| {
+                    acc.push_str("Model of the argument ");
+                    acc.push_str(name);
+                    acc.push(':');
                     acc.push('\n');
-                    acc
-                },
-            );
-            text.insert_str(0, local_models_setup);
-
-            let parameters_text = feature.parameters().full_model(&system_classes).fold(
-                String::new(),
-                |mut acc, (name, models)| {
-                    let parameter_model_setup = format!("The model of the argument {name} is:\n");
-                    let model_text = models.fold(String::new(), |mut acc, model| {
-                        acc.push_str(
-                            format!("{}{model}", ClassModel::indentation_string()).as_str(),
-                        );
-                        acc.push('\n');
-                        acc
-                    });
-                    acc.push_str(&parameter_model_setup);
-                    acc.push_str(&model_text);
+                    acc.push_str(model_fmt.as_str());
                     acc
                 },
             );
 
-            text.push_str(&parameters_text);
+            if !parameters_models.is_empty() {
+                text.push_str(&parameters_models)
+            }
+
             full_model_text = text;
         }
         let mut request = gemini::Request::from(format!(
@@ -165,9 +162,9 @@ impl<'a, 'b> LLM<'a, 'b> {
     pub async fn add_contracts_at_point(
         &self,
         point: &Point,
+        file: &ProcessedFile,
         workspace: &Workspace,
     ) -> Result<WorkspaceEdit, Error<'static>> {
-        let file = self.file;
         let Some(feature) = file.feature_around_point(point) else {
             return Err(Error::CodeActionDisabled(
                 "A valid feature must surround the cursor.",
@@ -180,9 +177,14 @@ impl<'a, 'b> LLM<'a, 'b> {
             },
             precondition_insertion_point,
             postcondition_insertion_point,
-        ) = self.request_specification(feature).await?;
+        ) = self
+            .add_specification_to_feature(feature, file, workspace)
+            .await?;
 
-        let url = self.target_url()?;
+        let Ok(url) = Url::from_file_path(file.path()) else {
+            return Err(Error::PassThroughError("convert file path to url."));
+        };
+
         Ok(WorkspaceEdit::new(HashMap::from([(
             url,
             vec![

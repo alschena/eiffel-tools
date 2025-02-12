@@ -53,13 +53,13 @@ impl HandleRequest for request::CodeActionRequest {
 
         let (edit, disabled) = match file {
             Some(file) => {
-                let model = transformer::LLM::new(&file, &ws);
+                let model = transformer::LLM::default();
                 let point: Point = params
                     .range
                     .end
                     .try_into()
                     .expect("fails to convert lsp-point to eiffel point");
-                match model.add_contracts_at_point(&point, &ws).await {
+                match model.add_contracts_at_point(&point, &file, &ws).await {
                     Ok(edit) => (Some(edit), None),
                     Err(e) => (
                         None,

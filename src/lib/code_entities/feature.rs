@@ -1,4 +1,5 @@
 use super::prelude::*;
+use crate::lib::code_entities::class::model::ModelExtended;
 use crate::lib::tree_sitter_extension::capture_name_to_nodes;
 use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
@@ -145,44 +146,33 @@ impl Parse for EiffelType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Parameters(Vec<(String, EiffelType)>);
-impl Deref for Parameters {
-    type Target = Vec<(String, EiffelType)>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl DerefMut for Parameters {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
+pub struct Parameters {
+    names: Vec<String>,
+    types: Vec<EiffelType>,
 }
 impl Parameters {
+    pub fn names(&self) -> &Vec<String> {
+        &self.names
+    }
+    pub fn types(&self) -> &Vec<EiffelType> {
+        &self.types
+    }
     fn add_parameter(&mut self, id: String, eiffel_type: EiffelType) {
-        self.push((id, eiffel_type));
+        self.names.push(id);
+        self.types.push(eiffel_type);
     }
     fn is_empty(&self) -> bool {
-        self.deref().is_empty()
+        self.names().is_empty() && self.types().is_empty()
     }
-    pub fn full_model<'a>(
-        &self,
-        system_classes: &'a [&'a Class],
-    ) -> impl Iterator<Item = (&str, impl Iterator<Item = &'a ClassModel>)> {
-        self.iter().map(|(name, eiffel_type)| {
-            (
-                name.as_str(),
-                eiffel_type
-                    .class(system_classes.iter().copied())
-                    .full_model(system_classes),
-            )
+    pub fn full_extended_models<'s, 'system>(
+        &'s self,
+        system_classes: &'system [&Class],
+    ) -> impl Iterator<Item = ModelExtended> + use<'s, 'system> {
+        self.types().iter().map(|t| {
+            t.class(system_classes.iter().copied())
+                .full_extended_model(system_classes)
         })
-    }
-}
-impl Default for Parameters {
-    fn default() -> Self {
-        Parameters(Vec::new())
     }
 }
 impl Parse for Parameters {
@@ -200,7 +190,7 @@ impl Parse for Parameters {
         );
         let mut parameters_matches = cursor.matches(&parameter_query, node.clone(), src.as_bytes());
 
-        let mut parameters = Parameters(Vec::new());
+        let mut parameters = Parameters::default();
 
         while let Some(mat) = parameters_matches.next() {
             let name_to_nodes = |name: &str| capture_name_to_nodes(name, &parameter_query, mat);
@@ -224,7 +214,9 @@ impl Parse for Parameters {
 }
 impl Display for Parameters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = self.0.iter().fold(
+        let types = self.types();
+        let names = self.names();
+        let text = names.iter().zip(types.iter()).fold(
             String::new(),
             |mut acc, (parameter_name, parameter_type)| {
                 acc.push_str(parameter_name.as_str());
@@ -263,7 +255,9 @@ impl Feature {
         &self.parameters
     }
     pub fn number_parameters(&self) -> usize {
-        self.parameters().len()
+        let parameters = self.parameters();
+        debug_assert_eq!(parameters.names().len(), parameters.types().len());
+        parameters.names().len()
     }
     pub fn return_type(&self) -> Option<&EiffelType> {
         self.return_type.as_ref()
@@ -567,22 +561,19 @@ end
 
         assert_eq!(
             feature.parameters(),
-            &Parameters(vec![
-                (
-                    "y".to_string(),
+            &Parameters {
+                names: vec!["y".to_string(), "z".to_string()],
+                types: vec![
+                    EiffelType::ClassType(
+                        "MML_SEQUENCE [INTEGER]".to_string(),
+                        "MML_SEQUENCE".to_string()
+                    ),
                     EiffelType::ClassType(
                         "MML_SEQUENCE [INTEGER]".to_string(),
                         "MML_SEQUENCE".to_string()
                     )
-                ),
-                (
-                    "z".to_string(),
-                    EiffelType::ClassType(
-                        "MML_SEQUENCE [INTEGER]".to_string(),
-                        "MML_SEQUENCE".to_string()
-                    )
-                )
-            ])
+                ]
+            }
         );
     }
 
