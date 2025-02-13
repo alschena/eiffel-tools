@@ -243,6 +243,15 @@ pub struct Feature {
     postconditions: Option<Block<Postcondition>>,
 }
 impl Feature {
+    pub fn is_feature_around_point(&self, point: &Point) -> bool {
+        point >= self.range().start() && point <= self.range().end()
+    }
+    pub fn feature_around_point<'feature>(
+        mut features: impl Iterator<Item = &'feature Feature>,
+        point: &Point,
+    ) -> Option<&'feature Feature> {
+        features.find(|f| f.is_feature_around_point(point))
+    }
     pub fn clone_rename(&self, name: String) -> Feature {
         let mut f = self.clone();
         f.name = name;
