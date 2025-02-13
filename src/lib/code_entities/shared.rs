@@ -60,8 +60,9 @@ impl Range {
 impl PartialOrd for Range {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
+            (s, o) if s.start == o.start && s.end == o.end => Some(Ordering::Equal),
             (s, o) if s.start <= o.start && s.end >= o.end => Some(Ordering::Greater),
-            (s, o) if s.start > o.start && s.end < o.end => Some(Ordering::Less),
+            (s, o) if s.start >= o.start && s.end <= o.end => Some(Ordering::Less),
             _ => None,
         }
     }
