@@ -38,13 +38,7 @@ impl ProcessedFile {
         &self.tree
     }
     pub(crate) fn feature_around_point(&self, point: &Point) -> Option<&Feature> {
-        let mut features = self.class().features().iter();
-        match features
-            .find(|&feature| point >= feature.range().start() && point <= feature.range().end())
-        {
-            Some(f) => Some(f),
-            None => None,
-        }
+        Feature::feature_around_point(self.class().features().iter(), point)
     }
     pub fn reload(&mut self, parser: &mut Parser) {
         let src = std::fs::read_to_string(self.path()).expect("read file.");
