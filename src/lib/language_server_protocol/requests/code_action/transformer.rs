@@ -14,12 +14,22 @@ use tracing::info;
 mod prompt;
 
 #[derive(Default)]
-pub struct LLM {
+pub struct GeminiLLM {
     model_config: gemini::Config,
+    request_config: gemini::GenerationConfig,
     client: reqwest::Client,
 }
 
-impl LLM {
+impl GeminiLLM {
+    pub fn new() -> Self {
+        let mut request_config =
+            gemini::GenerationConfig::from(RoutineSpecification::to_response_schema());
+        request_config.set_temperature(Some(2.0));
+        Self {
+            request_config,
+            ..Default::default()
+        }
+    }
     fn model_config(&self) -> &gemini::Config {
         &self.model_config
     }
@@ -27,7 +37,7 @@ impl LLM {
         &self.client
     }
 }
-impl LLM {
+impl GeminiLLM {
     async fn add_contracts_to_feature(
         &self,
         feature: &Feature,
@@ -41,11 +51,7 @@ impl LLM {
         prompt.append_full_model_text(feature, file.class(), &system_classes);
 
         let mut request = gemini::Request::from(prompt.into_string());
-
-        let mut request_config =
-            gemini::GenerationConfig::from(RoutineSpecification::to_response_schema());
-        request_config.set_temperature(Some(2.0));
-        request.set_config(request_config);
+        request.set_config(self.request_config.clone());
 
         let Ok(response) = request
             .process_with_async_client(self.model_config(), self.client())
@@ -60,7 +66,7 @@ impl LLM {
         let responses = response.parsed().inspect(|s: &RoutineSpecification| {
             info!(target: "gemini", "Generated routine specifications\n\tpreconditions:\t{}\n\tpostconditions:\t{}", s.precondition, s.postcondition);
         });
-        let mut fixed_responses = responses
+        let mut corrected_responses = responses
             .filter_map(|mut spec: RoutineSpecification| {
                 if spec.fix(&system_classes, file.class(), feature) {
                     Some(spec)
@@ -69,7 +75,7 @@ impl LLM {
             .inspect(|s: &RoutineSpecification| {
                 info!(target: "gemini", "Fixed routine specificatins\n\tpreconditions:\t{}\n\tpostcondition{}", s.precondition, s.postcondition);
             });
-        let Some(spec) = fixed_responses.next() else {
+        let Some(spec) = corrected_responses.next() else {
             return Err(Error::CodeActionDisabled(
                 "No added specification for routine was produced",
             ));
