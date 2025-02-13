@@ -1,5 +1,6 @@
+use async_lsp::lsp_types::CodeActionDisabled;
+
 use crate::lib::code_entities::prelude::*;
-use crate::lib::language_server_protocol::requests::code_action::Error;
 use crate::lib::processed_file::ProcessedFile;
 
 #[derive(Default)]
@@ -20,14 +21,14 @@ impl Prompt {
         &mut self,
         feature: &Feature,
         file: &ProcessedFile,
-    ) -> Result<(), Error<'static>> {
+    ) -> Result<(), CodeActionDisabled> {
         let Some(point_insert_preconditions) = feature.point_end_preconditions() else {
-            return Err(Error::CodeActionDisabled(
-                "Only attributes with an attribute block and routines support adding preconditions",
-            ));
+            return Err(CodeActionDisabled{
+                reason:"Only attributes with an attribute block and routines support adding preconditions".to_string(),
+            });
         };
         let Some(point_insert_postconditions) = feature.point_end_postconditions() else {
-            return Err(Error::CodeActionDisabled("Only attributes with an attribute block and routines support adding postconditions"));
+            return Err(CodeActionDisabled{reason:"Only attributes with an attribute block and routines support adding postconditions".to_string()});
         };
         let precondition_hole = if feature.has_precondition() {
             format!(
@@ -55,12 +56,9 @@ impl Prompt {
             (point_insert_preconditions, precondition_hole.as_str()),
             (point_insert_postconditions, postcondition_hole.as_str()),
         ];
-        let Ok(feature_src) = file.feature_src_with_injections(&feature, injections.into_iter())
-        else {
-            return Err(Error::PassThroughError(
-                "fails to extract source of feature from file",
-            ));
-        };
+        let feature_src = file
+            .feature_src_with_injections(&feature, injections.into_iter())
+            .expect("inject feature source code");
         self.text.push_str("```eiffel\n");
         self.text.push_str(&feature_src);
         self.text.push_str("```\n");

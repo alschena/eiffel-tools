@@ -8,36 +8,6 @@ use tracing::warn;
 mod transformer;
 mod utils;
 
-#[derive(Debug)]
-enum Error<'a> {
-    CodeActionDisabled(&'a str),
-    PassThroughError(&'a str),
-}
-impl<'a> Error<'a> {
-    fn resolve(&self) -> Option<CodeActionDisabled> {
-        match self {
-            Self::CodeActionDisabled(reason) => Some(CodeActionDisabled {
-                reason: reason.to_string(),
-            }),
-            Self::PassThroughError(reason) => {
-                warn!("{reason}");
-                None
-            }
-        }
-    }
-}
-impl<'a> Display for Error<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::CodeActionDisabled(s) => write!(f, "{s}"),
-            Error::PassThroughError(s) => write!(
-                f,
-                "fails with {s}, but the process can continue. Look at log file for more information."
-            ),
-        }
-    }
-}
-
 impl HandleRequest for request::CodeActionRequest {
     async fn handle_request(
         st: ServerState,
@@ -51,7 +21,7 @@ impl HandleRequest for request::CodeActionRequest {
             .expect("fails to convert uri of code action parameter in usable path.");
         let file = ws.find_file(&path);
 
-        let (edit, disabled) = match file {
+        let edit = match file {
             Some(file) => {
                 let model = transformer::GeminiLLM::new();
                 let point: Point = params
@@ -59,22 +29,22 @@ impl HandleRequest for request::CodeActionRequest {
                     .end
                     .try_into()
                     .expect("fails to convert lsp-point to eiffel point");
-                match model.add_contracts_at_point(&point, &file, &ws).await {
-                    Ok(edit) => (Some(edit), None),
-                    Err(e) => (
-                        None,
-                        Some(e.resolve().expect(
-                            "all these failures must be resolved disabling the code action.",
-                        )),
-                    ),
+                let feature = Feature::feature_around_point(file.class().features().iter(), &point);
+                if let Some(feature) = feature {
+                    model.add_contracts_to_feature(feature, file, &ws).await
+                } else {
+                    Err(CodeActionDisabled {
+                        reason: "Not in a valid feature.".to_string(),
+                    })
                 }
             }
-            None => (
-                None,
-                Some(CodeActionDisabled {
-                    reason: "The current file has not been parsed yet.".to_string(),
-                }),
-            ),
+            None => Err(CodeActionDisabled {
+                reason: "The current file has not been parsed yet.".to_string(),
+            }),
+        };
+        let (edit, disabled) = match edit {
+            Ok(edit) => (Some(edit), None),
+            Err(disabled) => (None, Some(disabled)),
         };
         Ok(Some(vec![CodeActionOrCommand::CodeAction(CodeAction {
             title: String::from("Add contracts to current routine"),

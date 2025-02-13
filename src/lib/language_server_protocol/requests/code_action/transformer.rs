@@ -1,9 +1,8 @@
 use super::utils::{text_edit_add_postcondition, text_edit_add_precondition};
-use super::Error;
 use crate::lib::code_entities::prelude::*;
 use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
-use async_lsp::lsp_types::{Url, WorkspaceEdit};
+use async_lsp::lsp_types::{CodeActionDisabled, Url, WorkspaceEdit};
 use async_lsp::Result;
 use contract::{Block, Fix, Postcondition, Precondition, RoutineSpecification};
 use gemini;
@@ -12,6 +11,16 @@ use std::collections::HashMap;
 use tracing::info;
 
 mod prompt;
+
+trait LLM {
+    fn add_contracts_to_feature(
+        &self,
+        feature: &Feature,
+        class: &Class,
+        file: &ProcessedFile,
+        workspace: &Workspace,
+    ) -> Result<WorkspaceEdit, CodeActionDisabled>;
+}
 
 #[derive(Default)]
 pub struct GeminiLLM {
@@ -38,12 +47,12 @@ impl GeminiLLM {
     }
 }
 impl GeminiLLM {
-    async fn add_contracts_to_feature(
+    pub async fn add_contracts_to_feature(
         &self,
         feature: &Feature,
         file: &ProcessedFile,
         workspace: &Workspace,
-    ) -> Result<WorkspaceEdit, Error<'static>> {
+    ) -> Result<WorkspaceEdit, CodeActionDisabled> {
         let system_classes = workspace.system_classes().collect::<Vec<_>>();
         let mut prompt = prompt::Prompt::default();
         prompt.append_preamble_text();
@@ -57,7 +66,9 @@ impl GeminiLLM {
             .process_with_async_client(self.model_config(), self.client())
             .await
         else {
-            return Err(Error::CodeActionDisabled("fails to process llm request"));
+            return Err(CodeActionDisabled {
+                reason: "fails to process llm request".to_string(),
+            });
         };
 
         info!(target:"gemini", "Request to llm: {request:?}\nResponse from llm: {response:?}");
@@ -76,13 +87,11 @@ impl GeminiLLM {
                 info!(target: "gemini", "Fixed routine specificatins\n\tpreconditions:\t{}\n\tpostcondition{}", s.precondition, s.postcondition);
             });
         let Some(spec) = corrected_responses.next() else {
-            return Err(Error::CodeActionDisabled(
-                "No added specification for routine was produced",
-            ));
+            return Err(CodeActionDisabled {
+                reason: "No added specification for routine was produced".to_string(),
+            });
         };
-        let Ok(url) = Url::from_file_path(file.path()) else {
-            return Err(Error::PassThroughError("convert file path to url."));
-        };
+        let url = Url::from_file_path(file.path()).expect("convert file path to url.");
 
         Ok(WorkspaceEdit::new(HashMap::from([(
             url,
@@ -99,20 +108,5 @@ impl GeminiLLM {
                 ),
             ],
         )])))
-    }
-    pub async fn add_contracts_at_point(
-        &self,
-        point: &Point,
-        file: &ProcessedFile,
-        workspace: &Workspace,
-    ) -> Result<WorkspaceEdit, Error<'static>> {
-        let Some(feature) = file.feature_around_point(point) else {
-            return Err(Error::CodeActionDisabled(
-                "A valid feature must surround the cursor.",
-            ));
-        };
-        Ok(self
-            .add_contracts_to_feature(feature, file, workspace)
-            .await?)
     }
 }
