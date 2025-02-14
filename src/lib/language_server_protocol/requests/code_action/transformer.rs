@@ -5,32 +5,24 @@ use crate::lib::workspace::Workspace;
 use async_lsp::lsp_types::{CodeActionDisabled, Url, WorkspaceEdit};
 use async_lsp::Result;
 use contract::{Block, Fix, Postcondition, Precondition, RoutineSpecification};
-use gemini;
-use gemini::ToResponseSchema;
 use std::collections::HashMap;
 use tracing::info;
 
 mod prompt;
 
-trait LLM {
-    fn add_contracts_to_feature(
-        &self,
-        feature: &Feature,
-        class: &Class,
-        file: &ProcessedFile,
-        workspace: &Workspace,
-    ) -> Result<WorkspaceEdit, CodeActionDisabled>;
-    fn prompt(&self) -> &prompt::Prompt;
-}
+#[cfg(feature = "gemini")]
+use gemini::{self, ToResponseSchema};
 
+#[cfg(feature = "gemini")]
 #[derive(Default)]
-pub struct GeminiLLM {
+pub struct LLM {
     model_config: gemini::Config,
     request_config: gemini::GenerationConfig,
     client: reqwest::Client,
 }
 
-impl GeminiLLM {
+#[cfg(feature = "gemini")]
+impl LLM {
     pub fn new() -> Self {
         let mut request_config =
             gemini::GenerationConfig::from(RoutineSpecification::to_response_schema());
@@ -46,8 +38,6 @@ impl GeminiLLM {
     fn client(&self) -> &reqwest::Client {
         &self.client
     }
-}
-impl GeminiLLM {
     pub async fn add_contracts_to_feature(
         &self,
         feature: &Feature,
@@ -108,5 +98,29 @@ impl GeminiLLM {
                 ),
             ],
         )])))
+    }
+}
+
+#[cfg(feature = "ollama")]
+#[derive(Default)]
+pub struct LLM {
+    model: ollama_rs::Ollama,
+    prompt: prompt::Prompt,
+}
+
+impl LLM {
+    pub fn new() -> LLM {
+        Self {
+            ..Default::default()
+        }
+    }
+    pub async fn add_contracts_to_feature(
+        &self,
+        feature: &Feature,
+
+        file: &ProcessedFile,
+        workspace: &Workspace,
+    ) -> Result<WorkspaceEdit, CodeActionDisabled> {
+        todo!()
     }
 }

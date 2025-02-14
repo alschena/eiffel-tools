@@ -23,7 +23,7 @@ impl HandleRequest for request::CodeActionRequest {
 
         let edit = match file {
             Some(file) => {
-                let model = transformer::GeminiLLM::new();
+                let model = transformer::LLM::new();
                 let point: Point = params
                     .range
                     .end

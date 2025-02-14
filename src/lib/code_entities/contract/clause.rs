@@ -1,8 +1,6 @@
 use crate::lib::tree_sitter_extension::capture_name_to_nodes;
 use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
-use gemini::{Described, ResponseSchema, ToResponseSchema};
-use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -13,11 +11,19 @@ use tree_sitter::{Node, Query, QueryCursor, Tree};
 
 use super::*;
 
-#[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone, Hash)]
+#[cfg(feature = "gemini")]
+use {
+    gemini::{Described, ResponseSchema, ToResponseSchema},
+    gemini_macro_derive::ToResponseSchema,
+};
+
+#[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Clause {
     pub tag: Tag,
     pub predicate: Predicate,
 }
+
 impl Default for Clause {
     fn default() -> Self {
         Self {
@@ -101,7 +107,9 @@ impl Clause {
         Clause { tag, predicate }
     }
 }
-#[derive(Deserialize, Clone, ToResponseSchema, Debug, PartialEq, Eq, Hash)]
+
+#[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[serde(transparent)]
 pub struct Tag(String);
 
@@ -141,7 +149,9 @@ impl From<String> for Tag {
         Tag(value)
     }
 }
-#[derive(Hash, Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
+
+#[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
+#[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(transparent)]
 pub struct Predicate(String);
 
@@ -314,16 +324,19 @@ impl Display for Predicate {
     }
 }
 
+#[cfg(feature = "gemini")]
 impl Described for Clause {
     fn description() -> String {
         String::from("A valid contract clause of the eiffel programming language.")
     }
 }
+#[cfg(feature = "gemini")]
 impl Described for Tag {
     fn description() -> String {
         "A valid tag clause for the Eiffel programming language.".to_string()
     }
 }
+#[cfg(feature = "gemini")]
 impl Described for Predicate {
     fn description() -> String {
         "A valid boolean expression for the Eiffel programming language.".to_string()
@@ -334,6 +347,7 @@ impl Described for Predicate {
 mod tests {
     use super::*;
     use anyhow::Result;
+    #[cfg(feature = "gemini")]
     use gemini::SchemaType;
 
     #[test]
@@ -373,6 +387,7 @@ end"#;
 
     // BEGIN: For gemini completions.
     // When the LSP grows in maturity, gemini will be decoupled and these tests will be moved to a compatibility layer.
+    #[cfg(feature = "gemini")]
     #[test]
     fn clause_response_schema() -> Result<()> {
         let response_schema = Clause::to_response_schema();
@@ -405,6 +420,7 @@ end"#;
         assert_eq!(response_schema.items, oracle_items);
         Ok(())
     }
+    #[cfg(feature = "gemini")]
     #[test]
     fn tag_response_schema() -> Result<()> {
         let response_schema = Tag::to_response_schema();
@@ -422,6 +438,7 @@ end"#;
         assert_eq!(response_schema, oracle_response);
         Ok(())
     }
+    #[cfg(feature = "gemini")]
     #[test]
     fn predicate_response_schema() -> Result<()> {
         let response_schema = Predicate::to_response_schema();
