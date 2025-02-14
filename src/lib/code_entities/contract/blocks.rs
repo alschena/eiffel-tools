@@ -1,7 +1,6 @@
 use crate::lib::tree_sitter_extension::Parse;
 use anyhow::anyhow;
 use anyhow::Context;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -13,6 +12,9 @@ use tree_sitter::{Node, QueryCursor};
 
 use super::clause::Clause;
 use super::*;
+
+#[cfg(feature = "ollama")]
+use schemars::JsonSchema;
 
 #[cfg(feature = "gemini")]
 use {
@@ -318,7 +320,7 @@ impl Parse for Block<Postcondition> {
     }
 }
 
-#[cfg_attr(feature = "gemini", ToResponseSchema)]
+#[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
 #[cfg_attr(feature = "ollama", derive(JsonSchema))]
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize)]
 pub struct RoutineSpecification {

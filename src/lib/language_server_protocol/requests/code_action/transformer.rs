@@ -5,20 +5,25 @@ use anyhow::{anyhow, Context};
 use async_lsp::lsp_types::{CodeActionDisabled, TextEdit, Url, WorkspaceEdit};
 use async_lsp::Result;
 use contract::{Block, Fix, Postcondition, Precondition, RoutineSpecification};
-use ollama_rs::generation::completion::request::GenerationRequest;
-use ollama_rs::generation::parameters::JsonStructure;
-use ollama_rs::generation::parameters::{schema_for, FormatType};
-use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use tracing::info;
 
 mod prompt;
 
+#[cfg(feature = "ollama")]
+use {
+    ollama_rs::generation::{
+        completion::request::GenerationRequest,
+        parameters::JsonStructure,
+        parameters::{schema_for, FormatType},
+    },
+    reqwest::header::HeaderMap,
+};
+
 #[cfg(feature = "gemini")]
 use gemini::{self, ToResponseSchema};
 
 #[cfg(feature = "gemini")]
-#[derive(Default)]
 pub struct LLM {
     model_config: gemini::Config,
     request_config: gemini::GenerationConfig,
@@ -27,14 +32,18 @@ pub struct LLM {
 
 #[cfg(feature = "gemini")]
 impl LLM {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, CodeActionDisabled> {
+        let config = gemini::Config::new_preconfig().map_err(|e| CodeActionDisabled {
+            reason: format!("{e}"),
+        })?;
         let mut request_config =
             gemini::GenerationConfig::from(RoutineSpecification::to_response_schema());
         request_config.set_temperature(Some(2.0));
-        Self {
+        Ok(Self {
+            model_config: config,
             request_config,
-            ..Default::default()
-        }
+            client: reqwest::Client::default(),
+        })
     }
     fn model_config(&self) -> &gemini::Config {
         &self.model_config
@@ -49,9 +58,14 @@ impl LLM {
         workspace: &Workspace,
     ) -> Result<WorkspaceEdit, CodeActionDisabled> {
         let system_classes = workspace.system_classes().collect::<Vec<_>>();
+        let class = file.class();
         let mut prompt = prompt::Prompt::default();
         prompt.set_feature_src_with_contract_holes(feature, file)?;
-        prompt.set_full_model_text(feature, file.class(), &system_classes);
+        prompt.set_full_model_text(
+            feature.parameters(),
+            &class.full_extended_model(&system_classes),
+            &system_classes,
+        );
 
         let mut request = gemini::Request::from(prompt.text());
         request.set_config(self.request_config.clone());
@@ -112,6 +126,7 @@ pub struct LLM {
     prompt: prompt::Prompt,
 }
 
+#[cfg(feature = "ollama")]
 impl LLM {
     pub fn new() -> Result<LLM, CodeActionDisabled> {
         let host = String::from("https://constructor.app/platform/code/vz-eu3/730cfa9dbebe42229e418c5291c6cb93/proxy/11434/");

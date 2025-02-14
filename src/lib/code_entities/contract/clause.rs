@@ -1,7 +1,6 @@
 use crate::lib::tree_sitter_extension::capture_name_to_nodes;
 use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -11,6 +10,9 @@ use tracing::info;
 use tree_sitter::{Node, Query, QueryCursor, Tree};
 
 use super::*;
+
+#[cfg(feature = "ollama")]
+use schemars::JsonSchema;
 
 #[cfg(feature = "gemini")]
 use {
