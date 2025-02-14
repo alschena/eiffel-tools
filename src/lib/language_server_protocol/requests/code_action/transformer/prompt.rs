@@ -16,16 +16,16 @@ impl Default for Prompt {
 }
 
 impl Prompt {
-    pub fn from_feature(
+    pub fn for_feature_specification(
         feature: &Feature,
         class_model: &ClassModel,
         file: &ProcessedFile,
         system_classes: &[&Class],
-    ) -> Self {
+    ) -> Result<Self, CodeActionDisabled> {
         let mut var = Self::default();
-        var.set_feature_src_with_contract_holes(feature, file);
+        var.set_feature_src_with_contract_holes(feature, file)?;
         var.set_full_model_text(feature.parameters(), class_model, system_classes);
-        var
+        Ok(var)
     }
     pub fn text(&self) -> String {
         let mut text = String::new();

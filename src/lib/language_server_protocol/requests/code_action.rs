@@ -1,6 +1,10 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::language_server_protocol::prelude::{HandleRequest, ServerState};
-use async_lsp::lsp_types::{request, CodeAction, CodeActionDisabled, CodeActionOrCommand};
+use crate::lib::processed_file::ProcessedFile;
+use crate::lib::workspace::Workspace;
+use async_lsp::lsp_types::{
+    request, CodeAction, CodeActionDisabled, CodeActionOrCommand, WorkspaceEdit,
+};
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::fmt::Display;
@@ -19,33 +23,26 @@ impl HandleRequest for request::CodeActionRequest {
             .uri
             .to_file_path()
             .expect("fails to convert uri of code action parameter in usable path.");
+        let point: Point = params
+            .range
+            .end
+            .try_into()
+            .expect("fails to convert lsp-point to eiffel point");
+
         let file = ws.find_file(&path);
 
         let edit = match file {
-            Some(file) => {
-                let model = transformer::LLM::new();
-                let point: Point = params
-                    .range
-                    .end
-                    .try_into()
-                    .expect("fails to convert lsp-point to eiffel point");
-                let feature = Feature::feature_around_point(file.class().features().iter(), &point);
-                if let Some(feature) = feature {
-                    model.add_contracts_to_feature(feature, file, &ws).await
-                } else {
-                    Err(CodeActionDisabled {
-                        reason: "Not in a valid feature.".to_string(),
-                    })
-                }
-            }
+            Some(file) => file_edits(file, &point, &ws).await,
             None => Err(CodeActionDisabled {
                 reason: "The current file has not been parsed yet.".to_string(),
             }),
         };
+
         let (edit, disabled) = match edit {
             Ok(edit) => (Some(edit), None),
             Err(disabled) => (None, Some(disabled)),
         };
+
         Ok(Some(vec![CodeActionOrCommand::CodeAction(CodeAction {
             title: String::from("Add contracts to current routine"),
             kind: None,
@@ -56,6 +53,25 @@ impl HandleRequest for request::CodeActionRequest {
             disabled,
             data: None,
         })]))
+    }
+}
+
+async fn file_edits(
+    file: &ProcessedFile,
+    point: &Point,
+    workspace: &Workspace,
+) -> Result<WorkspaceEdit, CodeActionDisabled> {
+    let model = transformer::LLM::new()?;
+    let feature = Feature::feature_around_point(file.class().features().iter(), &point);
+    match feature {
+        Some(feature) => {
+            model
+                .add_contracts_to_feature(feature, file, workspace)
+                .await
+        }
+        None => Err(CodeActionDisabled {
+            reason: "Not in a valid feature.".to_string(),
+        }),
     }
 }
 

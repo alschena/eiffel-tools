@@ -2,9 +2,11 @@ use super::utils::{text_edit_add_postcondition, text_edit_add_precondition};
 use crate::lib::code_entities::prelude::*;
 use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
+use anyhow::{anyhow, Context};
 use async_lsp::lsp_types::{CodeActionDisabled, Url, WorkspaceEdit};
 use async_lsp::Result;
 use contract::{Block, Fix, Postcondition, Precondition, RoutineSpecification};
+use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use tracing::info;
 
@@ -109,10 +111,31 @@ pub struct LLM {
 }
 
 impl LLM {
-    pub fn new() -> LLM {
-        Self {
+    pub fn new() -> Result<LLM, CodeActionDisabled> {
+        let host = String::from("https://constructor.app/platform/code/vz-eu3/730cfa9dbebe42229e418c5291c6cb93/proxy/11434/");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "Cookie",
+            format!(
+                "ap_access_token={}",
+                std::env::var("CONSTRUCTOR_AP_ACCESS_TOKEN").map_err(|_| CodeActionDisabled {
+                    reason: String::from(
+                        "CONSTRUCTOR_AP_ACCESS_TOKEN must be a variable in the environment",
+                    ),
+                })?
+            )
+            .parse()
+            .map_err(|_| CodeActionDisabled {
+                reason: String::from("Token related invalid header value."),
+            })?,
+        );
+
+        let model = ollama_rs::Ollama::new_with_request_headers(host, 11434, headers);
+        Ok(Self {
+            model,
             ..Default::default()
-        }
+        })
     }
     pub async fn add_contracts_to_feature(
         &self,
@@ -121,6 +144,13 @@ impl LLM {
         file: &ProcessedFile,
         workspace: &Workspace,
     ) -> Result<WorkspaceEdit, CodeActionDisabled> {
+        let system_classes = workspace.system_classes().collect::<Vec<_>>();
+        let prompt = prompt::Prompt::for_feature_specification(
+            feature,
+            &file.class().full_extended_model(&system_classes),
+            file,
+            &system_classes,
+        )?;
         todo!()
     }
 }
