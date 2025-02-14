@@ -1,9 +1,13 @@
 use crate::lib::tree_sitter_extension::Parse;
+use anyhow::anyhow;
+use anyhow::Context;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::str::FromStr;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node, QueryCursor};
 
@@ -61,6 +65,7 @@ impl<T: Display + Indent + Contract + Deref<Target = Vec<Clause>>> Display for B
     }
 }
 #[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
+#[cfg_attr(feature = "ollama", derive(JsonSchema))]
 #[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
 #[serde(transparent)]
 pub struct Precondition(Vec<Clause>);
@@ -192,6 +197,7 @@ impl Parse for Block<Precondition> {
     }
 }
 #[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
+#[cfg_attr(feature = "ollama", derive(JsonSchema))]
 #[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(transparent)]
 pub struct Postcondition(Vec<Clause>);
@@ -312,25 +318,27 @@ impl Parse for Block<Postcondition> {
     }
 }
 
-#[cfg(feature = "gemini")]
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
-pub struct RoutineSpecification {
-    pub precondition: Precondition,
-    pub postcondition: Postcondition,
-}
-
-#[cfg(feature = "ollama")]
+#[cfg_attr(feature = "gemini", ToResponseSchema)]
+#[cfg_attr(feature = "ollama", derive(JsonSchema))]
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize)]
 pub struct RoutineSpecification {
     pub precondition: Precondition,
     pub postcondition: Postcondition,
 }
+
 impl RoutineSpecification {
     pub fn is_empty(&self) -> bool {
         self.precondition.is_empty() && self.postcondition.is_empty()
     }
 }
+impl FromStr for RoutineSpecification {
+    type Err = anyhow::Error;
 
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+            .with_context(|| anyhow!("fails json deserialization of RoutineSpecification"))
+    }
+}
 impl Fix for RoutineSpecification {
     fn fix_syntax(
         &mut self,
