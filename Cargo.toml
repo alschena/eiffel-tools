@@ -49,7 +49,7 @@ gemini_macro_derive = {path = "./gemini_macro_derive", optional = true }
 gemini = {path = "./gemini", optional = true }
 
 # Ollama
-ollama-rs = {version = "0.2.5", optional = true}
+ollama-rs = {version = "0.2.5", features = ["headers"], optional = true}
 
 [dev-dependencies]
 assert_fs = "1.1"
