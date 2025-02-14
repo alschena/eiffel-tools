@@ -1,6 +1,4 @@
 use crate::lib::tree_sitter_extension::Parse;
-use gemini::{Described, ResponseSchema, ToResponseSchema};
-use gemini_macro_derive::ToResponseSchema;
 use serde::Deserialize;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -11,6 +9,13 @@ use tree_sitter::{Node, QueryCursor};
 
 use super::clause::Clause;
 use super::*;
+
+#[cfg(feature = "gemini")]
+use {
+    gemini::{Described, ResponseSchema, ToResponseSchema},
+    gemini_macro_derive::ToResponseSchema,
+};
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 /// Wraps an optional contract clause adding whereabouts informations.
 /// If the `item` is None, the range start and end coincide where the contract clause would be added.
@@ -55,7 +60,8 @@ impl<T: Display + Indent + Contract + Deref<Target = Vec<Clause>>> Display for B
         }
     }
 }
-#[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone, Hash)]
+#[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
 #[serde(transparent)]
 pub struct Precondition(Vec<Clause>);
 
@@ -161,6 +167,8 @@ impl Display for Precondition {
         )
     }
 }
+
+#[cfg(feature = "gemini")]
 impl Described for Precondition {
     fn description() -> String {
         "Preconditions are predicates on the prestate, the state before the execution, of a routine. They describe the properties that the fields of the model in the current object must satisfy in the prestate. Preconditions cannot contain a call to `old_` or the `old` keyword.".to_string()
@@ -183,7 +191,8 @@ impl Parse for Block<Precondition> {
         Ok(Self::new(clauses.into(), node.range().into()))
     }
 }
-#[derive(Hash, Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
+#[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(transparent)]
 pub struct Postcondition(Vec<Clause>);
 
@@ -276,6 +285,7 @@ impl Display for Postcondition {
         )
     }
 }
+#[cfg(feature = "gemini")]
 impl Described for Postcondition {
     fn description() -> String {
         "Postconditions describe the properties that the model of the current object must satisfy after the routine.
@@ -302,7 +312,15 @@ impl Parse for Block<Postcondition> {
     }
 }
 
+#[cfg(feature = "gemini")]
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, ToResponseSchema)]
+pub struct RoutineSpecification {
+    pub precondition: Precondition,
+    pub postcondition: Postcondition,
+}
+
+#[cfg(feature = "ollama")]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize)]
 pub struct RoutineSpecification {
     pub precondition: Precondition,
     pub postcondition: Postcondition,
@@ -363,6 +381,7 @@ impl Fix for RoutineSpecification {
                 .fix_repetition(system_classes, current_class, current_feature)
     }
 }
+#[cfg(feature = "gemini")]
 impl Described for RoutineSpecification {
     fn description() -> String {
         String::new()
@@ -375,6 +394,7 @@ mod tests {
     use super::super::clause::Tag;
     use super::*;
     use anyhow::Result;
+    #[cfg(feature = "gemini")]
     use gemini::SchemaType;
 
     #[test]
@@ -468,6 +488,7 @@ end"#;
     }
     // For gemini completions.
     // When the LSP grows in maturity, gemini will be decoupled and these tests will be moved to a compatibility layer.
+    #[cfg(feature = "gemini")]
     #[test]
     fn precondition_response_schema() -> Result<()> {
         let response_schema = Precondition::to_response_schema();
@@ -485,6 +506,7 @@ end"#;
         assert_eq!(response_schema, oracle_response);
         Ok(())
     }
+    #[cfg(feature = "gemini")]
     #[test]
     fn postcondition_response_schema() -> Result<()> {
         let response_schema = Postcondition::to_response_schema();
