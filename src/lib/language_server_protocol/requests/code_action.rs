@@ -10,7 +10,6 @@ use async_lsp::Result;
 use std::fmt::Display;
 use tracing::warn;
 mod transformer;
-mod utils;
 
 impl HandleRequest for request::CodeActionRequest {
     async fn handle_request(
