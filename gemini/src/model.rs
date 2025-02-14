@@ -1,3 +1,5 @@
+use anyhow::anyhow;
+use anyhow::Context;
 use reqwest;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -42,9 +44,16 @@ pub struct Config {
     model: Model,
 }
 impl Config {
-    pub fn new(model: Model, mode: Mode, env_var_token: String) -> Config {
-        let token = env::var(env_var_token).expect("Environment variable containing gemini token.");
-        Config { token, mode, model }
+    pub fn new(model: Model, mode: Mode, env_var_token: String) -> anyhow::Result<Config> {
+        let token = env::var(env_var_token)
+            .with_context(|| anyhow!("Environment variable containing gemini token."))?;
+        Ok(Config { token, mode, model })
+    }
+    pub fn new_preconfig() -> anyhow::Result<Config> {
+        let mode = Mode::Generate;
+        let model = Model::Flash;
+        let env_var_token = "GOOGLE_API_KEY".to_string();
+        Self::new(model, mode, env_var_token)
     }
     pub fn end_point(&self) -> reqwest::Url {
         let model = self.model.clone();
@@ -56,14 +65,6 @@ impl Config {
             .as_str()
             .try_into()
             .expect("Initialize config Gemini")
-    }
-}
-impl Default for Config {
-    fn default() -> Self {
-        let mode = Mode::Generate;
-        let model = Model::Flash;
-        let env_var_token = "GOOGLE_API_KEY".to_string();
-        Self::new(model, mode, env_var_token)
     }
 }
 
