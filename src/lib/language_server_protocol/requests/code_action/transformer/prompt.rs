@@ -3,21 +3,42 @@ use async_lsp::lsp_types::CodeActionDisabled;
 use crate::lib::code_entities::prelude::*;
 use crate::lib::processed_file::ProcessedFile;
 
-#[derive(Default)]
 pub struct Prompt {
-    text: String,
+    preable: String,
+    source_with_holes: String,
+    full_model: String,
+}
+
+impl Default for Prompt {
+    fn default() -> Self {
+        Self { preable: (String::from("You are an expert in formal methods, specifically design by contract for static verification.\nRemember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.\nYou are optionally adding model-based contracts to the following feature:\n")), source_with_holes: String::new(), full_model: String::new() }
+    }
 }
 
 impl Prompt {
-    pub fn into_string(self) -> String {
-        self.text
+    pub fn from_feature(
+        feature: &Feature,
+        class_model: &ClassModel,
+        file: &ProcessedFile,
+        system_classes: &[&Class],
+    ) -> Self {
+        let mut var = Self::default();
+        var.set_feature_src_with_contract_holes(feature, file);
+        var.set_full_model_text(feature.parameters(), class_model, system_classes);
+        var
     }
-    pub fn append_preamble_text(&mut self) {
-        self.text.push_str(
-        "You are an expert in formal methods, specifically design by contract for static verification.\nRemember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.\nYou are optionally adding model-based contracts to the following feature:\n"    
-        )
+    pub fn text(&self) -> String {
+        let mut text = String::new();
+        text.push_str(&self.preable);
+        text.push_str(&self.source_with_holes);
+        text.push_str(&self.full_model);
+        text
     }
-    pub fn append_feature_src_with_contract_holes(
+    pub fn set_preable(&mut self, preable: &str) {
+        self.preable.clear();
+        self.preable.push_str(preable);
+    }
+    pub fn set_feature_src_with_contract_holes(
         &mut self,
         feature: &Feature,
         file: &ProcessedFile,
@@ -59,21 +80,21 @@ impl Prompt {
         let feature_src = file
             .feature_src_with_injections(&feature, injections.into_iter())
             .expect("inject feature source code");
-        self.text.push_str("```eiffel\n");
-        self.text.push_str(&feature_src);
-        self.text.push_str("```\n");
+
+        self.source_with_holes.clear();
+        self.source_with_holes.push_str("```eiffel\n");
+        self.source_with_holes.push_str(&feature_src);
+        self.source_with_holes.push_str("```\n");
         Ok(())
     }
 
-    pub fn append_full_model_text(
+    pub fn set_full_model_text(
         &mut self,
-        feature: &Feature,
-        class: &Class,
+        feature_parameters: &FeatureParameters,
+        class_model: &ClassModel,
         system_classes: &[&Class],
     ) {
-        let mut text = class
-            .full_extended_model(&system_classes)
-            .fmt_indented(ClassModel::INDENTATION_LEVEL);
+        let mut text = class_model.fmt_indented(ClassModel::INDENTATION_LEVEL);
 
         if text.is_empty() {
             text.push_str("The current class and its ancestors have no model.");
@@ -81,8 +102,7 @@ impl Prompt {
             text.insert_str(0, "Models of the current class and its ancestors:\n{}");
         }
 
-        let parameters = feature.parameters();
-        let parameters_models_fmt = parameters
+        let parameters_models_fmt = feature_parameters
             .types()
             .iter()
             .map(|t| {
@@ -91,23 +111,25 @@ impl Prompt {
             })
             .map(|ext_model| ext_model.fmt_indented(ClassModel::INDENTATION_LEVEL));
 
-        let parameters_models = parameters.names().iter().zip(parameters_models_fmt).fold(
-            String::new(),
-            |mut acc, (name, model_fmt)| {
+        let parameters_models = feature_parameters
+            .names()
+            .iter()
+            .zip(parameters_models_fmt)
+            .fold(String::new(), |mut acc, (name, model_fmt)| {
                 acc.push_str("Model of the argument ");
                 acc.push_str(name);
                 acc.push(':');
                 acc.push('\n');
                 acc.push_str(model_fmt.as_str());
                 acc
-            },
-        );
+            });
 
         if !parameters_models.is_empty() {
             text.push_str(&parameters_models)
         }
 
-        self.text.push_str(text.as_str());
-        self.text.push('\n');
+        self.full_model.clear();
+        self.full_model.push_str(text.as_str());
+        self.full_model.push('\n');
     }
 }

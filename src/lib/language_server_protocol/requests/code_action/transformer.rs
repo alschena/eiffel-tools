@@ -20,6 +20,7 @@ trait LLM {
         file: &ProcessedFile,
         workspace: &Workspace,
     ) -> Result<WorkspaceEdit, CodeActionDisabled>;
+    fn prompt(&self) -> &prompt::Prompt;
 }
 
 #[derive(Default)]
@@ -55,11 +56,10 @@ impl GeminiLLM {
     ) -> Result<WorkspaceEdit, CodeActionDisabled> {
         let system_classes = workspace.system_classes().collect::<Vec<_>>();
         let mut prompt = prompt::Prompt::default();
-        prompt.append_preamble_text();
-        prompt.append_feature_src_with_contract_holes(feature, file)?;
-        prompt.append_full_model_text(feature, file.class(), &system_classes);
+        prompt.set_feature_src_with_contract_holes(feature, file)?;
+        prompt.set_full_model_text(feature, file.class(), &system_classes);
 
-        let mut request = gemini::Request::from(prompt.into_string());
+        let mut request = gemini::Request::from(prompt.text());
         request.set_config(self.request_config.clone());
 
         let Ok(response) = request

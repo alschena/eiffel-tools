@@ -219,6 +219,10 @@ impl ModelExtended {
     }
 }
 
+impl Indent for ModelExtended {
+    const INDENTATION_LEVEL: usize = Model::INDENTATION_LEVEL;
+}
+
 impl Display for ModelExtended {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = self.fmt_indented(0);
