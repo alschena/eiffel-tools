@@ -5,6 +5,9 @@ use anyhow::{anyhow, Context};
 use async_lsp::lsp_types::{CodeActionDisabled, TextEdit, Url, WorkspaceEdit};
 use async_lsp::Result;
 use contract::{Block, Fix, Postcondition, Precondition, RoutineSpecification};
+use ollama_rs::generation::completion::request::GenerationRequest;
+use ollama_rs::generation::parameters::JsonStructure;
+use ollama_rs::generation::parameters::{schema_for, FormatType};
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use tracing::info;
@@ -144,13 +147,61 @@ impl LLM {
         workspace: &Workspace,
     ) -> Result<WorkspaceEdit, CodeActionDisabled> {
         let system_classes = workspace.system_classes().collect::<Vec<_>>();
+        let current_class = file.class();
+        let url = Url::from_file_path(file.path()).expect("convert file path to url.");
+
         let prompt = prompt::Prompt::for_feature_specification(
             feature,
-            &file.class().full_extended_model(&system_classes),
+            &current_class.full_extended_model(&system_classes),
             file,
             &system_classes,
         )?;
-        todo!()
+        let request = LLM::generation_request(&prompt);
+        let generation_response =
+            self.model
+                .generate(request)
+                .await
+                .map_err(|e| CodeActionDisabled {
+                    reason: format!("{e}"),
+                })?;
+        let response = generation_response.response;
+        let mut routine_specification: RoutineSpecification =
+            response.parse().map_err(|e| CodeActionDisabled {
+                reason: format!("parse error {e:?}"),
+            })?;
+
+        // Fix routine specification.
+        let corrected_responses = routine_specification
+            .fix(&system_classes, current_class, feature)
+            .then_some(routine_specification);
+
+        let spec = corrected_responses.ok_or_else(|| CodeActionDisabled {
+            reason: "No added specification for routine was produced".to_string(),
+        })?;
+
+        Ok(WorkspaceEdit::new(HashMap::from([(
+            url,
+            vec![
+                text_edit_add_precondition(
+                    &feature,
+                    feature.point_end_preconditions().unwrap().clone(),
+                    spec.precondition,
+                ),
+                text_edit_add_postcondition(
+                    &feature,
+                    feature.point_end_postconditions().unwrap().clone(),
+                    spec.postcondition,
+                ),
+            ],
+        )])))
+    }
+    fn generation_request(prompt: &prompt::Prompt) -> GenerationRequest {
+        let result = GenerationRequest::new(String::from("deepseek-6.7b"), prompt.text());
+        result.format(FormatType::StructuredJson(JsonStructure::new::<
+            RoutineSpecification,
+        >()))
+    }
+}
 fn text_edit_add_postcondition(
     feature: &Feature,
     point: Point,
