@@ -102,7 +102,12 @@ impl EiffelType {
     ) -> &'b Class {
         let class = system_classes
             .find(|&c| c.name() == self.class_name().unwrap_or_default())
-            .expect("parameters' class name is in system.");
+            .unwrap_or_else(|| {
+                panic!(
+                    "parameters' class name: {}\tis in system.",
+                    self.class_name().unwrap_or_default()
+                )
+            });
         class
     }
     pub fn is_terminal_for_model(&self) -> bool {

@@ -97,7 +97,7 @@ impl Prompt {
         let mut text = class_model.fmt_indented(ClassModel::INDENTATION_LEVEL);
 
         if text.is_empty() {
-            text.push_str("The current class and its ancestors have no model.");
+            text.push_str("The current class and its ancestors have no model.\n");
         } else {
             text.insert_str(0, "Models of the current class and its ancestors:\n{}");
         }
@@ -132,4 +132,157 @@ impl Prompt {
         self.full_model.push_str(text.as_str());
         self.full_model.push('\n');
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert_fs::prelude::*;
+    use assert_fs::{fixture::FileWriteStr, TempDir};
+
+    fn parser() -> tree_sitter::Parser {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+        parser
+    }
+
+    #[tokio::test]
+    async fn prompt_boxed_integer_arg() {
+        let mut parser = parser();
+        let temp_dir = TempDir::new().expect("must create temporary directory.");
+        let src = r#"
+class A feature
+  x (arg: NEW_INTEGER)
+    do
+    end
+end
+        "#;
+        let file = temp_dir.child("test_prompt.e");
+        file.write_str(src).expect("temp file must be writable");
+
+        assert!(file.exists());
+
+        let processed_file = ProcessedFile::new(&mut parser, file.to_path_buf())
+            .await
+            .expect("processed file must be produced.");
+
+        let class = processed_file.class();
+        let src_supplier = r#"note
+	model: value
+class
+	NEW_INTEGER
+feature
+	value: INTEGER
+	smaller (other: NEW_INTEGER): BOOLEAN
+		do
+			Result := value < other.value
+		ensure
+			Result = (value < other.value)
+		end
+end
+    "#;
+        let supplier = Class::from_source(&src_supplier);
+
+        let system_classes = vec![class, &supplier];
+        let class_model = class.full_extended_model(&system_classes);
+
+        let feature = class.features().first().expect("first features is `x`");
+        let feature_parameters = feature.parameters();
+
+        let mut prompt = Prompt::default();
+        prompt
+            .set_feature_src_with_contract_holes(feature, &processed_file)
+            .expect("set feature src with contract holes.");
+        prompt.set_full_model_text(feature_parameters, &class_model, &system_classes);
+
+        eprintln!("{}", prompt.text());
+        assert_eq!(
+            prompt.text(),
+            r#"You are an expert in formal methods, specifically design by contract for static verification.
+Remember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.
+You are optionally adding model-based contracts to the following feature:
+```eiffel
+  x (arg: NEW_INTEGER)
+    <ADD_PRECONDITION_CLAUSES>
+		do
+    <ADD_POSTCONDITION_CLAUSES>
+		end
+```
+The current class and its ancestors have no model.
+Model of the argument arg:
+	value: INTEGER
+"#
+        );
+    }
+
+    // #[tokio::test]
+    //     async fn prompt() {
+    //         let mut parser = parser();
+    //         let temp_dir = TempDir::new().expect("must create temporary directory.");
+    //         let src = r#"
+    // class A feature
+    //   x (arg: NEW_INTEGER): NEW_INTEGER
+    //     do
+    //     end
+    // end
+    //         "#;
+    //         let file = temp_dir.child("test_prompt.e");
+    //         file.write_str(src).expect("temp file must be writable");
+
+    //         assert!(file.exists());
+
+    //         let processed_file = ProcessedFile::new(&mut parser, file.to_path_buf())
+    //             .await
+    //             .expect("processed file must be produced.");
+
+    //         let class = processed_file.class();
+    //         let src_supplier = r#"note
+    // 	model: value
+    // class
+    // 	NEW_INTEGER
+    // feature
+    // 	value: INTEGER
+    // 	smaller (other: NEW_INTEGER): BOOLEAN
+    // 		do
+    // 			Result := value < other.value
+    // 		ensure
+    // 			Result = (value < other.value)
+    // 		end
+    // end
+    //     "#;
+    //         let supplier = Class::from_source(&src_supplier);
+
+    //         let system_classes = vec![class, &supplier];
+    //         let class_model = class.full_extended_model(&system_classes);
+
+    //         let feature = class.features().first().expect("first features is `x`");
+    //         let feature_parameters = feature.parameters();
+
+    //         let mut prompt = Prompt::default();
+    //         prompt
+    //             .set_feature_src_with_contract_holes(feature, &processed_file)
+    //             .expect("set feature src with contract holes.");
+    //         prompt.set_full_model_text(feature_parameters, &class_model, &system_classes);
+
+    //         eprintln!("{}", prompt.text());
+    //         assert_eq!(
+    //             prompt.text(),
+    //             r#"You are an expert in formal methods, specifically design by contract for static verification.
+    // Remember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.
+    // You are optionally adding model-based contracts to the following feature:
+    // ```eiffel
+    //   x (arg: NEW_INTEGER): NEW_INTEGER
+    //     <ADD_PRECONDITION_CLAUSES>
+    // 		do
+    //     <ADD_POSTCONDITION_CLAUSES>
+    // 		end
+    // ```
+    // The current class and its ancestors have no model.
+    // Model of the argument arg:
+    // 	value: INTEGER
+    // "#
+    //         );
+    //     }
 }
