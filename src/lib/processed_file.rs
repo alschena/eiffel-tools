@@ -149,13 +149,18 @@ mod tests {
     use super::*;
     use assert_fs::prelude::*;
     use assert_fs::{fixture::FileWriteStr, TempDir};
-    #[tokio::test]
-    async fn new() {
+
+    fn parser() -> tree_sitter::Parser {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
+        parser
+    }
 
+    #[tokio::test]
+    async fn new() {
+        let mut parser = parser();
         let temp_dir = TempDir::new().expect("must create temporary directory.");
         let file = temp_dir.child("processed_file_new.e");
         file.write_str(
@@ -176,11 +181,7 @@ end
     }
     #[tokio::test]
     async fn reload() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-
+        let mut parser = parser();
         let temp_dir = TempDir::new().expect("must create temporary directory.");
         let file = temp_dir.child("processed_file_new.e");
         file.write_str(
@@ -226,10 +227,7 @@ end
         let temp_dir = TempDir::new().expect("must create temporary directory.");
         let file = temp_dir.child("processed_file_new.e");
 
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
+        let mut parser = parser();
         file.write_str(
             r#"
 class A feature
