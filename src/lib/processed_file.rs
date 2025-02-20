@@ -111,7 +111,7 @@ impl TryFrom<&ProcessedFile> for lsp_types::SymbolInformation {
 
     fn try_from(value: &ProcessedFile) -> std::result::Result<Self, Self::Error> {
         let class = value.class();
-        let name = class.name().into();
+        let ClassName(name) = class.name().to_owned();
         let kind = lsp_types::SymbolKind::CLASS;
         let tags = None;
         let deprecated = None;
@@ -132,7 +132,7 @@ impl TryFrom<&ProcessedFile> for lsp_types::WorkspaceSymbol {
     type Error = anyhow::Error;
 
     fn try_from(value: &ProcessedFile) -> std::result::Result<Self, Self::Error> {
-        let name = value.class().name().to_string();
+        let ClassName(name) = value.class().name().to_owned();
         let location = (&Location::new(value.path().to_path_buf())).try_into()?;
         Ok(lsp_types::WorkspaceSymbol {
             name,
@@ -177,7 +177,7 @@ end
             .await
             .expect("processed file must be produced.");
         assert_eq!(file.to_path_buf(), processed_file.path());
-        assert_eq!("A", processed_file.class().name());
+        assert_eq!(processed_file.class().name(), "A");
     }
     #[tokio::test]
     async fn reload() {

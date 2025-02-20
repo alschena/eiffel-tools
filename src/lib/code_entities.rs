@@ -4,7 +4,7 @@ mod feature;
 mod shared;
 pub(crate) mod prelude {
     pub(crate) use super::class::model::ModelExtended as ClassModel;
-    pub(crate) use super::class::Class;
+    pub(crate) use super::class::{Class, ClassName};
     pub(crate) use super::contract;
     pub(crate) use super::feature::EiffelType;
     pub(crate) use super::feature::Feature;
