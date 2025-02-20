@@ -1,13 +1,13 @@
+use super::class::model::ModelExtended;
 use super::prelude::*;
-use crate::lib::code_entities::class::model::ModelExtended;
 use crate::lib::tree_sitter_extension::capture_name_to_nodes;
 use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
+use anyhow::anyhow;
 use async_lsp::lsp_types;
 use contract::{Block, Postcondition, Precondition};
 use std::fmt::Display;
 use std::ops::Deref;
-use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
 use tracing::warn;
@@ -89,9 +89,9 @@ impl Display for EiffelType {
     }
 }
 impl EiffelType {
-    pub fn class_name(&self) -> Result<&str, &str> {
+    pub fn class_name(&self) -> Result<ClassName, &str> {
         match self {
-            EiffelType::ClassType(_, s) => Ok(s),
+            EiffelType::ClassType(_, s) => Ok(ClassName(s.to_owned())),
             EiffelType::TupleType(_) => Err("tuple type"),
             EiffelType::Anchored(_) => Err("anchored type"),
         }
@@ -101,29 +101,29 @@ impl EiffelType {
         mut system_classes: impl Iterator<Item = &'b Class>,
     ) -> &'b Class {
         let class = system_classes
-            .find(|&c| c.name() == self.class_name().unwrap_or_default())
+            .find(|&c| Ok(c.name()) == self.class_name().as_ref())
             .unwrap_or_else(|| {
                 panic!(
-                    "parameters' class name: {}\tis in system.",
-                    self.class_name().unwrap_or_default()
+                    "parameters' class name: {:?} must be in system.",
+                    self.class_name()
                 )
             });
         class
     }
     pub fn is_terminal_for_model(&self) -> bool {
-        match self.class_name() {
-            Ok("BOOLEAN") => true,
-            Ok("INTEGER") => true,
-            Ok("REAL") => true,
-            Ok("MML_SEQUENCE") => true,
-            Ok("MML_BAG") => true,
-            Ok("MML_SET") => true,
-            Ok("MML_MAP") => true,
-            Ok("MML_PAIR") => true,
-            Ok("MML_RELATION") => true,
-            Err("tuple type") => unimplemented!(),
-            _ => false,
+        self.class_name()
+            .is_ok_and(|class_name| class_name.is_terminal_for_model())
+    }
+    pub fn model_extension(&self, system_classes: &[&Class]) -> ModelExtended {
+        if self.is_terminal_for_model() {
+            return ModelExtended::Terminal;
         }
+        let Ok(class_name): Result<ClassName, _> = self.to_owned().try_into() else {
+            unimplemented!("eiffel type's model extension implemented only for class types.")
+        };
+        class_name
+            .model_extended(system_classes)
+            .unwrap_or_default()
     }
 }
 
@@ -150,6 +150,20 @@ impl Parse for EiffelType {
         Ok(eiffeltype)
     }
 }
+impl TryFrom<EiffelType> for ClassName {
+    type Error = anyhow::Error;
+
+    fn try_from(value: EiffelType) -> Result<Self, Self::Error> {
+        value.class_name().map_err(|e| anyhow!("{e}"))
+    }
+}
+
+impl From<ClassName> for EiffelType {
+    fn from(value: ClassName) -> Self {
+        let ClassName(name) = value;
+        EiffelType::ClassType(name.clone(), name)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct Parameters {
@@ -170,14 +184,13 @@ impl Parameters {
     fn is_empty(&self) -> bool {
         self.names().is_empty() && self.types().is_empty()
     }
-    pub fn full_extended_models<'s, 'system>(
+    pub fn model_extension<'s, 'system>(
         &'s self,
         system_classes: &'system [&Class],
     ) -> impl Iterator<Item = ModelExtended> + use<'s, 'system> {
-        self.types().iter().map(|t| {
-            t.class(system_classes.iter().copied())
-                .full_extended_model(system_classes)
-        })
+        self.types()
+            .iter()
+            .map(|t| t.model_extension(system_classes))
     }
 }
 impl Parse for Parameters {
@@ -627,6 +640,8 @@ end
             "MML_SEQUENCE [INTEGER]".to_string(),
             "MML_SEQUENCE".to_string(),
         );
-        assert_eq!(eiffeltype.class_name(), Ok("MML_SEQUENCE"));
+        assert!(eiffeltype
+            .class_name()
+            .is_ok_and(|name| name == *"MML_SEQUENCE"));
     }
 }

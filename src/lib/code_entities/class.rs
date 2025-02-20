@@ -12,8 +12,53 @@ pub mod model;
 use model::*;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct ClassName(pub String);
+
+impl ClassName {
+    pub fn is_terminal_for_model(&self) -> bool {
+        let ClassName(name) = self;
+        match name.as_str() {
+            "BOOLEAN" => true,
+            "INTEGER" => true,
+            "REAL" => true,
+            "MML_SEQUENCE" => true,
+            "MML_BAG" => true,
+            "MML_SET" => true,
+            "MML_MAP" => true,
+            "MML_PAIR" => true,
+            "MML_RELATION" => true,
+            _ => false,
+        }
+    }
+    pub fn model_extended<'class_name, 'system: 'class_name>(
+        &'class_name self,
+        system_classes: &'system [&Class],
+    ) -> Option<ModelExtended> {
+        if self.is_terminal_for_model() {
+            return Some(ModelExtended::Terminal);
+        }
+        system_classes
+            .iter()
+            .find(|c| c.name() == self)
+            .map(|class| class.model_extended(system_classes))
+    }
+}
+
+impl PartialEq<str> for ClassName {
+    fn eq(&self, other: &str) -> bool {
+        matches!(self, ClassName(name) if name == other)
+    }
+}
+
+impl<T: AsRef<str>> PartialEq<T> for ClassName {
+    fn eq(&self, other: &T) -> bool {
+        matches!(self, ClassName(name) if name == other.as_ref())
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Class {
-    name: String,
+    name: ClassName,
     model: Model,
     features: Vec<Feature>,
     parents: Vec<Parent>,
@@ -21,35 +66,30 @@ pub struct Class {
 }
 
 impl Class {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &ClassName {
         &self.name
     }
     pub fn model(&self) -> &Model {
         &self.model
     }
-    pub fn full_model<'a>(
-        &'a self,
-        system_classes: &'a [&'a Class],
-    ) -> impl Iterator<Item = &'a Model> {
-        let model_ancestors = self
+    fn model_with_inheritance<'a>(&'a self, system_classes: &'a [&'a Class]) -> Model {
+        let mut model = self.model().clone();
+        for mut ancestor_model in self
             .ancestor_classes(system_classes)
             .into_iter()
-            .map(|parents| parents.model());
-
-        std::iter::once(self.model()).chain(model_ancestors)
+            .map(|parents| parents.model())
+            .cloned()
+        {
+            model.append(&mut ancestor_model);
+        }
+        model
     }
-    pub fn full_extended_model<'class, 'system: 'class>(
+    fn model_extended<'class, 'system: 'class>(
         &'class self,
         system_classes: &'system [&Class],
     ) -> ModelExtended {
-        self.full_model(system_classes)
-            .cloned()
-            .map(|model| model.extended(system_classes))
-            .reduce(|mut acc, mut model| {
-                acc.append(&mut model);
-                acc
-            })
-            .unwrap_or_default()
+        self.model_with_inheritance(system_classes)
+            .extended(system_classes)
     }
     pub fn features(&self) -> &Vec<Feature> {
         &self.features
@@ -119,7 +159,7 @@ impl Class {
         &self.range
     }
 
-    pub fn from_name_range(name: String, range: Range) -> Class {
+    pub fn from_name_range(name: ClassName, range: Range) -> Class {
         Class {
             name,
             model: Model::default(),
@@ -172,13 +212,15 @@ impl Parse for Class {
         let mut matches = cursor.matches(&query, *node, src.as_bytes());
         let class_match = matches.next().ok_or(anyhow!("File has no class."))?;
 
-        let name = node_to_text(
-            &capture_name_to_nodes("name", &query, class_match)
-                .next()
-                .expect("Each class has a name."),
-            src,
-        )
-        .to_string();
+        let name = ClassName(
+            node_to_text(
+                &capture_name_to_nodes("name", &query, class_match)
+                    .next()
+                    .expect("Each class has a name."),
+                src,
+            )
+            .to_string(),
+        );
 
         let range = capture_name_to_nodes("class", &query, class_match)
             .next()
@@ -210,7 +252,7 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
     type Error = anyhow::Error;
 
     fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
-        let name = value.name().to_string();
+        let ClassName(name) = value.name().to_owned();
         let features = value.features();
         let range = value.range().clone().try_into()?;
         let children: Option<Vec<lsp_types::DocumentSymbol>> = Some(
@@ -327,10 +369,10 @@ mod tests {
 
         assert_eq!(
             class.name(),
-            "A".to_string(),
-            "Equality of {} and {}",
+            "A",
+            "Equality of {:?} and {}",
             class.name(),
-            "A".to_string()
+            "A"
         );
     }
 
@@ -347,7 +389,7 @@ invariant
 end
     ";
         let class = Class::from_source(src);
-        assert_eq!(class.name(), "DEMO_CLASS".to_string());
+        assert_eq!(class.name(), "DEMO_CLASS");
     }
     #[test]
     fn parse_procedure() {
@@ -359,7 +401,7 @@ class A feature
 end
 ";
         let class = Class::from_source(src);
-        assert_eq!(class.name(), "A".to_string());
+        assert_eq!(class.name(), "A");
         eprintln!("{class:?}");
         assert_eq!(class.features().first().unwrap().name(), "f".to_string());
     }
@@ -373,7 +415,7 @@ feature
 end
 ";
         let class = Class::from_source(src);
-        assert_eq!(class.name(), "A".to_string());
+        assert_eq!(class.name(), "A");
         eprintln!("{class:?}");
         assert_eq!(class.features().first().unwrap().name(), "x".to_string());
     }
@@ -389,7 +431,7 @@ feature
 end
 ";
         let class = Class::from_source(src);
-        assert_eq!(class.name(), "A".to_string());
+        assert_eq!(class.name(), "A");
         assert_eq!(
             class
                 .features()
@@ -414,7 +456,7 @@ end
         let class = Class::from_source(src);
         let mut ancestors = class.parents().into_iter();
 
-        assert_eq!(class.name(), "A".to_string());
+        assert_eq!(class.name(), "A");
 
         assert_eq!(
             ancestors
@@ -632,9 +674,13 @@ end
     ";
         let child = Class::from_source(src_child);
         let parent = Class::from_source(src_parent);
+
+        let mut appended_models = child.model().clone();
+        appended_models.append(&mut parent.model().clone());
+
         assert_eq!(
-            child.full_model(&vec![&child, &parent]).collect::<Vec<_>>(),
-            vec![child.model(), parent.model()]
+            child.model_with_inheritance(&vec![&child, &parent]),
+            appended_models
         );
         Ok(())
     }
@@ -683,18 +729,14 @@ end
         assert_eq!(parameter_name, "a");
         assert_eq!(parameter_type, "NEW_INTEGER");
 
-        let parameter_model = parameters
-            .full_extended_models(&system_classes)
-            .next()
-            .expect("parameter has model.");
+        let Some(ModelExtended::Model { names, types, .. }) =
+            parameters.model_extension(&system_classes).next()
+        else {
+            panic!("parameter has model")
+        };
 
-        let parameter_model_first_name = parameter_model
-            .names()
-            .first()
-            .expect("name first parameter.")
-            .as_str();
-        let parameter_model_first_type = parameter_model
-            .types()
+        let parameter_model_first_name = names.first().expect("name first parameter.").as_str();
+        let parameter_model_first_type = types
             .first()
             .unwrap()
             .class_name()

@@ -1,7 +1,6 @@
-use async_lsp::lsp_types::CodeActionDisabled;
-
 use crate::lib::code_entities::prelude::*;
 use crate::lib::processed_file::ProcessedFile;
+use async_lsp::lsp_types::CodeActionDisabled;
 
 pub struct Prompt {
     preable: String,
@@ -94,21 +93,29 @@ impl Prompt {
         class_model: &ClassModel,
         system_classes: &[&Class],
     ) {
-        let mut text = class_model.fmt_indented(ClassModel::INDENTATION_LEVEL);
-
-        if text.is_empty() {
-            text.push_str("The current class and its ancestors have no model.\n");
-        } else {
-            text.insert_str(0, "Models of the current class and its ancestors:\n{}");
-        }
+        let mut text = class_model.fmt_indented(1);
+        match class_model {
+            ClassModel::Terminal => {
+                text.push_str("The model of this class and its ancestors is directly mapped to a boogie theory file.\n");
+            }
+            ClassModel::Recursive => {
+                text.push_str("The model of this class and its ancestors is recursive.\n");
+            }
+            ClassModel::IsEmpty => {
+                text.push_str("The current class and its ancestors have no model.\n");
+            }
+            ClassModel::Model { .. } => {
+                text.insert_str(
+                    0,
+                    "These are the models of the current class and its ancestors:\n",
+                );
+            }
+        };
 
         let parameters_models_fmt = feature_parameters
             .types()
             .iter()
-            .map(|t| {
-                t.class(system_classes.iter().copied())
-                    .full_extended_model(&system_classes)
-            })
+            .map(|t| t.model_extension(system_classes))
             .map(|ext_model| ext_model.fmt_indented(ClassModel::INDENTATION_LEVEL));
 
         let parameters_models = feature_parameters
@@ -186,7 +193,10 @@ end
         let supplier = Class::from_source(&src_supplier);
 
         let system_classes = vec![class, &supplier];
-        let class_model = class.full_extended_model(&system_classes);
+        let class_model = class
+            .name()
+            .model_extended(&system_classes)
+            .unwrap_or_default();
 
         let feature = class.features().first().expect("first features is `x`");
         let feature_parameters = feature.parameters();
