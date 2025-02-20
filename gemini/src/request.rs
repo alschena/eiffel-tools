@@ -256,7 +256,7 @@ mod test {
     }
     #[test]
     fn process_with_blocking_client() -> Result<()> {
-        let model_config = model::Config::default();
+        let model_config = model::Config::new_preconfig()?;
         let client = Request::new_blocking_client();
         let req = Request::from_str("Tell me about the night.")?;
         let _ = req.process_with_blocking_client(&model_config, &client)?;
@@ -264,7 +264,7 @@ mod test {
     }
     #[tokio::test]
     async fn process_with_async_client() -> Result<()> {
-        let model_config = model::Config::default();
+        let model_config = model::Config::new_preconfig()?;
         let client = Request::new_async_client();
         let req = Request::from_str("Tell me about the night.")?;
         let _ = req
@@ -284,7 +284,7 @@ mod test {
     }
     #[test]
     fn parse_res_with_custom_schema() -> Result<()> {
-        let model_config = model::Config::default();
+        let model_config = model::Config::new_preconfig()?;
         let client = Request::new_blocking_client();
         let mut req = Request::from_str("Tell me about the night for today and tomorrow.")?;
         req.set_config(GenerationConfig::from(NightStory::to_response_schema()));

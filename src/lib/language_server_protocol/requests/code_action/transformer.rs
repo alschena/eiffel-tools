@@ -1,10 +1,9 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
-use anyhow::{anyhow, Context};
 use async_lsp::lsp_types::{CodeActionDisabled, TextEdit, Url, WorkspaceEdit};
 use async_lsp::Result;
-use contract::{Block, Fix, Postcondition, Precondition, RoutineSpecification};
+use contract::{Fix, Postcondition, Precondition, RoutineSpecification};
 use std::collections::HashMap;
 use tracing::info;
 
@@ -58,12 +57,14 @@ impl LLM {
         workspace: &Workspace,
     ) -> Result<WorkspaceEdit, CodeActionDisabled> {
         let system_classes = workspace.system_classes().collect::<Vec<_>>();
-        let class = file.class();
+        let class_name = file.class().name();
         let mut prompt = prompt::Prompt::default();
         prompt.set_feature_src_with_contract_holes(feature, file)?;
         prompt.set_full_model_text(
             feature.parameters(),
-            &class.full_extended_model(&system_classes),
+            &class_name
+                .model_extended(&system_classes)
+                .unwrap_or_default(),
             &system_classes,
         );
 
@@ -135,10 +136,15 @@ impl LLM {
         headers.insert(
             "Cookie",
             format!(
-                "ap_access_token={}",
+                "ap_access_token={}; ap_refresh_token={}",
                 std::env::var("CONSTRUCTOR_AP_ACCESS_TOKEN").map_err(|_| CodeActionDisabled {
                     reason: String::from(
                         "CONSTRUCTOR_AP_ACCESS_TOKEN must be a variable in the environment",
+                    ),
+                })?,
+                std::env::var("CONSTRUCTOR_AP_REFRESH_TOKEN").map_err(|_| CodeActionDisabled {
+                    reason: String::from(
+                        "CONSTRUCTOR_AP_REFRESH_TOKEN must be a variable in the environment",
                     ),
                 })?
             )
@@ -167,7 +173,10 @@ impl LLM {
 
         let prompt = prompt::Prompt::for_feature_specification(
             feature,
-            &current_class.full_extended_model(&system_classes),
+            &current_class
+                .name()
+                .model_extended(&system_classes)
+                .unwrap_or_default(),
             file,
             &system_classes,
         )?;

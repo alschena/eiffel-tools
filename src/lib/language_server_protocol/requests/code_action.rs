@@ -8,6 +8,7 @@ use async_lsp::lsp_types::{
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::fmt::Display;
+use tracing::error;
 use tracing::warn;
 mod transformer;
 
@@ -39,7 +40,10 @@ impl HandleRequest for request::CodeActionRequest {
 
         let (edit, disabled) = match edit {
             Ok(edit) => (Some(edit), None),
-            Err(disabled) => (None, Some(disabled)),
+            Err(disabled) => {
+                error!(disabled.reason);
+                (None, Some(disabled))
+            }
         };
 
         Ok(Some(vec![CodeActionOrCommand::CodeAction(CodeAction {

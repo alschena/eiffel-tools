@@ -44,16 +44,16 @@ pub struct Config {
     model: Model,
 }
 impl Config {
-    pub fn new(model: Model, mode: Mode, env_var_token: String) -> anyhow::Result<Config> {
-        let token = env::var(env_var_token)
-            .with_context(|| anyhow!("Environment variable containing gemini token."))?;
+    pub fn new(model: Model, mode: Mode) -> anyhow::Result<Config> {
+        let token = env::var("GOOGLE_API_KEY").with_context(|| {
+            anyhow!("Lacks environment variable: `GOOGLE_API_KEY` containing gemini token.")
+        })?;
         Ok(Config { token, mode, model })
     }
     pub fn new_preconfig() -> anyhow::Result<Config> {
         let mode = Mode::Generate;
         let model = Model::Flash;
-        let env_var_token = "GOOGLE_API_KEY".to_string();
-        Self::new(model, mode, env_var_token)
+        Self::new(model, mode)
     }
     pub fn end_point(&self) -> reqwest::Url {
         let model = self.model.clone();

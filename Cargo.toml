@@ -56,6 +56,6 @@ schemars = {version = "0.8.21", optional = true}
 assert_fs = "1.1"
 
 [features]
-default = ["ollama"]
+default = ["gemini"]
 gemini = ["dep:gemini", "dep:gemini_macro_derive"]
 ollama = ["dep:ollama-rs", "dep:schemars"]
