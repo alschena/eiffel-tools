@@ -109,6 +109,7 @@ impl Prompt {
                     0,
                     "These are the models of the current class and its ancestors:\n",
                 );
+                text.push('\n');
             }
         };
 
