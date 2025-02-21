@@ -272,3 +272,69 @@ fn text_edit_add_precondition(
         new_text: precondition_text,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+
+    #[tokio::test]
+    async fn private_inference_request() -> anyhow::Result<()> {
+        let url = r#"https://training.constructor.app/api/platform-kmapi/v1"#;
+        let client = reqwest::Client::new();
+        let token = std::env::var("CONSTRUCTOR_APP_API_TOKEN")?;
+
+        let mut data = std::collections::HashMap::new();
+        data.insert("name", "Eiffel contract factory");
+        data.insert(
+            "description",
+            "Remote private inference for the `Eiffel contract factory` tool.",
+        );
+        data.insert("shared_type", "all");
+
+        let res = client
+            .post(format!("{url}/knowledge-models"))
+            .json(&data)
+            .header("X-KM-AccessKey", format!("Bearer {token}"))
+            .send()
+            .await?;
+
+        #[derive(Deserialize, Debug)]
+        struct Response {
+            id: String,
+        }
+
+        let res = res.json::<Response>().await?;
+        eprintln!("{res:#?}");
+
+        let id = res.id;
+
+        let messages = r#"[
+        {
+            "role": "system",
+            "content": "You are an experienced computer programmer in Eiffel. Respond only in eiffel code",
+            "name": "DbC adviser"
+        },
+        {
+            "role": "user",
+            "content": "Write a function to compute the sum of a given integer array in Eiffel"
+        }]"#;
+
+        let mut data = std::collections::HashMap::new();
+        data.insert("model", "gpt-4o-2024-08-6");
+        data.insert("messages", messages);
+        data.insert("stream", "false");
+
+        let km_id = std::env::var("CONSTRUCTOR_AP_ACCESS_TOKEN")?;
+
+        let res = client
+            .post(format!("{url}/knowledge-models/{id}/chat/completions"))
+            .json(messages)
+            .header("X-KM-AccessKey", format!("Bearer {token}"))
+            .send()
+            .await?;
+
+        eprintln!("{res:#?}");
+        assert!(false);
+        Ok(())
+    }
+}
