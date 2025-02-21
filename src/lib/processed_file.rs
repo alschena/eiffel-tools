@@ -44,10 +44,8 @@ impl ProcessedFile {
         let src = std::fs::read_to_string(self.path()).expect("read file.");
         let tree = parser.parse(&src, None).unwrap();
         Class::parse(&tree.root_node(), &mut QueryCursor::new(), src.as_str())
-            .inspect(|val| {
+            .inspect(|_| {
                 info!("reloading file at {:#?}", self.path());
-                info!("old class {:#?}", self.class());
-                info!("new class {:#?}", val);
             })
             .inspect_err(|e| {
                 warn!(
