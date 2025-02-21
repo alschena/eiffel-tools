@@ -115,7 +115,7 @@ impl Fix for Precondition {
         current_feature: &Feature,
     ) -> bool {
         self.retain_mut(|clause| clause.fix_syntax(system_classes, current_class, current_feature));
-        !self.is_empty()
+        true
     }
     fn fix_identifiers(
         &mut self,
@@ -126,7 +126,7 @@ impl Fix for Precondition {
         self.retain_mut(|clause| {
             clause.fix_identifiers(system_classes, current_class, current_feature)
         });
-        !self.is_empty()
+        true
     }
     fn fix_calls(
         &mut self,
@@ -135,7 +135,7 @@ impl Fix for Precondition {
         current_feature: &Feature,
     ) -> bool {
         self.retain_mut(|clause| clause.fix_calls(system_classes, current_class, current_feature));
-        !self.is_empty()
+        true
     }
     fn fix_repetition(
         &mut self,
@@ -147,7 +147,7 @@ impl Fix for Precondition {
             Some(pr) => self.remove_redundant_clauses(pr),
             None => self.remove_self_redundant_clauses(),
         }
-        !self.is_empty()
+        true
     }
 }
 impl From<Vec<Clause>> for Precondition {
@@ -244,7 +244,7 @@ impl Fix for Postcondition {
         current_feature: &Feature,
     ) -> bool {
         self.retain_mut(|clause| clause.fix_syntax(system_classes, current_class, current_feature));
-        !self.is_empty()
+        true
     }
     fn fix_identifiers(
         &mut self,
@@ -255,7 +255,7 @@ impl Fix for Postcondition {
         self.retain_mut(|clause| {
             clause.fix_identifiers(system_classes, current_class, current_feature)
         });
-        !self.is_empty()
+        true
     }
     fn fix_calls(
         &mut self,
@@ -264,7 +264,7 @@ impl Fix for Postcondition {
         current_feature: &Feature,
     ) -> bool {
         self.retain_mut(|clause| clause.fix_calls(system_classes, current_class, current_feature));
-        !self.is_empty()
+        true
     }
     fn fix_repetition(
         &mut self,
@@ -276,7 +276,7 @@ impl Fix for Postcondition {
             Some(pos) => self.remove_redundant_clauses(pos),
             None => self.remove_self_redundant_clauses(),
         }
-        !self.is_empty()
+        true
     }
 }
 impl Display for Postcondition {
@@ -348,11 +348,25 @@ impl Fix for RoutineSpecification {
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
-        self.precondition
+        if !self
+            .precondition
             .fix_syntax(system_classes, current_class, current_feature)
-            && self
-                .postcondition
-                .fix_syntax(system_classes, current_class, current_feature)
+        {
+            info!(target:"gemini", "fail fixing precondition");
+            return false;
+        }
+        if !self
+            .postcondition
+            .fix_syntax(system_classes, current_class, current_feature)
+        {
+            info!(target:"gemini", "fail fixing postcondition.");
+            return false;
+        }
+        if !self.precondition.is_empty() && !self.postcondition.is_empty() {
+            info!(target:"gemini", "empty routine specification");
+            return false;
+        }
+        true
     }
     fn fix_identifiers(
         &mut self,
@@ -590,39 +604,36 @@ end"#;
             Clause::new(Tag::new("q"), Predicate::new("Result = f")),
         ]);
 
+        eprintln!("preconditions: {}", f.preconditions().unwrap());
+        eprintln!("postconditions: {}", f.postconditions().unwrap());
+
         assert!(
             vpr.fix(&system_classes, &c, f),
-            "feature's precondition: {}\nvalid precondition: {vpr}",
-            f.preconditions().unwrap()
+            "fixed preconditions: {vpr}",
         );
         assert!(
-            !ipr.fix(&system_classes, &c, f),
-            "feature's precondition: {}\ninvalid precondition: {ipr}",
-            f.preconditions().unwrap()
+            ipr.fix(&system_classes, &c, f),
+            "fixed preconditions: {ipr}"
         );
-        assert_eq!(ipr.len(), 0);
+        assert!(ipr.is_empty());
         assert!(
             ipr2.fix(&system_classes, &c, f),
-            "feature's precondition: {}\ninvalid precondition: {ipr2}",
-            f.preconditions().unwrap()
+            "fixed preconditions: {ipr2}"
         );
         assert_eq!(ipr2, vpr);
 
         assert!(
             vpo.fix(&system_classes, &c, f),
-            "feature's postcondition: {}\nvalid postcondition: {vpo}",
-            f.postconditions().unwrap()
+            "fixed postconditions: {vpo}",
         );
         assert!(
-            !ipo.fix(&system_classes, &c, f),
-            "feature's postcondition: {}\ninvalid postcondition: {ipo}",
-            f.postconditions().unwrap()
+            ipo.fix(&system_classes, &c, f),
+            "fixed postconditions: {ipo}"
         );
-        assert_eq!(ipo.len(), 0);
+        assert!(ipo.is_empty());
         assert!(
             ipo2.fix(&system_classes, &c, f),
-            "feature's postcondition: {}\ninvalid precondition: {ipo2}",
-            f.postconditions().unwrap()
+            "fixed postconditions: {ipo2}",
         );
         assert_eq!(ipo2, vpo);
     }
