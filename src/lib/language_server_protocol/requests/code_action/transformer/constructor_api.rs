@@ -1,0 +1,247 @@
+use reqwest::header::HeaderMap;
+use serde::Deserialize;
+use serde::Serialize;
+
+const END_POINT: &'static str = r#"https://training.constructor.app/api/platform-kmapi/v1"#;
+const TOKEN: &'static str = std::env!("CONSTRUCTOR_APP_API_TOKEN");
+
+#[derive(Serialize, Deserialize, Debug)]
+struct ModelProvider {
+    name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct LanguageModel {
+    id: String,
+    name: String,
+    description: String,
+    hosted_by: Option<ModelProvider>,
+    code: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct ListLanguageModels {
+    results: Vec<LanguageModel>,
+    total: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+enum SharedTypes {
+    #[default]
+    Private,
+    All,
+    Tenant,
+}
+
+#[derive(Serialize, Debug)]
+struct CreateKnowledgeModelParameters {
+    name: String,
+    description: String,
+    shared_type: SharedTypes,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct KnowledgeModelOwner {
+    user_id: String,
+    tenant_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct KnowledgeModel {
+    id: String,
+    name: String,
+    description: Option<String>,
+    owner: KnowledgeModelOwner,
+    shared_type: SharedTypes,
+    created_at: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct ListKnowledgeModels {
+    results: Vec<KnowledgeModel>,
+    total: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct MessageSent {
+    role: String,
+    content: String,
+    name: String,
+}
+
+#[derive(Serialize, Debug, Default)]
+struct CompletionParameters {
+    messages: Vec<MessageSent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    frequency_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    presence_penalty: Option<f32>,
+    // stop: String | Vec<String> | None
+    stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    n: Option<i32>,
+    // property name*: Any
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct MessageReceived {
+    role: String,
+    content: String,
+    // Currently always Null, but might change later.
+    tool_calls: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct CompletionChoice {
+    index: usize,
+    message: MessageReceived,
+    finish_reason: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct CompletionTokenUsage {
+    prompt_tokens: i32,
+    completion_tokens: i32,
+    total_tokens: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct CompletionResponse {
+    id: String,
+    /// Response schema. Currently only "chat.completion" is allowed.
+    object: String,
+    created: i32,
+    model: String,
+    choices: Vec<CompletionChoice>,
+    usage: CompletionTokenUsage,
+}
+
+struct LLMBuilder {
+    client: reqwest::Client,
+    headers: HeaderMap,
+}
+impl LLMBuilder {
+    fn try_new() -> anyhow::Result<Self> {
+        let client = reqwest::Client::new();
+        let mut headers = HeaderMap::new();
+        headers.insert("X-KM-AccessKey", format!("Bearer {TOKEN}").parse()?);
+        Ok(Self { client, headers })
+    }
+    async fn list_language_models(&self) -> anyhow::Result<ListLanguageModels> {
+        let response = self
+            .client
+            .get(format!("{END_POINT}/language_models"))
+            .headers(self.headers.clone())
+            .send()
+            .await?;
+
+        let list_language_models = response.json().await?;
+
+        Ok(list_language_models)
+    }
+
+    async fn create_knowledge_model(
+        &self,
+        parameters: &CreateKnowledgeModelParameters,
+    ) -> anyhow::Result<KnowledgeModel> {
+        let response = self
+            .client
+            .post(format!("{END_POINT}/knowledge-models"))
+            .headers(self.headers.clone())
+            .json(parameters)
+            .send()
+            .await?;
+        let response_parsed = response.json().await?;
+        Ok(response_parsed)
+    }
+    async fn build(self, parameters: &CreateKnowledgeModelParameters) -> anyhow::Result<LLM> {
+        let knowledge_model_id = self.create_knowledge_model(parameters).await?.id;
+
+        Ok(LLM {
+            client: self.client,
+            headers: self.headers,
+            knowledge_model_id,
+        })
+    }
+}
+
+struct LLM {
+    client: reqwest::Client,
+    headers: HeaderMap,
+    knowledge_model_id: String,
+}
+impl LLM {
+    async fn model_complete(
+        &self,
+        parameters: &CompletionParameters,
+    ) -> anyhow::Result<CompletionResponse> {
+        let knowledge_model_id = &self.knowledge_model_id;
+
+        let request = self
+            .client
+            .post(format!(
+                "{END_POINT}/knowledge-models/{knowledge_model_id}/chat/completions"
+            ))
+            .json(&parameters)
+            .headers(self.headers.clone())
+            .send()
+            .await?;
+
+        debug_assert!(request.status().is_success());
+
+        let response = request.json().await?;
+        Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // #[ignore]
+    #[tokio::test]
+    async fn private_inference_request() -> anyhow::Result<()> {
+        let llm_builder = LLMBuilder::try_new()?;
+
+        // List knowledge models
+        let list_language_models = llm_builder.list_language_models().await?;
+        eprintln!("list knowledge models:\n{list_language_models:#?}");
+
+        // Create knowledge model
+        let parameters = CreateKnowledgeModelParameters {
+            name: "Eiffel contract factory".to_string(),
+            description: "Remote private inference for the `Eiffel contract factory` tool."
+                .to_string(),
+            shared_type: SharedTypes::All,
+        };
+
+        let llm = llm_builder.build(&parameters).await?;
+
+        let knowledge_model_id = llm.knowledge_model_id.clone();
+        eprintln!("create knowledge model id:\n{knowledge_model_id:#?}");
+
+        let messages = vec![
+            MessageSent{ role: "system".to_string(), content: "You are an experienced computer programmer in Eiffel. Respond only in eiffel code".to_string(), name: "DbC adviser".to_string() },
+            MessageSent{ role: "user".to_string(), content: "Write a function to compute the sum of a given integer array in Eiffel".to_string(), name: "DbC adviser".to_string() },
+        ];
+
+        let data: CompletionParameters = CompletionParameters {
+            messages,
+            ..Default::default()
+        };
+
+        llm.model_complete(&data).await?;
+        Ok(())
+    }
+}
