@@ -211,14 +211,7 @@ impl ModelExtended {
 
                     acc.push_str(format!("{name}: {ty}").as_str());
 
-                    if matches!(
-                        ext,
-                        ModelExtended::Model {
-                            names: _,
-                            types: _,
-                            extension: _
-                        }
-                    ) {
+                    if matches!(ext, ModelExtended::Model { .. }) {
                         acc.push('\n');
                         acc.push_str(ext.fmt_indented(indent + 1).as_str());
                     }
