@@ -64,33 +64,50 @@ struct ListKnowledgeModels {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct MessageSent {
+pub struct MessageOut {
     role: String,
     content: String,
-    name: String,
+    name: Option<String>,
+}
+
+impl MessageOut {
+    pub fn new_system(content: String) -> MessageOut {
+        MessageOut {
+            role: "system".to_string(),
+            content,
+            name: None,
+        }
+    }
+    pub fn new_user(content: String) -> MessageOut {
+        MessageOut {
+            role: "user".to_string(),
+            content,
+            name: None,
+        }
+    }
 }
 
 #[derive(Serialize, Debug, Default)]
-struct CompletionParameters {
-    messages: Vec<MessageSent>,
+pub struct CompletionParameters {
+    pub messages: Vec<MessageOut>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    temperature: Option<f32>,
+    pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    max_tokens: Option<i32>,
+    pub max_tokens: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    top_p: Option<i32>,
+    pub top_p: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    frequency_penalty: Option<f32>,
+    pub frequency_penalty: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    presence_penalty: Option<f32>,
+    pub presence_penalty: Option<f32>,
     // stop: String | Vec<String> | None
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<String>>,
+    pub tools: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<String>,
+    pub tool_choice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    n: Option<i32>,
+    pub n: Option<i32>,
     // property name*: Any
 }
 
@@ -127,12 +144,12 @@ struct CompletionResponse {
     usage: CompletionTokenUsage,
 }
 
-struct LLMBuilder {
+pub struct LLMBuilder {
     client: reqwest::Client,
     headers: HeaderMap,
 }
 impl LLMBuilder {
-    fn try_new() -> anyhow::Result<Self> {
+    pub fn try_new() -> anyhow::Result<Self> {
         let client = reqwest::Client::new();
         let mut headers = HeaderMap::new();
         headers.insert("X-KM-AccessKey", format!("Bearer {TOKEN}").parse()?);
@@ -165,7 +182,7 @@ impl LLMBuilder {
         let response_parsed = response.json().await?;
         Ok(response_parsed)
     }
-    async fn build(self, parameters: &CreateKnowledgeModelParameters) -> anyhow::Result<LLM> {
+    pub async fn build(self, parameters: &CreateKnowledgeModelParameters) -> anyhow::Result<LLM> {
         let knowledge_model_id = self.create_knowledge_model(parameters).await?.id;
 
         Ok(LLM {
@@ -176,13 +193,14 @@ impl LLMBuilder {
     }
 }
 
-struct LLM {
+/// This structure can only be constructed via the method build in `LLMBuilder`.
+pub struct LLM {
     client: reqwest::Client,
     headers: HeaderMap,
     knowledge_model_id: String,
 }
 impl LLM {
-    async fn model_complete(
+    pub async fn model_complete(
         &self,
         parameters: &CompletionParameters,
     ) -> anyhow::Result<CompletionResponse> {
@@ -232,8 +250,8 @@ mod tests {
         eprintln!("create knowledge model id:\n{knowledge_model_id:#?}");
 
         let messages = vec![
-            MessageSent{ role: "system".to_string(), content: "You are an experienced computer programmer in Eiffel. Respond only in eiffel code".to_string(), name: "DbC adviser".to_string() },
-            MessageSent{ role: "user".to_string(), content: "Write a function to compute the sum of a given integer array in Eiffel".to_string(), name: "DbC adviser".to_string() },
+            MessageOut{ role: "system".to_string(), content: "You are an experienced computer programmer in Eiffel. Respond only in eiffel code".to_string(), name: Some("DbC adviser".to_string()) },
+            MessageOut{ role: "user".to_string(), content: "Write a function to compute the sum of a given integer array in Eiffel".to_string(), name: Some("DbC adviser".to_string()) },
         ];
 
         let data: CompletionParameters = CompletionParameters {

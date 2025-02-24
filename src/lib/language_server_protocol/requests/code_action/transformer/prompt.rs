@@ -1,6 +1,6 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::processed_file::ProcessedFile;
-use async_lsp::lsp_types::CodeActionDisabled;
+use anyhow::anyhow;
 
 pub struct Prompt {
     preable: String,
@@ -20,7 +20,7 @@ impl Prompt {
         class_model: &ClassModel,
         file: &ProcessedFile,
         system_classes: &[&Class],
-    ) -> Result<Self, CodeActionDisabled> {
+    ) -> anyhow::Result<Self> {
         let mut var = Self::default();
         var.set_feature_src_with_contract_holes(feature, file)?;
         var.set_full_model_text(feature.parameters(), class_model, system_classes);
@@ -41,14 +41,14 @@ impl Prompt {
         &mut self,
         feature: &Feature,
         file: &ProcessedFile,
-    ) -> Result<(), CodeActionDisabled> {
+    ) -> anyhow::Result<()> {
         let Some(point_insert_preconditions) = feature.point_end_preconditions() else {
-            return Err(CodeActionDisabled{
-                reason:"Only attributes with an attribute block and routines support adding preconditions".to_string(),
-            });
+            return Err(anyhow!(
+                "Only attributes with an attribute block and routines support adding preconditions"
+            ));
         };
         let Some(point_insert_postconditions) = feature.point_end_postconditions() else {
-            return Err(CodeActionDisabled{reason:"Only attributes with an attribute block and routines support adding postconditions".to_string()});
+            return Err(anyhow!("Only attributes with an attribute block and routines support adding postconditions"));
         };
         let precondition_hole = if feature.has_precondition() {
             format!(
@@ -139,6 +139,25 @@ impl Prompt {
         self.full_model.clear();
         self.full_model.push_str(text.as_str());
         self.full_model.push('\n');
+    }
+}
+
+#[cfg(feature = "constructor")]
+impl Prompt {
+    pub fn to_completion_parameters(self) -> super::constructor_api::CompletionParameters {
+        let system_message = self.preable;
+        let decorated_source = self.source_with_holes;
+        let full_model = self.full_model;
+
+        let messages = vec![
+            super::constructor_api::MessageOut::new_system(system_message),
+            super::constructor_api::MessageOut::new_user(format!("{decorated_source}{full_model}")),
+        ];
+
+        super::constructor_api::CompletionParameters {
+            messages,
+            ..Default::default()
+        }
     }
 }
 

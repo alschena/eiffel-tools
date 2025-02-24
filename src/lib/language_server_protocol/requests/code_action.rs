@@ -2,14 +2,15 @@ use crate::lib::code_entities::prelude::*;
 use crate::lib::language_server_protocol::prelude::{HandleRequest, ServerState};
 use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
+use anyhow::anyhow;
 use async_lsp::lsp_types::{
     request, CodeAction, CodeActionDisabled, CodeActionOrCommand, WorkspaceEdit,
 };
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::fmt::Display;
-use tracing::error;
 use tracing::warn;
+use tracing::{error, Instrument};
 mod transformer;
 
 impl HandleRequest for request::CodeActionRequest {
@@ -32,7 +33,14 @@ impl HandleRequest for request::CodeActionRequest {
         let file = ws.find_file(&path);
 
         let edit = match file {
-            Some(file) => file_edits(file, &point, &ws).await,
+            Some(file) => file_edits(file, &point, &ws)
+                .await
+                .map_err(|e| CodeActionDisabled {
+                    reason: e.chain().fold(String::new(), |mut acc, reason| {
+                        acc.push_str(format!("{reason}\n").as_str());
+                        acc
+                    }),
+                }),
             None => Err(CodeActionDisabled {
                 reason: "The current file has not been parsed yet.".to_string(),
             }),
@@ -62,19 +70,19 @@ impl HandleRequest for request::CodeActionRequest {
 async fn file_edits(
     file: &ProcessedFile,
     point: &Point,
+    generator: &transformer::Generator,
     workspace: &Workspace,
-) -> Result<WorkspaceEdit, CodeActionDisabled> {
-    let model = transformer::LLM::new()?;
+) -> anyhow::Result<WorkspaceEdit> {
     let feature = Feature::feature_around_point(file.class().features().iter(), &point);
+    let system_classes: Vec<_> = workspace.system_classes().collect();
     match feature {
         Some(feature) => {
-            model
-                .add_contracts_to_feature(feature, file, workspace)
-                .await
+            let more_routine_specs = generator
+                .more_routine_specifications(feature, file, &system_classes)
+                .await?;
+            todo!()
         }
-        None => Err(CodeActionDisabled {
-            reason: "Not in a valid feature.".to_string(),
-        }),
+        None => Err(anyhow!("Not in a valid feature.")),
     }
 }
 
