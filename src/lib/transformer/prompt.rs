@@ -232,7 +232,7 @@ end
             prompt.text(),
             r#"You are an expert in formal methods, specifically design by contract for static verification.
 Remember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.
-You are optionally adding model-based contracts to the the user provided feature.
+You are optionally adding model-based contracts to the user provided feature.
 ```eiffel
   x (arg: NEW_INTEGER)
     <ADD_PRECONDITION_CLAUSES>
