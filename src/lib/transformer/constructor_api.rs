@@ -101,7 +101,7 @@ pub struct CompletionParameters {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presence_penalty: Option<f32>,
     // stop: String | Vec<String> | None
-    stream: bool,
+    pub stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -134,7 +134,7 @@ struct CompletionTokenUsage {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct CompletionResponse {
+pub struct CompletionResponse {
     id: String,
     /// Response schema. Currently only "chat.completion" is allowed.
     object: String,
@@ -142,6 +142,12 @@ struct CompletionResponse {
     model: String,
     choices: Vec<CompletionChoice>,
     usage: CompletionTokenUsage,
+}
+
+impl CompletionResponse {
+    pub fn contents<'s>(&'s self) -> impl Iterator<Item = &'s str> + use<'s> {
+        self.choices.iter().map(|c| c.message.content.as_str())
+    }
 }
 
 pub struct LLMBuilder {
@@ -200,6 +206,16 @@ pub struct LLM {
     knowledge_model_id: String,
 }
 impl LLM {
+    pub async fn try_new() -> anyhow::Result<LLM> {
+        let builder = LLMBuilder::try_new()?;
+        let parameters = CreateKnowledgeModelParameters {
+            name: "Eiffel contract factory".to_string(),
+            description: "Remote private inference for the `Eiffel contract factory` tool."
+                .to_string(),
+            shared_type: SharedTypes::All,
+        };
+        builder.build(&parameters).await
+    }
     pub async fn model_complete(
         &self,
         parameters: &CompletionParameters,
