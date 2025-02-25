@@ -8,10 +8,7 @@ use async_lsp::lsp_types::{
 };
 use async_lsp::ResponseError;
 use async_lsp::Result;
-use std::fmt::Display;
-use tracing::warn;
-use tracing::{error, Instrument};
-mod transformer;
+use tracing::error;
 
 impl HandleRequest for request::CodeActionRequest {
     async fn handle_request(
@@ -19,6 +16,7 @@ impl HandleRequest for request::CodeActionRequest {
         params: <Self as request::Request>::Params,
     ) -> Result<<Self as request::Request>::Result, ResponseError> {
         let ws = st.workspace.read().await;
+        let generator = todo!();
         let path = params
             .text_document
             .uri
@@ -33,7 +31,7 @@ impl HandleRequest for request::CodeActionRequest {
         let file = ws.find_file(&path);
 
         let edit = match file {
-            Some(file) => file_edits(file, &point, &ws)
+            Some(file) => file_edits(file, &point, &generator, &ws)
                 .await
                 .map_err(|e| CodeActionDisabled {
                     reason: e.chain().fold(String::new(), |mut acc, reason| {
@@ -70,7 +68,7 @@ impl HandleRequest for request::CodeActionRequest {
 async fn file_edits(
     file: &ProcessedFile,
     point: &Point,
-    generator: &transformer::Generator,
+    generator: &crate::lib::transformer::Generator,
     workspace: &Workspace,
 ) -> anyhow::Result<WorkspaceEdit> {
     let feature = Feature::feature_around_point(file.class().features().iter(), &point);
