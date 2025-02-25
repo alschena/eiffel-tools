@@ -110,6 +110,14 @@ impl Clause {
     pub fn new(tag: Tag, predicate: Predicate) -> Clause {
         Clause { tag, predicate }
     }
+    pub fn from_line(line: &str) -> Option<Clause> {
+        line.rsplit_once(": ").map(|(tag_str, predicate_str)| {
+            Clause::new(
+                Tag::new(tag_str.trim()),
+                Predicate::new(predicate_str.trim()),
+            )
+        })
+    }
 }
 
 #[cfg_attr(feature = "gemini", derive(ToResponseSchema))]

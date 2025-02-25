@@ -332,6 +332,40 @@ impl RoutineSpecification {
     pub fn is_empty(&self) -> bool {
         self.precondition.is_empty() && self.postcondition.is_empty()
     }
+    pub fn from_markdown(markdown: &str) -> Self {
+        let precondition: Precondition = markdown
+            .lines()
+            .skip_while(|line| !line.contains("# Pre"))
+            .skip(1)
+            .map_while(|line| {
+                let line = line.trim();
+                (!line.starts_with("# ")).then_some(Clause::from_line(line).or_else(|| {
+                    info!("fail to parse the line:\t{line}\n");
+                    None
+                }))
+            })
+            .filter_map(|clause| clause)
+            .collect::<Vec<_>>()
+            .into();
+        let postcondition: Postcondition = markdown
+            .lines()
+            .skip_while(|line| !line.contains("# Post"))
+            .skip(1)
+            .map_while(|line| {
+                let line = line.trim();
+                (!line.starts_with("# ")).then_some(Clause::from_line(line).or_else(|| {
+                    info!("fail to parse the line:\t{line}\n");
+                    None
+                }))
+            })
+            .filter_map(|clause| clause)
+            .collect::<Vec<_>>()
+            .into();
+        RoutineSpecification {
+            precondition,
+            postcondition,
+        }
+    }
 }
 impl FromStr for RoutineSpecification {
     type Err = anyhow::Error;
