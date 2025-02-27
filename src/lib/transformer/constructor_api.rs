@@ -5,7 +5,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 const END_POINT: &'static str = r#"https://training.constructor.app/api/platform-kmapi/v1"#;
-const TOKEN: &'static str = std::env!("CONSTRUCTOR_APP_API_TOKEN");
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ModelProvider {
@@ -212,8 +211,9 @@ pub struct LLMBuilder {
 impl LLMBuilder {
     pub fn try_new() -> anyhow::Result<Self> {
         let client = reqwest::Client::new();
+        let token = std::env::var("CONSTRUCTOR_APP_API_TOKEN")?;
         let mut headers = HeaderMap::new();
-        headers.insert("X-KM-AccessKey", format!("Bearer {TOKEN}").parse()?);
+        headers.insert("X-KM-AccessKey", format!("Bearer {token}").parse()?);
         Ok(Self { client, headers })
     }
     async fn list_language_models(&self) -> anyhow::Result<ListLanguageModels> {
@@ -335,7 +335,7 @@ mod tests {
         Ok(())
     }
 
-    // #[ignore]
+    #[ignore]
     #[tokio::test]
     async fn structured_inference_request() -> anyhow::Result<()> {
         let llm = LLM::try_new().await?;
