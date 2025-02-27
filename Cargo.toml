@@ -1,5 +1,5 @@
 [workspace]
-members = ["gemini", "gemini_macro_derive"]
+members = []
 
 [package]
 name = "eiffel-tools"
@@ -45,18 +45,5 @@ quick-xml = {version = "0.37", features = ["serialize", "overlapped-lists"]}
 reqwest = {version = "0.12.*", features = ["json", "blocking"]}
 serde_json = { version = "1.0" }
 
-# Gemini
-gemini_macro_derive = {path = "./gemini_macro_derive", optional = true }
-gemini = {path = "./gemini", optional = true }
-
-# Ollama
-ollama-rs = {version = "0.2.5", features = ["headers"], optional = true}
-
 [dev-dependencies]
 assert_fs = "1.1"
-
-[features]
-default = ["constructor"]
-constructor = []
-gemini = ["dep:gemini", "dep:gemini_macro_derive"]
-ollama = ["dep:ollama-rs"]

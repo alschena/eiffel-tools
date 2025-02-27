@@ -21,7 +21,4 @@ The command `cargo test --workspace` runs all the tests in the workspace. Run th
 
 This project introduces `lsp-eiffel`, a server-side implementation of the [language server protocol](https://microsoft.github.io/language-server-protocol/).
 
-## Gemini
-
-Rust wrapper around the [REST Gemini API](https://ai.google.dev/api?lang=python).
 

@@ -142,7 +142,6 @@ impl Prompt {
     }
 }
 
-#[cfg(feature = "constructor")]
 impl Prompt {
     pub fn to_llm_messages(self) -> Vec<super::constructor_api::MessageOut> {
         let system_message = self.preable;

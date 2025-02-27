@@ -12,12 +12,6 @@ use tree_sitter::QueryCursor;
 use super::clause::Clause;
 use super::*;
 
-#[cfg(feature = "gemini")]
-use {
-    gemini::{Described, ResponseSchema, ToResponseSchema},
-    gemini_macro_derive::ToResponseSchema,
-};
-
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 /// Wraps an optional contract clause adding whereabouts informations.
 /// If the `item` is None, the range start and end coincide where the contract clause would be added.
@@ -62,7 +56,6 @@ impl<T: Display + Indent + Contract + Deref<Target = Vec<Clause>>> Display for B
         }
     }
 }
-#[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
 #[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema)]
 #[serde(transparent)]
 #[schemars(deny_unknown_fields)]
@@ -171,8 +164,7 @@ impl Display for Precondition {
     }
 }
 
-#[cfg(feature = "gemini")]
-impl Described for Precondition {
+impl Precondition {
     fn description() -> String {
         "Preconditions are predicates on the prestate, the state before the execution, of a routine. They describe the properties that the fields of the model in the current object must satisfy in the prestate. Preconditions cannot contain a call to `old_` or the `old` keyword.".to_string()
     }
@@ -194,7 +186,6 @@ impl Parse for Block<Precondition> {
         Ok(Self::new(clauses.into(), node.range().into()))
     }
 }
-#[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
 #[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone, JsonSchema)]
 #[serde(transparent)]
 #[schemars(deny_unknown_fields)]
@@ -289,8 +280,7 @@ impl Display for Postcondition {
         )
     }
 }
-#[cfg(feature = "gemini")]
-impl Described for Postcondition {
+impl Postcondition {
     fn description() -> String {
         "Postconditions describe the properties that the model of the current object must satisfy after the routine.
         Postconditions are two-states predicates.
@@ -316,7 +306,6 @@ impl Parse for Block<Postcondition> {
     }
 }
 
-#[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct RoutineSpecification {
@@ -374,18 +363,18 @@ impl Fix for RoutineSpecification {
             .precondition
             .fix_syntax(system_classes, current_class, current_feature)
         {
-            info!(target:"gemini", "fail fixing precondition");
+            info!(target:"llm", "fail fixing precondition");
             return false;
         }
         if !self
             .postcondition
             .fix_syntax(system_classes, current_class, current_feature)
         {
-            info!(target:"gemini", "fail fixing postcondition.");
+            info!(target:"llm", "fail fixing postcondition.");
             return false;
         }
         if !self.precondition.is_empty() && !self.postcondition.is_empty() {
-            info!(target:"gemini", "empty routine specification");
+            info!(target:"llm", "empty routine specification");
             return false;
         }
         true
@@ -427,8 +416,7 @@ impl Fix for RoutineSpecification {
                 .fix_repetition(system_classes, current_class, current_feature)
     }
 }
-#[cfg(feature = "gemini")]
-impl Described for RoutineSpecification {
+impl RoutineSpecification {
     fn description() -> String {
         String::new()
     }
@@ -440,8 +428,6 @@ mod tests {
     use super::super::clause::Tag;
     use super::*;
     use anyhow::Result;
-    #[cfg(feature = "gemini")]
-    use gemini::SchemaType;
 
     #[test]
     fn fix_repetition_in_preconditions() {
@@ -531,44 +517,6 @@ end"#;
 
         assert_eq!(&clause.predicate, &Predicate::new("True".to_string()));
         assert_eq!(&clause.tag, &Tag::new(""));
-    }
-    // For gemini completions.
-    // When the LSP grows in maturity, gemini will be decoupled and these tests will be moved to a compatibility layer.
-    #[cfg(feature = "gemini")]
-    #[test]
-    fn precondition_response_schema() -> Result<()> {
-        let response_schema = Precondition::to_response_schema();
-        let oracle_response = ResponseSchema {
-            schema_type: SchemaType::Array,
-            format: None,
-            description: Some(Precondition::description()),
-            nullable: None,
-            possibilities: None,
-            max_items: None,
-            properties: None,
-            required: None,
-            items: Some(Box::new(Clause::to_response_schema())),
-        };
-        assert_eq!(response_schema, oracle_response);
-        Ok(())
-    }
-    #[cfg(feature = "gemini")]
-    #[test]
-    fn postcondition_response_schema() -> Result<()> {
-        let response_schema = Postcondition::to_response_schema();
-        let oracle_response = ResponseSchema {
-            schema_type: SchemaType::Array,
-            format: None,
-            description: Some(Postcondition::description()),
-            nullable: None,
-            possibilities: None,
-            max_items: None,
-            properties: None,
-            required: None,
-            items: Some(Box::new(Clause::to_response_schema())),
-        };
-        assert_eq!(response_schema, oracle_response);
-        Ok(())
     }
     #[test]
     fn display_precondition_block() {

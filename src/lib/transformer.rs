@@ -1,24 +1,13 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::processed_file::ProcessedFile;
-use constructor_api::OpenAIResponseFormat;
 use contract::RoutineSpecification;
 use schemars::schema_for;
 use tracing::info;
 
+mod constructor_api;
 mod prompt;
 
-#[cfg(feature = "constructor")]
-mod constructor_api;
-
-#[cfg(feature = "gemini")]
-mod gemini;
-#[cfg(feature = "gemini")]
-pub use gemini::LLM;
-
-#[cfg(feature = "ollama")]
-mod ollama;
-#[cfg(feature = "ollama")]
-pub use ollama::LLM;
+use constructor_api::OpenAIResponseFormat;
 use prompt::Prompt;
 
 pub struct Generator {

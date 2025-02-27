@@ -21,22 +21,22 @@ pub(crate) trait Fix: Debug {
         current_feature: &Feature,
     ) -> bool {
         if !self.fix_syntax(system_classes, current_class, current_feature) {
-            info!(target:"gemini", "fail fix syntax {self:?}");
+            info!(target:"llm", "fail fix syntax {self:?}");
             return false;
         }
 
         if !self.fix_identifiers(system_classes, current_class, current_feature) {
-            info!(target:"gemini", "fail fix identifiers");
+            info!(target:"llm", "fail fix identifiers");
             return false;
         }
 
         if !self.fix_calls(system_classes, current_class, current_feature) {
-            info!(target:"gemini", "fail fix calls");
+            info!(target:"llm", "fail fix calls");
             return false;
         }
 
         if !self.fix_repetition(system_classes, current_class, current_feature) {
-            info!(target:"gemini", "fail fix repetition");
+            info!(target:"llm", "fail fix repetition");
             return false;
         }
         true

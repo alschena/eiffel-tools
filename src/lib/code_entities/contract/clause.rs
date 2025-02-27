@@ -15,16 +15,6 @@ use tree_sitter::Tree;
 
 use super::*;
 
-#[cfg(feature = "ollama")]
-use schemars::JsonSchema;
-
-#[cfg(feature = "gemini")]
-use {
-    gemini::{Described, ResponseSchema, ToResponseSchema},
-    gemini_macro_derive::ToResponseSchema,
-};
-
-#[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
 #[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct Clause {
@@ -124,7 +114,6 @@ impl Clause {
     }
 }
 
-#[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq, Hash, JsonSchema)]
 #[serde(transparent)]
 #[schemars(deny_unknown_fields)]
@@ -167,7 +156,6 @@ impl From<String> for Tag {
     }
 }
 
-#[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
 #[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone, JsonSchema)]
 #[serde(transparent)]
 #[schemars(deny_unknown_fields)]
@@ -342,20 +330,17 @@ impl Display for Predicate {
     }
 }
 
-#[cfg(feature = "gemini")]
-impl Described for Clause {
+impl Clause {
     fn description() -> String {
         String::from("A valid contract clause of the eiffel programming language.")
     }
 }
-#[cfg(feature = "gemini")]
-impl Described for Tag {
+impl Tag {
     fn description() -> String {
         "A valid tag clause for the Eiffel programming language.".to_string()
     }
 }
-#[cfg(feature = "gemini")]
-impl Described for Predicate {
+impl Predicate {
     fn description() -> String {
         "A valid boolean expression for the Eiffel programming language.".to_string()
     }
@@ -364,9 +349,6 @@ impl Described for Predicate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Result;
-    #[cfg(feature = "gemini")]
-    use gemini::SchemaType;
 
     #[test]
     fn parse_clause() {
@@ -403,78 +385,6 @@ end"#;
         assert_eq!(clause.predicate, Predicate::new("True".to_string()));
     }
 
-    // BEGIN: For gemini completions.
-    // When the LSP grows in maturity, gemini will be decoupled and these tests will be moved to a compatibility layer.
-    #[cfg(feature = "gemini")]
-    #[test]
-    fn clause_response_schema() -> Result<()> {
-        let response_schema = Clause::to_response_schema();
-        let oracle_schema_type = SchemaType::Object;
-        let oracle_format = None;
-        let oracle_description = Some(Clause::description());
-        let oracle_nullable = None;
-        let oracle_possibilities = None;
-        let oracle_max_items = None;
-        let oracle_properties = Some(std::collections::HashMap::from([
-            (String::from("tag"), Tag::to_response_schema()),
-            (String::from("predicate"), Predicate::to_response_schema()),
-        ]));
-        let oracle_required = Some(vec![String::from("tag"), String::from("predicate")]);
-        let oracle_items = None;
-        assert_eq!(response_schema.schema_type, oracle_schema_type);
-        assert_eq!(response_schema.format, oracle_format);
-        assert_eq!(response_schema.description, oracle_description);
-        assert_eq!(response_schema.nullable, oracle_nullable);
-        assert_eq!(response_schema.possibilities, oracle_possibilities);
-        assert_eq!(response_schema.max_items, oracle_max_items);
-        assert_eq!(response_schema.properties, oracle_properties);
-        assert_eq!(
-            response_schema.required.map(|r| r
-                .clone()
-                .into_iter()
-                .collect::<std::collections::HashSet<_>>()),
-            oracle_required.map(|r| { r.clone().into_iter().collect() })
-        );
-        assert_eq!(response_schema.items, oracle_items);
-        Ok(())
-    }
-    #[cfg(feature = "gemini")]
-    #[test]
-    fn tag_response_schema() -> Result<()> {
-        let response_schema = Tag::to_response_schema();
-        let oracle_response = ResponseSchema {
-            schema_type: SchemaType::String,
-            format: None,
-            description: Some(Tag::description()),
-            nullable: None,
-            possibilities: None,
-            max_items: None,
-            properties: None,
-            required: None,
-            items: None,
-        };
-        assert_eq!(response_schema, oracle_response);
-        Ok(())
-    }
-    #[cfg(feature = "gemini")]
-    #[test]
-    fn predicate_response_schema() -> Result<()> {
-        let response_schema = Predicate::to_response_schema();
-        let oracle_response = ResponseSchema {
-            schema_type: SchemaType::String,
-            format: None,
-            description: Some(Predicate::description()),
-            nullable: None,
-            possibilities: None,
-            max_items: None,
-            properties: None,
-            required: None,
-            items: None,
-        };
-        assert_eq!(response_schema, oracle_response);
-        Ok(())
-    }
-    // END: For gemini completion
     #[test]
     fn fix_predicate_syntax() {
         let src = "
