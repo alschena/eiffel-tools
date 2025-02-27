@@ -1,13 +1,17 @@
 use crate::lib::tree_sitter_extension::capture_name_to_nodes;
 use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
 use tracing::info;
-use tree_sitter::{Node, Query, QueryCursor, Tree};
+use tree_sitter::Node;
+use tree_sitter::Query;
+use tree_sitter::QueryCursor;
+use tree_sitter::Tree;
 
 use super::*;
 
@@ -21,8 +25,8 @@ use {
 };
 
 #[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
-#[cfg_attr(feature = "ollama", derive(JsonSchema))]
-#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct Clause {
     pub tag: Tag,
     pub predicate: Predicate,
@@ -121,9 +125,9 @@ impl Clause {
 }
 
 #[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
-#[cfg_attr(feature = "ollama", derive(JsonSchema))]
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq, Hash, JsonSchema)]
 #[serde(transparent)]
+#[schemars(deny_unknown_fields)]
 pub struct Tag(String);
 
 impl Tag {
@@ -164,9 +168,9 @@ impl From<String> for Tag {
 }
 
 #[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
-#[cfg_attr(feature = "ollama", derive(JsonSchema))]
-#[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone, JsonSchema)]
 #[serde(transparent)]
+#[schemars(deny_unknown_fields)]
 pub struct Predicate(String);
 
 impl Predicate {

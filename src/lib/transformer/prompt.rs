@@ -144,20 +144,15 @@ impl Prompt {
 
 #[cfg(feature = "constructor")]
 impl Prompt {
-    pub fn to_completion_parameters(self) -> super::constructor_api::CompletionParameters {
+    pub fn to_llm_messages(self) -> Vec<super::constructor_api::MessageOut> {
         let system_message = self.preable;
         let decorated_source = self.source_with_holes;
         let full_model = self.full_model;
 
-        let messages = vec![
+        vec![
             super::constructor_api::MessageOut::new_system(system_message),
             super::constructor_api::MessageOut::new_user(format!("{decorated_source}{full_model}")),
-        ];
-
-        super::constructor_api::CompletionParameters {
-            messages,
-            ..Default::default()
-        }
+        ]
     }
 }
 

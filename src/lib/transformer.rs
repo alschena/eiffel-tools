@@ -1,7 +1,9 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::processed_file::ProcessedFile;
-use async_lsp::lsp_types::TextEdit;
-use contract::{Postcondition, Precondition, RoutineSpecification};
+use constructor_api::OpenAIResponseFormat;
+use contract::RoutineSpecification;
+use schemars::schema_for;
+use tracing::info;
 
 mod prompt;
 
@@ -48,12 +50,20 @@ impl Generator {
             file,
             &system_classes,
         )?;
-        let completion_parameters = prompt.to_completion_parameters();
+        let completion_parameters = constructor_api::CompletionParameters {
+            messages: prompt.to_llm_messages(),
+            response_format: Some(OpenAIResponseFormat::json_schema::<RoutineSpecification>()),
+            ..Default::default()
+        };
         let completion_response = self.llm.model_complete(&completion_parameters).await?;
 
         Ok(completion_response
             .contents()
-            .map(|c| RoutineSpecification::from_markdown(c))
+            .filter_map(|c| {
+                serde_json::from_str(c)
+                    .map_err(|e| info!("fail to parse generated output with error: {e:#?}"))
+                    .ok()
+            })
             .collect())
     }
 }

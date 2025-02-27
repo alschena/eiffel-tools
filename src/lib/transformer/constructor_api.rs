@@ -1,4 +1,6 @@
 use reqwest::header::HeaderMap;
+use schemars::schema_for;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -35,7 +37,7 @@ enum SharedTypes {
 }
 
 #[derive(Serialize, Debug)]
-struct CreateKnowledgeModelParameters {
+pub struct CreateKnowledgeModelParameters {
     name: String,
     description: String,
     shared_type: SharedTypes,
@@ -88,6 +90,57 @@ impl MessageOut {
 }
 
 #[derive(Serialize, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+enum OpenAIResponseFormatOptions {
+    #[default]
+    JsonSchema,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
+pub struct OpenAIJsonSchema {
+    name: String,
+    schema: schemars::schema::RootSchema,
+    strict: bool,
+}
+
+impl OpenAIJsonSchema {
+    pub fn new<T: JsonSchema>() -> Self {
+        let schema = schema_for!(T);
+        let name = schema
+            .schema
+            .metadata
+            .as_ref()
+            .map(|meta| meta.title.as_ref().map(|title| title.clone()))
+            .flatten()
+            .unwrap_or_default();
+        Self {
+            name,
+            schema,
+            strict: true,
+        }
+    }
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
+pub struct OpenAIResponseFormat {
+    r#type: OpenAIResponseFormatOptions,
+    json_schema: OpenAIJsonSchema,
+}
+
+impl OpenAIResponseFormat {
+    pub fn json_schema<T: JsonSchema>() -> Self {
+        Self {
+            r#type: OpenAIResponseFormatOptions::JsonSchema,
+            json_schema: OpenAIJsonSchema::new::<T>(),
+        }
+    }
+}
+
+#[derive(Serialize, Debug, Default)]
 pub struct CompletionParameters {
     pub messages: Vec<MessageOut>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,6 +162,8 @@ pub struct CompletionParameters {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub n: Option<i32>,
     // property name*: Any
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<OpenAIResponseFormat>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -199,7 +254,6 @@ impl LLMBuilder {
     }
 }
 
-/// This structure can only be constructed via the method build in `LLMBuilder`.
 pub struct LLM {
     client: reqwest::Client,
     headers: HeaderMap,
@@ -222,7 +276,7 @@ impl LLM {
     ) -> anyhow::Result<CompletionResponse> {
         let knowledge_model_id = &self.knowledge_model_id;
 
-        let request = self
+        let response = self
             .client
             .post(format!(
                 "{END_POINT}/knowledge-models/{knowledge_model_id}/chat/completions"
@@ -232,18 +286,20 @@ impl LLM {
             .send()
             .await?;
 
-        debug_assert!(request.status().is_success());
+        debug_assert!(response.status().is_success(), "{}", response.text().await?);
 
-        let response = request.json().await?;
-        Ok(response)
+        let response_json = response.json().await?;
+        Ok(response_json)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lib::transformer::RoutineSpecification;
+    use schemars::schema_for;
 
-    // #[ignore]
+    #[ignore]
     #[tokio::test]
     async fn private_inference_request() -> anyhow::Result<()> {
         let llm_builder = LLMBuilder::try_new()?;
@@ -276,6 +332,40 @@ mod tests {
         };
 
         llm.model_complete(&data).await?;
+        Ok(())
+    }
+
+    // #[ignore]
+    #[tokio::test]
+    async fn structured_inference_request() -> anyhow::Result<()> {
+        let llm = LLM::try_new().await?;
+
+        let knowledge_model_id = llm.knowledge_model_id.clone();
+        eprintln!("create knowledge model id:\n{knowledge_model_id:#?}");
+
+        let messages = vec![
+            MessageOut{ role: "system".to_string(), content: "You are an experienced computer programmer in Eiffel, versed in design by contract. Respond only in eiffel code".to_string(), name: Some("DbC adviser".to_string()) },
+            MessageOut{ role: "user".to_string(), content: "Write the specification for a function with this signature `sum(a_x, a_y: INTEGER): INTEGER`".to_string(), name: Some("DbC adviser".to_string()) },
+        ];
+
+        let response_schema = OpenAIResponseFormat::json_schema::<RoutineSpecification>();
+
+        eprintln!(
+            "{}",
+            serde_json::to_string_pretty(&response_schema).unwrap()
+        );
+
+        let data: CompletionParameters = CompletionParameters {
+            messages,
+            response_format: Some(response_schema),
+            ..Default::default()
+        };
+
+        let output = llm.model_complete(&data).await?;
+
+        for out in output.contents() {
+            eprintln!("{out}");
+        }
         Ok(())
     }
 }

@@ -1,20 +1,16 @@
 use crate::lib::tree_sitter_extension::Parse;
-use anyhow::anyhow;
-use anyhow::Context;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::str::FromStr;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Node, QueryCursor};
+use tree_sitter::Node;
+use tree_sitter::QueryCursor;
 
 use super::clause::Clause;
 use super::*;
-
-#[cfg(feature = "ollama")]
-use schemars::JsonSchema;
 
 #[cfg(feature = "gemini")]
 use {
@@ -67,9 +63,9 @@ impl<T: Display + Indent + Contract + Deref<Target = Vec<Clause>>> Display for B
     }
 }
 #[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
-#[cfg_attr(feature = "ollama", derive(JsonSchema))]
-#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema)]
 #[serde(transparent)]
+#[schemars(deny_unknown_fields)]
 pub struct Precondition(Vec<Clause>);
 
 impl Precondition {
@@ -199,9 +195,9 @@ impl Parse for Block<Precondition> {
     }
 }
 #[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
-#[cfg_attr(feature = "ollama", derive(JsonSchema))]
-#[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone, JsonSchema)]
 #[serde(transparent)]
+#[schemars(deny_unknown_fields)]
 pub struct Postcondition(Vec<Clause>);
 
 impl Deref for Postcondition {
@@ -321,8 +317,8 @@ impl Parse for Block<Postcondition> {
 }
 
 #[cfg_attr(feature = "gemini", derive(ToResponseSchema))]
-#[cfg_attr(feature = "ollama", derive(JsonSchema))]
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct RoutineSpecification {
     pub precondition: Precondition,
     pub postcondition: Postcondition,
@@ -365,14 +361,6 @@ impl RoutineSpecification {
             precondition,
             postcondition,
         }
-    }
-}
-impl FromStr for RoutineSpecification {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        serde_json::from_str(s)
-            .with_context(|| anyhow!("fails json deserialization of RoutineSpecification"))
     }
 }
 impl Fix for RoutineSpecification {

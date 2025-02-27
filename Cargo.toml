@@ -34,6 +34,7 @@ tree-sitter-eiffel = { git = "https://github.com/imustafin/tree-sitter-eiffel", 
 
 # Parsing
 serde = "1.0.*"
+schemars = {version = "0.8.21"}
 
 # Eiffel configuration
 walkdir = "2"
@@ -50,7 +51,6 @@ gemini = {path = "./gemini", optional = true }
 
 # Ollama
 ollama-rs = {version = "0.2.5", features = ["headers"], optional = true}
-schemars = {version = "0.8.21", optional = true}
 
 [dev-dependencies]
 assert_fs = "1.1"
@@ -59,4 +59,4 @@ assert_fs = "1.1"
 default = ["constructor"]
 constructor = []
 gemini = ["dep:gemini", "dep:gemini_macro_derive"]
-ollama = ["dep:ollama-rs", "dep:schemars"]
+ollama = ["dep:ollama-rs"]
