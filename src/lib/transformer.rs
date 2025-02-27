@@ -1,29 +1,24 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::processed_file::ProcessedFile;
 use contract::RoutineSpecification;
-use schemars::schema_for;
 use tracing::info;
 
 mod constructor_api;
 mod prompt;
 
 use constructor_api::OpenAIResponseFormat;
-use prompt::Prompt;
 
 pub struct Generator {
     llm: constructor_api::LLM,
-    prompt: prompt::Prompt,
 }
 impl Generator {
     pub async fn try_new() -> anyhow::Result<Self> {
         let llm = constructor_api::LLM::try_new().await?;
-        let prompt = Prompt::default();
-        Ok(Self { llm, prompt })
+        Ok(Self { llm })
     }
     pub async fn more_routine_specifications(
         &self,
         feature: &Feature,
-
         file: &ProcessedFile,
         system_classes: &[&Class],
     ) -> anyhow::Result<Vec<RoutineSpecification>> {
