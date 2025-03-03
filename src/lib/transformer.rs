@@ -40,7 +40,9 @@ impl Generator {
             response_format: Some(OpenAIResponseFormat::json_schema::<RoutineSpecification>()),
             ..Default::default()
         };
+        info!(target:"llm", "completion parameters:\t{completion_parameters:#?}");
         let completion_response = self.llm.model_complete(&completion_parameters).await?;
+        info!(target:"llm", "completion response:\t{completion_response:#?}");
 
         Ok(completion_response
             .contents()
