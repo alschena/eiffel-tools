@@ -193,34 +193,29 @@ impl Model {
 
 impl ModelExtended {
     pub fn fmt_indented(&self, indent: usize) -> String {
-        if let ModelExtended::Model {
-            names,
-            types,
-            extension,
-        } = self
-        {
-            names.iter().zip(types.iter()).zip(extension).fold(
-                String::new(),
-                |mut acc, ((name, ty), ext)| {
-                    if !acc.is_empty() {
-                        acc.push(';');
-                        acc.push('\n');
-                    }
+        let mut text = String::new();
+        (0..indent).for_each(|_| text.push('\t'));
 
-                    (0..indent).for_each(|_| acc.push('\t'));
-
-                    acc.push_str(format!("{name}: {ty}").as_str());
-
-                    if matches!(ext, ModelExtended::Model { .. }) {
-                        acc.push('\n');
-                        acc.push_str(ext.fmt_indented(indent + 1).as_str());
-                    }
-                    acc
-                },
-            )
-        } else {
-            String::new()
-        }
+        match self {
+            ModelExtended::Terminal => {
+                text.push_str("the model is implemented in Boogie.\n");
+            }
+            ModelExtended::Recursive => text.push_str("the model is recursive.\n"),
+            ModelExtended::IsEmpty => text.push_str("the model is empty.\n"),
+            ModelExtended::Model {
+                names,
+                types,
+                extension,
+            } => {
+                text.push_str("the model is: ");
+                for ((name, ty), ext) in names.iter().zip(types.iter()).zip(extension) {
+                    text.push_str(format!("{name}: {ty}").as_str());
+                    text.push('\n');
+                    text.push_str(ext.fmt_indented(indent + 1).as_str());
+                }
+            }
+        };
+        text
     }
 }
 

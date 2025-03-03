@@ -93,25 +93,10 @@ impl Prompt {
         class_model: &ClassModel,
         system_classes: &[Class],
     ) {
-        let mut text = class_model.fmt_indented(1);
-        match class_model {
-            ClassModel::Terminal => {
-                text.push_str("The model of this class and its ancestors is directly mapped to a boogie theory file.\n");
-            }
-            ClassModel::Recursive => {
-                text.push_str("The model of this class and its ancestors is recursive.\n");
-            }
-            ClassModel::IsEmpty => {
-                text.push_str("The current class and its ancestors have no model.\n");
-            }
-            ClassModel::Model { .. } => {
-                text.insert_str(
-                    0,
-                    "These are the models of the current class and its ancestors:\n",
-                );
-                text.push('\n');
-            }
-        };
+        let mut text = format!(
+            "For the current class and its ancestors, {}",
+            class_model.fmt_indented(0)
+        );
 
         let parameters_models_fmt = feature_parameters
             .types()
@@ -122,11 +107,14 @@ impl Prompt {
         let parameters_models = feature_parameters
             .names()
             .iter()
+            .zip(feature_parameters.types())
             .zip(parameters_models_fmt)
-            .fold(String::new(), |mut acc, (name, model_fmt)| {
-                acc.push_str("Model of the argument ");
+            .fold(String::new(), |mut acc, ((name, ty), model_fmt)| {
+                acc.push_str("For the argument ");
                 acc.push_str(name);
                 acc.push(':');
+                acc.push(' ');
+                acc.push_str(format!("{ty}").as_str());
                 acc.push('\n');
                 acc.push_str(model_fmt.as_str());
                 acc
@@ -234,9 +222,11 @@ You are optionally adding model-based contracts to the user provided feature.
     <ADD_POSTCONDITION_CLAUSES>
 		end
 ```
-The current class and its ancestors have no model.
-Model of the argument arg:
-	value: INTEGER
+For the current class and its ancestors, the model is empty.
+For the argument arg: NEW_INTEGER
+	the model is: value: INTEGER
+		the model is implemented in Boogie.
+
 "#
         );
     }
