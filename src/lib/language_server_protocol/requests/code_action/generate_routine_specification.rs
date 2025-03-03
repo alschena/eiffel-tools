@@ -1,6 +1,7 @@
 use crate::lib::transformer::Generator;
 use async_lsp::lsp_types::{CodeAction, CodeActionDisabled, TextEdit, Url, WorkspaceEdit};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::lib::code_entities::contract::Fix;
 use crate::lib::code_entities::prelude::*;
@@ -10,7 +11,7 @@ use contract::RoutineSpecification;
 
 fn fix_routine_specifications(
     routine_specifications: Vec<RoutineSpecification>,
-    system_classes: &[&Class],
+    system_classes: &[Class],
     current_class: &Class,
     current_feature: &Feature,
 ) -> Option<RoutineSpecification> {
@@ -76,15 +77,37 @@ fn file_edits_add_routine_specification(
     )])))
 }
 
-pub async fn to_workspace_edit(
+async fn routine_specifications_as_workspace_edit(
     file: &ProcessedFile,
     feature: &Feature,
-    generator: &crate::lib::transformer::Generator,
-    system_classes: &[&Class],
+    generators: &[crate::lib::transformer::Generator],
+    system_classes: &[Class],
 ) -> anyhow::Result<WorkspaceEdit> {
-    let more_routine_specs = generator
-        .more_routine_specifications(feature, file, &system_classes)
-        .await?;
+    let mut handles = Vec::new();
+    let bfeature = Arc::from(feature.clone());
+    let bfile = Arc::from(file.clone());
+    let bsystem_classes: Arc<[Class]> = Arc::from(system_classes);
+    let bgenerators: Vec<Generator> = generators.to_vec();
+    for gn in bgenerators.into_iter() {
+        let bfeature = bfeature.clone();
+        let bfile = bfile.clone();
+        let bsystem_classes = bsystem_classes.clone();
+        let jb = tokio::spawn(async move {
+            let bfeature = bfeature.clone();
+            let bfile = bfile.clone();
+            let bsystem_classes = bsystem_classes.clone();
+            gn.clone()
+                .more_routine_specifications(&bfeature, &bfile, &bsystem_classes)
+                .await
+        });
+        handles.push(jb);
+    }
+    let mut more_routine_specs = Vec::new();
+    for jb in handles {
+        let mut output = jb.await??;
+        more_routine_specs.append(&mut output);
+    }
+
     let fixed =
         fix_routine_specifications(more_routine_specs, system_classes, file.class(), feature);
     let Some(spec) = fixed else {
@@ -110,15 +133,22 @@ pub async fn to_workspace_edit(
 }
 
 pub async fn code_action(
-    mut generator: Option<&mut Generator>,
+    generators: &[Generator],
     file: Option<&ProcessedFile>,
-    system_classes: &[&Class],
+    system_classes: &[Class],
     cursor_point: &Point,
 ) -> CodeAction {
-    let (edit, disabled) = match (file, generator.as_mut()) {
-        (Some(file), Some(generator)) => match file.feature_around_point(&cursor_point) {
+    let (edit, disabled) = match file {
+        Some(file) => match file.feature_around_point(&cursor_point) {
             Some(feature) => {
-                match to_workspace_edit(file, &feature, generator, &system_classes).await {
+                match routine_specifications_as_workspace_edit(
+                    file,
+                    &feature,
+                    generators,
+                    &system_classes,
+                )
+                .await
+                {
                     Ok(edit) => (Some(edit), None),
                     Err(e) => (
                         None,
@@ -135,20 +165,7 @@ pub async fn code_action(
                 }),
             ),
         },
-        (None, None) => (
-            None,
-            Some(CodeActionDisabled {
-                reason: "The current file must be parsed. The generator must be loaded."
-                    .to_string(),
-            }),
-        ),
-        (_, None) => (
-            None,
-            Some(CodeActionDisabled {
-                reason: "The generator must be loaded.".to_string(),
-            }),
-        ),
-        (None, _) => (
+        None => (
             None,
             Some(CodeActionDisabled {
                 reason: "The current file must be parsed.".to_string(),

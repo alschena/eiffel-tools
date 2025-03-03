@@ -19,7 +19,7 @@ impl Prompt {
         feature: &Feature,
         class_model: &ClassModel,
         file: &ProcessedFile,
-        system_classes: &[&Class],
+        system_classes: &[Class],
     ) -> anyhow::Result<Self> {
         let mut var = Self::default();
         var.set_feature_src_with_contract_holes(feature, file)?;
@@ -91,7 +91,7 @@ impl Prompt {
         &mut self,
         feature_parameters: &FeatureParameters,
         class_model: &ClassModel,
-        system_classes: &[&Class],
+        system_classes: &[Class],
     ) {
         let mut text = class_model.fmt_indented(1);
         match class_model {
@@ -206,7 +206,7 @@ end
     "#;
         let supplier = Class::from_source(&src_supplier);
 
-        let system_classes = vec![class, &supplier];
+        let system_classes = vec![class.clone(), supplier.clone()];
         let class_model = class
             .name()
             .model_extended(&system_classes)

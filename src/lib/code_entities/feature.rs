@@ -114,7 +114,7 @@ impl EiffelType {
         self.class_name()
             .is_ok_and(|class_name| class_name.is_terminal_for_model())
     }
-    pub fn model_extension(&self, system_classes: &[&Class]) -> ModelExtended {
+    pub fn model_extension(&self, system_classes: &[Class]) -> ModelExtended {
         if self.is_terminal_for_model() {
             return ModelExtended::Terminal;
         }
@@ -186,7 +186,7 @@ impl Parameters {
     }
     pub fn model_extension<'s, 'system>(
         &'s self,
-        system_classes: &'system [&Class],
+        system_classes: &'system [Class],
     ) -> impl Iterator<Item = ModelExtended> + use<'s, 'system> {
         self.types()
             .iter()

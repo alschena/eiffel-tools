@@ -99,7 +99,7 @@ impl Default for Precondition {
 impl Fix for Precondition {
     fn fix_syntax(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -108,7 +108,7 @@ impl Fix for Precondition {
     }
     fn fix_identifiers(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -119,7 +119,7 @@ impl Fix for Precondition {
     }
     fn fix_calls(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -128,7 +128,7 @@ impl Fix for Precondition {
     }
     fn fix_repetition(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -226,7 +226,7 @@ impl From<Vec<Clause>> for Postcondition {
 impl Fix for Postcondition {
     fn fix_syntax(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -235,7 +235,7 @@ impl Fix for Postcondition {
     }
     fn fix_identifiers(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -246,7 +246,7 @@ impl Fix for Postcondition {
     }
     fn fix_calls(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -255,7 +255,7 @@ impl Fix for Postcondition {
     }
     fn fix_repetition(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -355,7 +355,7 @@ impl RoutineSpecification {
 impl Fix for RoutineSpecification {
     fn fix_syntax(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -381,7 +381,7 @@ impl Fix for RoutineSpecification {
     }
     fn fix_identifiers(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -393,7 +393,7 @@ impl Fix for RoutineSpecification {
     }
     fn fix_calls(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -405,7 +405,7 @@ impl Fix for RoutineSpecification {
     }
     fn fix_repetition(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -445,9 +445,9 @@ mod tests {
                     end
             end
         ";
-        let c = Class::from_source(src);
+        let sc = vec![Class::from_source(src)];
+        let c = &sc[0];
         let f = c.features().first().unwrap();
-        let sc = vec![&c];
 
         let mut fp = Precondition(vec![
             Clause::new(Tag::new("s"), Predicate::new("f = r")),
@@ -550,9 +550,9 @@ end"#;
                     end
             end
         ";
-        let c = Class::from_source(src);
+        let system_classes = vec![Class::from_source(src)];
+        let c = &system_classes[0];
         let f = c.features().first().unwrap();
-        let system_classes = vec![&c];
 
         let mut vpr = Precondition(vec![Clause::new(Tag::new("q"), Predicate::new("f = r"))]);
         let mut ipr = Precondition(vec![Clause::new(Tag::new("s"), Predicate::new("f = True"))]);

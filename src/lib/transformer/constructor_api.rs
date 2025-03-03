@@ -254,6 +254,7 @@ impl LLMBuilder {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct LLM {
     client: reqwest::Client,
     headers: HeaderMap,

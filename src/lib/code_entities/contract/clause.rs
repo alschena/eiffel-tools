@@ -33,20 +33,24 @@ impl Default for Clause {
 impl Fix for Clause {
     fn fix_syntax(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
-        self.tag
+        info!(target: "llm", "clause before fix:\t{self}");
+        let val = self
+            .tag
             .fix_syntax(system_classes, current_class, current_feature)
             && self
                 .predicate
-                .fix_syntax(system_classes, current_class, current_feature)
+                .fix_syntax(system_classes, current_class, current_feature);
+        info!(target: "llm", "clause fixed:\t{val}\tclause after fix:\t{self}");
+        val
     }
 
     fn fix_identifiers(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -59,7 +63,7 @@ impl Fix for Clause {
 
     fn fix_calls(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -137,7 +141,7 @@ impl Default for Tag {
 impl Fix for Tag {
     fn fix_syntax(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         _current_feature: &Feature,
     ) -> bool {
@@ -267,7 +271,7 @@ impl Default for Predicate {
 impl Fix for Predicate {
     fn fix_syntax(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         _current_feature: &Feature,
     ) -> bool {
@@ -282,7 +286,7 @@ impl Fix for Predicate {
 
     fn fix_identifiers(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -306,7 +310,7 @@ impl Fix for Predicate {
     /// NOTE: For now only checks the number of arguments of each unqualified call is correct.
     fn fix_calls(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -401,9 +405,9 @@ end"#;
                     end
             end
         ";
-        let c = Class::from_source(src);
+        let sc = vec![Class::from_source(src)];
+        let c = &sc[0];
         let f = c.features().first().unwrap();
-        let sc = vec![&c];
 
         let mut invalid_predicate = Predicate::new("min min");
         let mut valid_predicate = Predicate::new("min (x, y)");
@@ -427,9 +431,9 @@ end"#;
                     end
             end
         ";
-        let c = Class::from_source(src);
+        let sc = vec![Class::from_source(src)];
+        let c = &sc[0];
         let f = c.features().first().unwrap();
-        let sc = vec![&c];
 
         let mut invalid_tag: Tag = String::from("this was not valid").into();
         let mut valid_tag: Tag = String::from("this_is_valid").into();
@@ -469,13 +473,13 @@ end"#;
                     end
             end
         ";
-        let class = Class::from_source(src);
+        let system_classes = vec![Class::from_source(src)];
+        let class = &system_classes[0];
         let feature = class
             .features()
             .iter()
             .find(|f| f.name() == "y".to_string())
             .expect("parse feature y");
-        let system_classes = vec![&class];
 
         // Create an invalid and a valid predicates.
         let mut invalid_predicate = Predicate(String::from("z"));
@@ -506,8 +510,11 @@ end"#;
             end
         ";
 
-        let parent = Class::from_source(parent_src);
-        let child = Class::from_source(child_src);
+        let system_classes = vec![
+            Class::from_source(parent_src),
+            Class::from_source(child_src),
+        ];
+        let child = &system_classes[1];
         let feature = child
             .features()
             .iter()
@@ -520,7 +527,6 @@ end"#;
             .find(|f| f.name() == "x")
             .is_none());
 
-        let system_classes = vec![&child, &parent];
         let mut valid_predicate = Predicate(String::from("x"));
         assert!(valid_predicate.fix_identifiers(&system_classes, &child, feature));
     }
@@ -536,11 +542,11 @@ end"#;
                     end
             end
         ";
-        let c = Class::from_source(src);
+        let system_classes = vec![Class::from_source(src)];
+        let c = &system_classes[0];
         let f = c.features().first().expect("first feature exists.");
         let mut vp = Predicate::new("f".to_string());
         let mut ip = Predicate::new("r".to_string());
-        let system_classes = vec![&c];
         assert!(vp.fix_identifiers(&system_classes, &c, f));
         assert!(!ip.fix_identifiers(&system_classes, &c, f));
     }
@@ -561,13 +567,13 @@ end"#;
                     end
             end
         ";
-        let c = Class::from_source(src);
+        let system_classes = vec![Class::from_source(src)];
+        let c = &system_classes[0];
         let f = c
             .features()
             .iter()
             .find(|f| f.name() == "y")
             .expect("first feature exists.");
-        let system_classes = vec![&c];
 
         let mut vp = Predicate::new("x (z)".to_string());
         let mut ip = Predicate::new("x (z, z)".to_string());
@@ -593,9 +599,9 @@ end"#;
                     end
             end
         ";
-        let c = Class::from_source(src);
+        let sc = vec![Class::from_source(src)];
+        let c = &sc[0];
         let f = c.features().first().unwrap();
-        let sc = vec![&c];
 
         let mut tag = Tag("Not good enough".to_string());
         assert!(tag.fix(&sc, &c, &f));

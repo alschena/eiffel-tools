@@ -8,6 +8,7 @@ mod prompt;
 
 use constructor_api::OpenAIResponseFormat;
 
+#[derive(Clone, Debug)]
 pub struct Generator {
     llm: constructor_api::LLM,
 }
@@ -20,7 +21,7 @@ impl Generator {
         &self,
         feature: &Feature,
         file: &ProcessedFile,
-        system_classes: &[&Class],
+        system_classes: &[Class],
     ) -> anyhow::Result<Vec<RoutineSpecification>> {
         let current_class = file.class();
         let current_class_model = current_class

@@ -16,7 +16,7 @@ use tracing::info;
 pub(crate) trait Fix: Debug {
     fn fix(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -43,7 +43,7 @@ pub(crate) trait Fix: Debug {
     }
     fn fix_syntax(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         _current_feature: &Feature,
     ) -> bool {
@@ -51,7 +51,7 @@ pub(crate) trait Fix: Debug {
     }
     fn fix_identifiers(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         _current_feature: &Feature,
     ) -> bool {
@@ -59,7 +59,7 @@ pub(crate) trait Fix: Debug {
     }
     fn fix_calls(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         _current_feature: &Feature,
     ) -> bool {
@@ -67,7 +67,7 @@ pub(crate) trait Fix: Debug {
     }
     fn fix_repetition(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         _current_feature: &Feature,
     ) -> bool {

@@ -32,7 +32,7 @@ impl ClassName {
     }
     pub fn model_extended<'class_name, 'system: 'class_name>(
         &'class_name self,
-        system_classes: &'system [&Class],
+        system_classes: &'system [Class],
     ) -> Option<ModelExtended> {
         if self.is_terminal_for_model() {
             return Some(ModelExtended::Terminal);
@@ -72,7 +72,7 @@ impl Class {
     pub fn model(&self) -> &Model {
         &self.model
     }
-    fn model_with_inheritance<'a>(&'a self, system_classes: &'a [&'a Class]) -> Model {
+    fn model_with_inheritance<'a>(&'a self, system_classes: &'a [Class]) -> Model {
         let mut model = self.model().clone();
         for mut ancestor_model in self
             .ancestor_classes(system_classes)
@@ -86,7 +86,7 @@ impl Class {
     }
     fn model_extended<'class, 'system: 'class>(
         &'class self,
-        system_classes: &'system [&Class],
+        system_classes: &'system [Class],
     ) -> ModelExtended {
         self.model_with_inheritance(system_classes)
             .extended(system_classes)
@@ -102,13 +102,13 @@ impl Class {
     }
     fn parent_classes<'a>(
         &'a self,
-        system_classes: &'a [&'a Class],
+        system_classes: &'a [Class],
     ) -> impl Iterator<Item = &'a Class> {
         self.parents()
             .into_iter()
             .filter_map(|parent| parent.class(system_classes))
     }
-    pub fn ancestors<'a>(&'a self, system_classes: &'a [&'a Class]) -> HashSet<&'a Parent> {
+    pub fn ancestors<'a>(&'a self, system_classes: &'a [Class]) -> HashSet<&'a Parent> {
         let mut ancestors = HashSet::new();
         for parent in self.parents() {
             let Some(parent_class) = parent.class(system_classes) else {
@@ -119,7 +119,7 @@ impl Class {
         }
         ancestors
     }
-    pub fn ancestor_classes<'a>(&'a self, system_classes: &'a [&'a Class]) -> HashSet<&'a Class> {
+    pub fn ancestor_classes<'a>(&'a self, system_classes: &'a [Class]) -> HashSet<&'a Class> {
         let mut ancestors_classes = HashSet::new();
         self.parent_classes(system_classes)
             .for_each(|parent_class| {
@@ -128,10 +128,7 @@ impl Class {
             });
         ancestors_classes
     }
-    pub fn inhereted_features<'a>(
-        &'a self,
-        system_classes: &'a [&'a Class],
-    ) -> Vec<Cow<'a, Feature>> {
+    pub fn inhereted_features<'a>(&'a self, system_classes: &'a [Class]) -> Vec<Cow<'a, Feature>> {
         self.parent_classes(system_classes)
             .into_iter()
             .zip(self.parents())
@@ -285,11 +282,10 @@ impl Parent {
     fn name(&self) -> &str {
         &self.name
     }
-    pub fn class<'a>(&self, system_classes: &'a [&'a Class]) -> Option<&'a Class> {
+    pub fn class<'a>(&self, system_classes: &'a [Class]) -> Option<&'a Class> {
         system_classes
             .into_iter()
             .find(|class| class.name() == self.name())
-            .copied()
     }
     #[cfg(test)]
     pub fn from_name(name: String) -> Parent {
@@ -536,7 +532,7 @@ end
         let grandparent = Class::from_source(grandparent_src);
         let parent = Class::from_source(parent_src);
         let child = Class::from_source(child_src);
-        let system_classes = vec![&grandparent, &parent, &child];
+        let system_classes = vec![grandparent.clone(), parent.clone(), child.clone()];
         let child_features = child.inhereted_features(&system_classes);
         let parent_features = parent.inhereted_features(&system_classes);
         assert_eq!(
@@ -608,11 +604,14 @@ end
         seq: MML_SEQUENCE [INTEGER]
     end
     ";
-        let child = Class::from_source(src_child);
-        let parent = Class::from_source(src_parent);
-        let system_classes = vec![&child, &parent];
+        let system_classes = vec![
+            Class::from_source(src_child),
+            Class::from_source(src_parent),
+        ];
+        let child = &system_classes[0];
+        let parent = &system_classes[1];
         let child_parents = child.parent_classes(&system_classes).collect::<Vec<_>>();
-        assert_eq!(child_parents, vec![&parent]);
+        assert_eq!(child_parents, vec![parent]);
     }
 
     #[test]
@@ -637,19 +636,22 @@ feature
     x: BOOLEAN
 end
 ";
-        let grandparent = Class::from_source(grandparent_src);
-        let parent = Class::from_source(parent_src);
-        let child = Class::from_source(child_src);
-
-        let system_classes = vec![&child, &parent, &grandparent];
+        let system_classes = vec![
+            Class::from_source(child_src),
+            Class::from_source(parent_src),
+            Class::from_source(grandparent_src),
+        ];
+        let child = &system_classes[0];
+        let parent = &system_classes[1];
+        let grandparent = &system_classes[2];
 
         let mut child_ancestors = HashSet::new();
-        child_ancestors.insert(&parent);
-        child_ancestors.insert(&grandparent);
+        child_ancestors.insert(parent);
+        child_ancestors.insert(grandparent);
         assert_eq!(child.ancestor_classes(&system_classes), child_ancestors);
 
         let mut parent_ancestors = HashSet::new();
-        parent_ancestors.insert(&grandparent);
+        parent_ancestors.insert(grandparent);
         assert_eq!(parent.ancestor_classes(&system_classes), parent_ancestors,);
     }
     #[test]
@@ -672,14 +674,18 @@ end
         seq_parent: MML_SEQUENCE [INTEGER]
     end
     ";
-        let child = Class::from_source(src_child);
-        let parent = Class::from_source(src_parent);
+        let system_classes = vec![
+            Class::from_source(src_child),
+            Class::from_source(src_parent),
+        ];
+        let child = &system_classes[0];
+        let parent = &system_classes[1];
 
         let mut appended_models = child.model().clone();
         appended_models.append(&mut parent.model().clone());
 
         assert_eq!(
-            child.model_with_inheritance(&vec![&child, &parent]),
+            child.model_with_inheritance(&system_classes),
             appended_models
         );
         Ok(())
@@ -714,7 +720,7 @@ end
         eprintln!("clas_of_argument {class_of_argument:#?}");
         assert_eq!(format!("{model}"), "value: INTEGER", "model: {model}");
 
-        let system_classes = vec![&current_class, &class_of_argument];
+        let system_classes = vec![current_class.clone(), class_of_argument];
 
         let feature = current_class
             .features()

@@ -156,10 +156,10 @@ pub enum ModelExtended {
 }
 
 impl Model {
-    pub fn extended<'s, 'system: 's>(self, system_classes: &'system [&Class]) -> ModelExtended {
+    pub fn extended<'s, 'system: 's>(self, system_classes: &'system [Class]) -> ModelExtended {
         self.extended_helper(&mut ModelTypes::new(Vec::new()), system_classes)
     }
-    fn extended_helper(self, visited: &mut ModelTypes, system_classes: &[&Class]) -> ModelExtended {
+    fn extended_helper(self, visited: &mut ModelTypes, system_classes: &[Class]) -> ModelExtended {
         let Model(names, types) = self;
         if names.is_empty() {
             return ModelExtended::IsEmpty;
@@ -176,7 +176,7 @@ impl Model {
 
                 visited.extend(types.iter().cloned());
 
-                let base_class_name = t.class(system_classes.iter().copied());
+                let base_class_name = t.class(system_classes.iter());
                 base_class_name
                     .model_with_inheritance(system_classes)
                     .extended_helper(visited, system_classes)
@@ -265,9 +265,11 @@ mod tests {
     		end
     end
     ";
-        let client = Class::from_source(src_client);
-        let supplier = Class::from_source(src_supplier);
-        let system_classes = vec![&client, &supplier];
+        let system_classes = vec![
+            Class::from_source(src_client),
+            Class::from_source(src_supplier),
+        ];
+        let client = &system_classes[0];
 
         let top_model = client.model().clone().extended(&system_classes);
 
@@ -337,10 +339,14 @@ mod tests {
     		end
     end
     ";
-        let client = Class::from_source(src_client);
-        let client2 = Class::from_source(src_client2);
-        let supplier = Class::from_source(src_supplier);
-        let system_classes = vec![&client, &client2, &supplier];
+        let system_classes = vec![
+            Class::from_source(src_client),
+            Class::from_source(src_client2),
+            Class::from_source(src_supplier),
+        ];
+
+        let client = &system_classes[0];
+        let client2 = &system_classes[1];
 
         let ModelExtended::Model {
             names,
@@ -414,11 +420,17 @@ mod tests {
     		end
     end
     ";
-        let client = Class::from_source(src_client);
-        let supplier = Class::from_source(src_supplier);
-        let system_classes = vec![&client, &supplier];
+        let system_classes = vec![
+            Class::from_source(src_client),
+            Class::from_source(src_supplier),
+        ];
+
+        let client = &system_classes[0];
 
         let model = client.model_extended(&system_classes);
-        assert_eq!(format!("{model}"), "nested: NEW_INTEGER\n\tvalue: INTEGER");
+        assert_eq!(
+            format!("{model}"),
+            "the model is: nested: NEW_INTEGER\n\tthe model is: value: INTEGER\n\t\tthe model is implemented in Boogie.\n"
+        );
     }
 }

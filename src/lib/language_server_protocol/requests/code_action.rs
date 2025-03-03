@@ -12,7 +12,7 @@ impl HandleRequest for request::CodeActionRequest {
         params: <Self as request::Request>::Params,
     ) -> Result<<Self as request::Request>::Result, ResponseError> {
         let ws = st.workspace.read().await;
-        let mut generator = st.generator.write().await;
+        let generators = st.generators.write().await;
         let path = params
             .text_document
             .uri
@@ -25,15 +25,11 @@ impl HandleRequest for request::CodeActionRequest {
             .expect("LSP-range must convert to internal `Point`");
 
         let file = ws.find_file(&path);
-        let system_classes = ws.system_classes().collect::<Vec<_>>();
+        let system_classes = ws.system_classes();
 
-        let generate_routine_specification = generate_routine_specification::code_action(
-            generator.as_mut(),
-            file,
-            &system_classes,
-            &point,
-        )
-        .await;
+        let generate_routine_specification =
+            generate_routine_specification::code_action(&generators, file, &system_classes, &point)
+                .await;
 
         Ok(Some(vec![CodeActionOrCommand::CodeAction(
             generate_routine_specification,
