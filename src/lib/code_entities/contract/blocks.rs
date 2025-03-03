@@ -373,7 +373,7 @@ impl Fix for RoutineSpecification {
             info!(target:"llm", "fail fixing postcondition.");
             return false;
         }
-        if !self.precondition.is_empty() && !self.postcondition.is_empty() {
+        if self.is_empty() {
             info!(target:"llm", "empty routine specification");
             return false;
         }
