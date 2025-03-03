@@ -59,6 +59,9 @@ impl<T: Display + Indent + Contract + Deref<Target = Vec<Clause>>> Display for B
 #[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema)]
 #[serde(transparent)]
 #[schemars(deny_unknown_fields)]
+#[schemars(
+    description = "Preconditions are predicates on the prestate, the state before the execution, of a routine. They describe the properties that the fields of the model in the current object must satisfy in the prestate. Preconditions cannot contain a call to `old_` or the `old` keyword."
+)]
 pub struct Precondition(Vec<Clause>);
 
 impl Precondition {
@@ -164,11 +167,6 @@ impl Display for Precondition {
     }
 }
 
-impl Precondition {
-    fn description() -> String {
-        "Preconditions are predicates on the prestate, the state before the execution, of a routine. They describe the properties that the fields of the model in the current object must satisfy in the prestate. Preconditions cannot contain a call to `old_` or the `old` keyword.".to_string()
-    }
-}
 impl Parse for Block<Precondition> {
     type Error = anyhow::Error;
 
@@ -189,6 +187,12 @@ impl Parse for Block<Precondition> {
 #[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone, JsonSchema)]
 #[serde(transparent)]
 #[schemars(deny_unknown_fields)]
+#[schemars(
+    description = "Postconditions describe the properties that the model of the current object must satisfy after the routine.
+        Postconditions are two-states predicates.
+        They can refer to the prestate of the routine by calling the feature `old_` on any object which existed before the execution of the routine.
+        Equivalently, you can use the keyword `old` before a feature to access its prestate."
+)]
 pub struct Postcondition(Vec<Clause>);
 
 impl Deref for Postcondition {
@@ -280,14 +284,6 @@ impl Display for Postcondition {
         )
     }
 }
-impl Postcondition {
-    fn description() -> String {
-        "Postconditions describe the properties that the model of the current object must satisfy after the routine.
-        Postconditions are two-states predicates.
-        They can refer to the prestate of the routine by calling the feature `old_` on any object which existed before the execution of the routine.
-        Equivalently, you can use the keyword `old` before a feature to access its prestate.".to_string()
-    }
-}
 impl Parse for Block<Postcondition> {
     type Error = anyhow::Error;
 
@@ -308,6 +304,9 @@ impl Parse for Block<Postcondition> {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
+#[schemars(
+    description = "Hoare-style specifications of a given feature as preconditions and postconditions for AutoProof, Eiffel's static verifier."
+)]
 pub struct RoutineSpecification {
     pub precondition: Precondition,
     pub postcondition: Postcondition,
@@ -416,12 +415,6 @@ impl Fix for RoutineSpecification {
                 .fix_repetition(system_classes, current_class, current_feature)
     }
 }
-impl RoutineSpecification {
-    fn description() -> String {
-        String::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::clause::Predicate;

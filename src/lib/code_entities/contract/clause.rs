@@ -17,6 +17,7 @@ use super::*;
 
 #[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema)]
 #[schemars(deny_unknown_fields)]
+#[schemars(description = "A valid contract clause of the eiffel programming language.")]
 pub struct Clause {
     pub tag: Tag,
     pub predicate: Predicate,
@@ -121,6 +122,7 @@ impl Clause {
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq, Hash, JsonSchema)]
 #[serde(transparent)]
 #[schemars(deny_unknown_fields)]
+#[schemars(description = "A valid tag clause for the Eiffel programming language.")]
 pub struct Tag(String);
 
 impl Tag {
@@ -163,6 +165,7 @@ impl From<String> for Tag {
 #[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone, JsonSchema)]
 #[serde(transparent)]
 #[schemars(deny_unknown_fields)]
+#[schemars(description = "A valid boolean expression for the Eiffel programming language.")]
 pub struct Predicate(String);
 
 impl Predicate {
@@ -331,22 +334,6 @@ impl Fix for Predicate {
 impl Display for Predicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
-    }
-}
-
-impl Clause {
-    fn description() -> String {
-        String::from("A valid contract clause of the eiffel programming language.")
-    }
-}
-impl Tag {
-    fn description() -> String {
-        "A valid tag clause for the Eiffel programming language.".to_string()
-    }
-}
-impl Predicate {
-    fn description() -> String {
-        "A valid boolean expression for the Eiffel programming language.".to_string()
     }
 }
 
