@@ -1,5 +1,5 @@
-use crate::lib::processed_file::ProcessedFile;
 use crate::lib::generator::Generator;
+use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use async_lsp::ClientSocket;
 use std::path::Path;
@@ -19,7 +19,7 @@ impl ServerState {
         let binding: Arc<RwLock<Vec<Generator>>> = generator.clone();
         tokio::spawn(async {
             let mut generator = binding.write_owned().await;
-            for _ in 0..10 {
+            for _ in 0..1 {
                 Generator::try_new().await.map_or_else(
                     |e| warn!("fail to create generator with error:\t{e:#?}"),
                     |new_generator| generator.push(new_generator),
