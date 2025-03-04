@@ -331,8 +331,7 @@ impl LLM {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lib::transformer::RoutineSpecification;
-    use schemars::schema_for;
+    use crate::lib::code_entities::contract::RoutineSpecification;
 
     // #[ignore]
     #[tokio::test]
