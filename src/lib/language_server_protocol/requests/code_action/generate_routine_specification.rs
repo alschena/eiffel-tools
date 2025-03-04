@@ -1,4 +1,4 @@
-use crate::lib::transformer::Generator;
+use crate::lib::generator::Generator;
 use async_lsp::lsp_types::{CodeAction, CodeActionDisabled, TextEdit, Url, WorkspaceEdit};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -80,7 +80,7 @@ fn file_edits_add_routine_specification(
 async fn routine_specifications_as_workspace_edit(
     file: &ProcessedFile,
     feature: &Feature,
-    generators: &[crate::lib::transformer::Generator],
+    generators: &[crate::lib::generator::Generator],
     system_classes: &[Class],
 ) -> anyhow::Result<WorkspaceEdit> {
     let mut handles = Vec::new();

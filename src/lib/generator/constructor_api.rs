@@ -11,6 +11,39 @@ struct ModelProvider {
     name: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub enum EnumLanguageModel {
+    #[serde(rename = "gemini-2.0-flash-001")]
+    GeminiFlash,
+    #[serde(rename = "gemini-1.5-flash")]
+    OldGeminiFlash,
+    #[serde(rename = "gemini-1.5-pro")]
+    GeminiPro,
+    #[serde(rename = "gemini-1.0-pro")]
+    OldGeminiPro,
+    #[serde(rename = "learnlm-1.5-pro-experimental")]
+    LearnlmProExperimental,
+    #[serde(rename = "clause-3-opus-20240229")]
+    ClaudeOpus,
+    #[serde(rename = "clause-3-5-haiku-20241022")]
+    ClaudeHaiku,
+    #[serde(rename = "clause-3-5-sonnet-20241022")]
+    ClaudeSonnet,
+    #[serde(rename = "deepseek/deepseek-chat")]
+    DeepSeekChat,
+    #[serde(rename = "deepseek/deepseek-r1")]
+    DeepSeekR1,
+    #[default]
+    #[serde(rename = "gpt-4o-mini")]
+    Gpt4OMini,
+    #[serde(rename = "gpt-4o-2024-08-06")]
+    Gpt40,
+    #[serde(rename = "o1-2024-12-17")]
+    O1,
+    #[serde(rename = "o3-mini")]
+    O3Mini,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct LanguageModel {
     id: String,
@@ -141,6 +174,7 @@ impl OpenAIResponseFormat {
 
 #[derive(Serialize, Debug, Default)]
 pub struct CompletionParameters {
+    pub model: EnumLanguageModel,
     pub messages: Vec<MessageOut>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
@@ -300,7 +334,7 @@ mod tests {
     use crate::lib::transformer::RoutineSpecification;
     use schemars::schema_for;
 
-    #[ignore]
+    // #[ignore]
     #[tokio::test]
     async fn private_inference_request() -> anyhow::Result<()> {
         let llm_builder = LLMBuilder::try_new()?;
@@ -336,7 +370,7 @@ mod tests {
         Ok(())
     }
 
-    #[ignore]
+    // #[ignore]
     #[tokio::test]
     async fn structured_inference_request() -> anyhow::Result<()> {
         let llm = LLM::try_new().await?;

@@ -1,5 +1,5 @@
 use crate::lib::processed_file::ProcessedFile;
-use crate::lib::transformer::Generator;
+use crate::lib::generator::Generator;
 use crate::lib::workspace::Workspace;
 use async_lsp::ClientSocket;
 use std::path::Path;

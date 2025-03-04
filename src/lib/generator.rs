@@ -38,6 +38,7 @@ impl Generator {
         let completion_parameters = constructor_api::CompletionParameters {
             messages: prompt.to_llm_messages(),
             response_format: Some(OpenAIResponseFormat::json_schema::<RoutineSpecification>()),
+            n: Some(50),
             ..Default::default()
         };
         info!(target:"llm", "completion parameters:\t{completion_parameters:#?}");
