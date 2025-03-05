@@ -1,16 +1,20 @@
 use crate::lib::code_entities::prelude::*;
-use crate::lib::processed_file::ProcessedFile;
 use anyhow::anyhow;
+use contract::Keyword;
+use std::cmp::Ordering;
+use std::path::Path;
 
+#[derive(Debug, Clone)]
 pub struct Prompt {
-    preable: String,
-    source_with_holes: String,
-    full_model: String,
+    system_message: String,
+    source: String,
+    /// Pairs to be inserted in the source; the left is the point-offset; the right is the string to insert.
+    injections: Vec<(Point, String)>,
 }
 
 impl Default for Prompt {
     fn default() -> Self {
-        Self { preable: (String::from("You are an expert in formal methods, specifically design by contract for static verification.\nRemember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.\nYou are optionally adding model-based contracts to the user provided feature.\n")), source_with_holes: String::new(), full_model: String::new() }
+        Self { system_message: (String::from("You are an expert in formal methods, specifically design by contract for static verification.\nRemember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.\nYou are optionally adding model-based contracts to the user provided feature.\n")), source: String::new(), injections: Vec::new() }
     }
 }
 
@@ -18,38 +22,50 @@ impl Prompt {
     pub fn for_feature_specification(
         feature: &Feature,
         class_model: &ClassModel,
-        file: &ProcessedFile,
+        filepath: &Path,
         system_classes: &[Class],
     ) -> anyhow::Result<Self> {
         let mut var = Self::default();
-        var.set_feature_src_with_contract_holes(feature, file)?;
-        var.set_full_model_text(feature.parameters(), class_model, system_classes);
+        var.set_feature_src(feature, filepath);
+        var.add_feature_contracts_injections_for_feature_source(feature);
+        var.add_model_of_current_injections(class_model);
+        var.add_model_of_parameters_injections(feature, system_classes);
         Ok(var)
     }
-    pub fn text(&self) -> String {
-        let mut text = String::new();
-        text.push_str(&self.preable);
-        text.push_str(&self.source_with_holes);
-        text.push_str(&self.full_model);
-        text
+    fn set_system_message(&mut self, preable: &str) {
+        self.system_message.clear();
+        self.system_message.push_str(preable);
     }
-    pub fn set_preable(&mut self, preable: &str) {
-        self.preable.clear();
-        self.preable.push_str(preable);
+    fn set_source(&mut self, source: &str) {
+        self.source.clear();
+        self.source.push_str(source);
     }
-    pub fn set_feature_src_with_contract_holes(
+    fn set_injections(&mut self, injections: &mut Vec<(Point, String)>) {
+        self.injections.clear();
+        self.injections.append(injections);
+    }
+    async fn set_feature_src(&mut self, feature: &Feature, filepath: &Path) -> anyhow::Result<()> {
+        let feature_src = feature.src_unchecked(filepath).await?;
+        self.source.clear();
+        self.source.push_str(&feature_src);
+        Ok(())
+    }
+    fn add_feature_contracts_injections_for_feature_source(
         &mut self,
         feature: &Feature,
-        file: &ProcessedFile,
     ) -> anyhow::Result<()> {
+        let feature_point = feature.range().start().clone();
         let Some(point_insert_preconditions) = feature.point_end_preconditions() else {
             return Err(anyhow!(
                 "Only attributes with an attribute block and routines support adding preconditions"
             ));
         };
+        let diff_point_insert_preconditions =
+            point_insert_preconditions.clone() - feature_point.clone();
         let Some(point_insert_postconditions) = feature.point_end_postconditions() else {
             return Err(anyhow!("Only attributes with an attribute block and routines support adding postconditions"));
         };
+        let diff_point_insert_postconditions = point_insert_postconditions.clone() - feature_point;
         let precondition_hole = if feature.has_precondition() {
             format!(
                 "\n{}<ADD_PRECONDITION_CLAUSES>",
@@ -57,8 +73,8 @@ impl Prompt {
             )
         } else {
             format!(
-                "<ADD_PRECONDITION_CLAUSES>\n{}",
-                <contract::Block<contract::Precondition>>::indentation_string()
+                "require\n{}<ADD_PRECONDITION_CLAUSES>\n",
+                contract::Precondition::indentation_string(),
             )
         };
         let postcondition_hole = if feature.has_postcondition() {
@@ -68,77 +84,138 @@ impl Prompt {
             )
         } else {
             format!(
-                "<ADD_POSTCONDITION_CLAUSES>\n{}",
-                <contract::Block<contract::Postcondition>>::indentation_string()
+                "ensure\n{}<ADD_POSTCONDITION_CLAUSES>\n",
+                contract::Postcondition::indentation_string(),
             )
         };
-        let injections = vec![
-            (point_insert_preconditions, precondition_hole.as_str()),
-            (point_insert_postconditions, postcondition_hole.as_str()),
-        ];
-        let feature_src = file
-            .feature_src_with_injections(&feature, injections.into_iter())
-            .expect("inject feature source code");
-
-        self.source_with_holes.clear();
-        self.source_with_holes.push_str("```eiffel\n");
-        self.source_with_holes.push_str(&feature_src);
-        self.source_with_holes.push_str("```\n");
+        self.injections
+            .push((diff_point_insert_preconditions, precondition_hole));
+        self.injections
+            .push((diff_point_insert_postconditions, postcondition_hole));
         Ok(())
     }
-
-    pub fn set_full_model_text(
-        &mut self,
-        feature_parameters: &FeatureParameters,
-        class_model: &ClassModel,
-        system_classes: &[Class],
-    ) {
-        let mut text = format!(
+    fn add_model_of_current_injections(&mut self, class_model: &ClassModel) {
+        let injection_point = Point { row: 0, column: 0 };
+        let display_model = format!(
             "For the current class and its ancestors, {}",
-            class_model.fmt_indented(0)
+            class_model.fmt_indented(0),
         );
-
-        let parameters_models_fmt = feature_parameters
-            .types()
-            .iter()
-            .map(|t| t.model_extension(system_classes))
-            .map(|ext_model| ext_model.fmt_indented(ClassModel::INDENTATION_LEVEL));
-
-        let parameters_models = feature_parameters
-            .names()
-            .iter()
-            .zip(feature_parameters.types())
-            .zip(parameters_models_fmt)
-            .fold(String::new(), |mut acc, ((name, ty), model_fmt)| {
-                acc.push_str("For the argument ");
-                acc.push_str(name);
-                acc.push(':');
-                acc.push(' ');
-                acc.push_str(format!("{ty}").as_str());
+        let display_model_as_comment =
+            display_model.lines().fold(String::new(), |mut acc, line| {
+                if !line.trim_start().is_empty() {
+                    acc.push_str("-- ");
+                }
+                acc.push_str(line);
                 acc.push('\n');
-                acc.push_str(model_fmt.as_str());
                 acc
             });
+        self.injections
+            .push((injection_point, display_model_as_comment))
+    }
+    fn add_model_of_parameters_injections(&mut self, feature: &Feature, system_classes: &[Class]) {
+        let injection_point = Point { row: 0, column: 0 };
+        let parameters = feature.parameters();
+        let parameters_types = parameters.types();
+        let parameters_names = parameters.names();
 
-        if !parameters_models.is_empty() {
-            text.push_str(&parameters_models)
+        let mut parameters_models = parameters_types
+            .iter()
+            .map(|t| t.model_extension(system_classes));
+        let mut parameters_types = parameters_types.iter();
+        let mut parameters_names = parameters_names.iter();
+
+        let mut display_parameters = String::new();
+        while let (Some(n), Some(ty), Some(m)) = (
+            parameters_names.next(),
+            parameters_types.next(),
+            parameters_models.next(),
+        ) {
+            display_parameters
+                .push_str(format!("For the argument {n}: {ty}\n{}", m.fmt_indented(1)).as_str());
         }
 
-        self.full_model.clear();
-        self.full_model.push_str(text.as_str());
-        self.full_model.push('\n');
+        let display_parameters_as_comment =
+            display_parameters
+                .lines()
+                .fold(String::new(), |mut acc, line| {
+                    if !line.trim_start().is_empty() {
+                        acc.push_str("-- ");
+                    }
+                    acc.push_str(line);
+                    acc.push('\n');
+                    acc
+                });
+        self.injections
+            .push((injection_point, display_parameters_as_comment));
     }
 }
 
 impl Prompt {
+    fn sort_injections(injections: &mut [(Point, String)]) {
+        injections.sort_by(
+            |(Point { row, column }, _),
+             (
+                Point {
+                    row: rhs_r,
+                    column: rhs_c,
+                },
+                _,
+            )| {
+                let val = row.cmp(rhs_r);
+                if val == Ordering::Equal {
+                    column.cmp(rhs_c)
+                } else {
+                    val
+                }
+            },
+        );
+    }
+    fn inject_sorted_to_source(injections: Vec<(Point, String)>, source: String) -> String {
+        let mut text = String::new();
+        for (linenum, line) in source.lines().enumerate() {
+            // Select injections of current line;
+            // Relies on ordering of injections;
+            let mut current_injections =
+                injections
+                    .iter()
+                    .filter_map(|&(Point { row, column }, ref text)| {
+                        (row == linenum).then_some((column, text))
+                    });
+            // If there are no injections, add line to the text.
+            let Some((mut oc, oi)) = current_injections.next() else {
+                eprintln!("no injection for this linenum: {linenum}\nand line:\t{line}");
+                text.push_str(line);
+                text.push('\n');
+                continue;
+            };
+            eprintln!("injection at linenum: {linenum}\nline: {line}");
+            eprintln!("push {}", &line[..oc]);
+            eprintln!("push {}", oi);
+            text.push_str(&line[..oc]);
+            text.push_str(oi);
+            for (nc, ni) in current_injections {
+                eprintln!("push {}", &line[oc..nc]);
+                eprintln!("push {}", ni);
+                text.push_str(&line[oc..nc]);
+                text.push_str(ni);
+                oc = nc;
+            }
+            text.push_str(&line[oc..]);
+            text.push('\n');
+        }
+        text
+    }
     pub fn to_llm_messages(self) -> Vec<super::constructor_api::MessageOut> {
-        let system_message = self.preable;
-        let decorated_source = self.source_with_holes;
-        let full_model = self.full_model;
+        let system_message = self.system_message;
+        let source = self.source;
 
+        let mut injections = self.injections;
+        Self::sort_injections(&mut injections);
+
+        let text = Self::inject_sorted_to_source(injections, source);
         vec![
             super::constructor_api::MessageOut::new_system(system_message),
-            super::constructor_api::MessageOut::new_user(format!("{decorated_source}{full_model}")),
+            super::constructor_api::MessageOut::new_user(text),
         ]
     }
 }
@@ -146,6 +223,8 @@ impl Prompt {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lib::generator::constructor_api::MessageOut;
+    use crate::lib::processed_file::ProcessedFile;
     use assert_fs::prelude::*;
     use assert_fs::{fixture::FileWriteStr, TempDir};
 
@@ -158,9 +237,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn prompt_boxed_integer_arg() {
+    async fn prompt_boxed_integer_arg() -> anyhow::Result<()> {
         let mut parser = parser();
-        let temp_dir = TempDir::new().expect("must create temporary directory.");
+        let temp_dir = TempDir::new()?;
         let src = r#"
 class A feature
   x (arg: NEW_INTEGER)
@@ -169,7 +248,7 @@ class A feature
 end
         "#;
         let file = temp_dir.child("test_prompt.e");
-        file.write_str(src).expect("temp file must be writable");
+        file.write_str(src)?;
 
         assert!(file.exists());
 
@@ -201,33 +280,25 @@ end
             .unwrap_or_default();
 
         let feature = class.features().first().expect("first features is `x`");
-        let feature_parameters = feature.parameters();
 
         let mut prompt = Prompt::default();
         prompt
-            .set_feature_src_with_contract_holes(feature, &processed_file)
-            .expect("set feature src with contract holes.");
-        prompt.set_full_model_text(feature_parameters, &class_model, &system_classes);
+            .set_feature_src(feature, processed_file.path())
+            .await?;
+        prompt.add_feature_contracts_injections_for_feature_source(feature)?;
+        prompt.add_model_of_current_injections(&class_model);
+        prompt.add_model_of_parameters_injections(feature, &system_classes);
 
-        eprintln!("{}", prompt.text());
-        assert_eq!(
-            prompt.text(),
-            r#"You are an expert in formal methods, specifically design by contract for static verification.
-Remember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.
-You are optionally adding model-based contracts to the user provided feature.
-```eiffel
-  x (arg: NEW_INTEGER)
-    <ADD_PRECONDITION_CLAUSES>
-		do
-    <ADD_POSTCONDITION_CLAUSES>
-		end
-```
-For the current class and its ancestors, the model is empty.
-For the argument arg: NEW_INTEGER
-	the model is: value: INTEGER
-		the model is implemented in Boogie.
+        let messages = prompt.clone().to_llm_messages();
+        eprintln!("{messages:#?}");
 
-"#
-        );
+        let system_message = MessageOut::new_system(prompt.system_message);
+        let inj = prompt.injections;
+        let src = prompt.source;
+        let user_message = MessageOut::new_user(Prompt::inject_sorted_to_source(inj, src));
+
+        assert!(messages.contains(&system_message));
+        assert!(messages.contains(&user_message));
+        Ok(())
     }
 }

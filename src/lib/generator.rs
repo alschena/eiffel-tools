@@ -32,7 +32,7 @@ impl Generator {
         let prompt = prompt::Prompt::for_feature_specification(
             feature,
             &current_class_model,
-            file,
+            file.path(),
             &system_classes,
         )?;
         let completion_parameters = constructor_api::CompletionParameters {

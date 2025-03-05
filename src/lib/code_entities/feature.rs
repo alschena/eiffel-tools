@@ -6,8 +6,10 @@ use crate::lib::tree_sitter_extension::Parse;
 use anyhow::anyhow;
 use async_lsp::lsp_types;
 use contract::{Block, Postcondition, Precondition};
+use std::borrow::Cow;
 use std::fmt::Display;
 use std::ops::Deref;
+use std::path::Path;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
 use tracing::warn;
@@ -333,6 +335,31 @@ impl Feature {
     }
     pub fn supports_postcondition_block(&self) -> bool {
         self.postconditions.is_some()
+    }
+    pub async fn src_unchecked<'src>(&self, path: &Path) -> anyhow::Result<String> {
+        let range = self.range();
+        let start_column = range.start().column;
+        let start_row = range.start().row;
+        let end_column = range.end().column;
+        let end_row = range.end().row;
+
+        let file_source = String::from_utf8(tokio::fs::read(&path).await?)?;
+        let feature = file_source
+            .lines()
+            .skip(start_row)
+            .enumerate()
+            .map_while(|(linenum, line)| match linenum {
+                0 => Some(&line[start_column..]),
+                n if n < end_row - start_row => Some(line),
+                n if n == end_row - start_row => Some(&line[..end_column]),
+                _ => None,
+            })
+            .fold(String::new(), |mut acc, line| {
+                acc.push_str(line);
+                acc.push('\n');
+                acc
+            });
+        Ok(feature)
     }
 }
 impl Display for Feature {
