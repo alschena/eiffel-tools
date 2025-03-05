@@ -11,23 +11,20 @@ struct ModelProvider {
     name: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[allow(unused)]
+#[derive(Serialize, Debug, Default)]
 pub enum EnumLanguageModel {
     #[serde(rename = "gemini-2.0-flash-001")]
     GeminiFlash,
-    #[serde(rename = "gemini-1.5-flash")]
-    OldGeminiFlash,
     #[serde(rename = "gemini-1.5-pro")]
     GeminiPro,
-    #[serde(rename = "gemini-1.0-pro")]
-    OldGeminiPro,
     #[serde(rename = "learnlm-1.5-pro-experimental")]
     LearnlmProExperimental,
-    #[serde(rename = "clause-3-opus-20240229")]
+    #[serde(rename = "claude-3-opus-20240229")]
     ClaudeOpus,
-    #[serde(rename = "clause-3-5-haiku-20241022")]
+    #[serde(rename = "claude-3-5-haiku-20241022")]
     ClaudeHaiku,
-    #[serde(rename = "clause-3-5-sonnet-20241022")]
+    #[serde(rename = "claude-3-7-sonnet-20250219")]
     ClaudeSonnet,
     #[serde(rename = "deepseek/deepseek-chat")]
     DeepSeekChat,
@@ -97,7 +94,7 @@ struct ListKnowledgeModels {
     total: i32,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct MessageOut {
     role: String,
     content: String,
@@ -164,7 +161,7 @@ pub struct OpenAIResponseFormat {
 }
 
 impl OpenAIResponseFormat {
-    pub fn json_schema<T: JsonSchema>() -> Self {
+    pub fn json<T: JsonSchema>() -> Self {
         Self {
             r#type: OpenAIResponseFormatOptions::JsonSchema,
             json_schema: OpenAIJsonSchema::new::<T>(),
@@ -333,7 +330,7 @@ mod tests {
     use super::*;
     use crate::lib::code_entities::contract::RoutineSpecification;
 
-    // #[ignore]
+    #[ignore]
     #[tokio::test]
     async fn private_inference_request() -> anyhow::Result<()> {
         let llm_builder = LLMBuilder::try_new()?;
@@ -369,7 +366,7 @@ mod tests {
         Ok(())
     }
 
-    // #[ignore]
+    #[ignore]
     #[tokio::test]
     async fn structured_inference_request() -> anyhow::Result<()> {
         let llm = LLM::try_new().await?;
@@ -382,7 +379,7 @@ mod tests {
             MessageOut{ role: "user".to_string(), content: "Write the specification for a function with this signature `sum(a_x, a_y: INTEGER): INTEGER`".to_string(), name: Some("DbC adviser".to_string()) },
         ];
 
-        let response_schema = OpenAIResponseFormat::json_schema::<RoutineSpecification>();
+        let response_schema = OpenAIResponseFormat::json::<RoutineSpecification>();
 
         eprintln!(
             "{}",
