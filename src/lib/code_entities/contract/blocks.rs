@@ -12,6 +12,12 @@ use tree_sitter::QueryCursor;
 use super::clause::Clause;
 use super::*;
 
+mod routine_specification;
+
+pub use routine_specification::Postcondition;
+pub use routine_specification::Precondition;
+pub use routine_specification::RoutineSpecification;
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 /// Wraps an optional contract clause adding whereabouts informations.
 /// If the `item` is None, the range start and end coincide where the contract clause would be added.
@@ -56,117 +62,6 @@ impl<T: Display + Indent + Contract + Deref<Target = Vec<Clause>>> Display for B
         }
     }
 }
-#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema)]
-#[serde(transparent)]
-#[schemars(deny_unknown_fields)]
-#[schemars(
-    description = "Preconditions are predicates on the prestate, the state before the execution, of a routine. They describe the properties that the fields of the model in the current object must satisfy in the prestate. Preconditions cannot contain a call to `old_` or the `old` keyword."
-)]
-pub struct Precondition(Vec<Clause>);
-
-impl Precondition {
-    fn redundant_clauses_wrt_feature<'a>(
-        &self,
-        feature: &'a Feature,
-    ) -> impl Iterator<Item = (usize, &Clause)> + use<'_, 'a> {
-        self.iter().enumerate().filter(|(n, c)| {
-            self.iter()
-                .skip(n + 1)
-                .any(|nc| &nc.predicate == &c.predicate)
-                || feature
-                    .preconditions()
-                    .is_some_and(|pre| pre.iter().any(|nc| &nc.predicate == &c.predicate))
-        })
-    }
-}
-
-impl Deref for Precondition {
-    type Target = Vec<Clause>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl DerefMut for Precondition {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl Default for Precondition {
-    fn default() -> Self {
-        Self(Vec::new())
-    }
-}
-
-impl Fix for Precondition {
-    fn fix_syntax(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.retain_mut(|clause| clause.fix_syntax(system_classes, current_class, current_feature));
-        true
-    }
-    fn fix_identifiers(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.retain_mut(|clause| {
-            clause.fix_identifiers(system_classes, current_class, current_feature)
-        });
-        true
-    }
-    fn fix_calls(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.retain_mut(|clause| clause.fix_calls(system_classes, current_class, current_feature));
-        true
-    }
-    fn fix_repetition(
-        &mut self,
-        _system_classes: &[Class],
-        _current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        match current_feature.preconditions() {
-            Some(pr) => self.remove_redundant_clauses(pr),
-            None => self.remove_self_redundant_clauses(),
-        }
-        true
-    }
-}
-impl From<Vec<Clause>> for Precondition {
-    fn from(value: Vec<Clause>) -> Self {
-        Self(value)
-    }
-}
-impl Contract for Precondition {
-    fn keyword() -> Keyword {
-        Keyword::Require
-    }
-}
-impl Display for Precondition {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.iter()
-                .fold(String::from('\n'), |mut acc, elt| {
-                    acc.push_str(format!("{}{}", Self::indentation_string(), elt).as_str());
-                    acc
-                })
-                .trim_end()
-        )
-    }
-}
-
 impl Parse for Block<Precondition> {
     type Error = anyhow::Error;
 
@@ -182,106 +77,6 @@ impl Parse for Block<Precondition> {
             .collect();
 
         Ok(Self::new(clauses.into(), node.range().into()))
-    }
-}
-#[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone, JsonSchema)]
-#[serde(transparent)]
-#[schemars(deny_unknown_fields)]
-#[schemars(
-    description = "Postconditions describe the properties that the model of the current object must satisfy after the routine.
-        Postconditions are two-states predicates.
-        They can refer to the prestate of the routine by calling the feature `old_` on any object which existed before the execution of the routine.
-        Equivalently, you can use the keyword `old` before a feature to access its prestate."
-)]
-pub struct Postcondition(Vec<Clause>);
-
-impl Deref for Postcondition {
-    type Target = Vec<Clause>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Postcondition {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl Default for Postcondition {
-    fn default() -> Self {
-        Self(Vec::new())
-    }
-}
-
-impl Contract for Postcondition {
-    fn keyword() -> Keyword {
-        Keyword::Ensure
-    }
-}
-
-impl From<Vec<Clause>> for Postcondition {
-    fn from(value: Vec<Clause>) -> Self {
-        Self(value)
-    }
-}
-
-impl Fix for Postcondition {
-    fn fix_syntax(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.retain_mut(|clause| clause.fix_syntax(system_classes, current_class, current_feature));
-        true
-    }
-    fn fix_identifiers(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.retain_mut(|clause| {
-            clause.fix_identifiers(system_classes, current_class, current_feature)
-        });
-        true
-    }
-    fn fix_calls(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.retain_mut(|clause| clause.fix_calls(system_classes, current_class, current_feature));
-        true
-    }
-    fn fix_repetition(
-        &mut self,
-        _system_classes: &[Class],
-        _current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        match current_feature.postconditions() {
-            Some(pos) => self.remove_redundant_clauses(pos),
-            None => self.remove_self_redundant_clauses(),
-        }
-        true
-    }
-}
-impl Display for Postcondition {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.iter()
-                .fold(String::from('\n'), |mut acc, elt| {
-                    acc.push_str(format!("{}{}", Self::indentation_string(), elt).as_str());
-                    acc
-                })
-                .trim_end()
-        )
     }
 }
 impl Parse for Block<Postcondition> {
@@ -302,119 +97,6 @@ impl Parse for Block<Postcondition> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, JsonSchema)]
-#[schemars(deny_unknown_fields)]
-#[schemars(
-    description = "Hoare-style specifications of a given feature as preconditions and postconditions for AutoProof, Eiffel's static verifier."
-)]
-pub struct RoutineSpecification {
-    pub precondition: Precondition,
-    pub postcondition: Postcondition,
-}
-
-impl RoutineSpecification {
-    pub fn is_empty(&self) -> bool {
-        self.precondition.is_empty() && self.postcondition.is_empty()
-    }
-    pub fn from_markdown(markdown: &str) -> Self {
-        let precondition: Precondition = markdown
-            .lines()
-            .skip_while(|line| !line.contains("# Pre"))
-            .skip(1)
-            .map_while(|line| {
-                let line = line.trim();
-                (!line.starts_with("# ")).then_some(Clause::from_line(line).or_else(|| {
-                    info!("fail to parse the line:\t{line}\n");
-                    None
-                }))
-            })
-            .filter_map(|clause| clause)
-            .collect::<Vec<_>>()
-            .into();
-        let postcondition: Postcondition = markdown
-            .lines()
-            .skip_while(|line| !line.contains("# Post"))
-            .skip(1)
-            .map_while(|line| {
-                let line = line.trim();
-                (!line.starts_with("# ")).then_some(Clause::from_line(line).or_else(|| {
-                    info!("fail to parse the line:\t{line}\n");
-                    None
-                }))
-            })
-            .filter_map(|clause| clause)
-            .collect::<Vec<_>>()
-            .into();
-        RoutineSpecification {
-            precondition,
-            postcondition,
-        }
-    }
-}
-impl Fix for RoutineSpecification {
-    fn fix_syntax(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        if !self
-            .precondition
-            .fix_syntax(system_classes, current_class, current_feature)
-        {
-            info!(target:"llm", "fail fixing precondition");
-            return false;
-        }
-        if !self
-            .postcondition
-            .fix_syntax(system_classes, current_class, current_feature)
-        {
-            info!(target:"llm", "fail fixing postcondition.");
-            return false;
-        }
-        if self.is_empty() {
-            info!(target:"llm", "empty routine specification");
-            return false;
-        }
-        true
-    }
-    fn fix_identifiers(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.precondition
-            .fix_identifiers(system_classes, current_class, current_feature)
-            && self
-                .postcondition
-                .fix_identifiers(system_classes, current_class, current_feature)
-    }
-    fn fix_calls(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.precondition
-            .fix_calls(system_classes, current_class, current_feature)
-            && self
-                .postcondition
-                .fix_calls(system_classes, current_class, current_feature)
-    }
-    fn fix_repetition(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.precondition
-            .fix_repetition(system_classes, current_class, current_feature)
-            && self
-                .postcondition
-                .fix_repetition(system_classes, current_class, current_feature)
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::super::clause::Predicate;
@@ -442,10 +124,11 @@ mod tests {
         let c = &sc[0];
         let f = c.features().first().unwrap();
 
-        let mut fp = Precondition(vec![
+        let mut fp: Precondition = vec![
             Clause::new(Tag::new("s"), Predicate::new("f = r")),
             Clause::new(Tag::new("ss"), Predicate::new("f = r")),
-        ]);
+        ]
+        .into();
 
         assert!(fp.fix(&sc, &c, f));
         assert!(fp
@@ -514,11 +197,12 @@ end"#;
     #[test]
     fn display_precondition_block() {
         let empty_block: Block<Precondition> = Block::new_empty(Point { row: 0, column: 0 });
-        let simple_block = Block::new(
-            Precondition(vec![Clause {
+        let simple_block: Block<Precondition> = Block::new(
+            vec![Clause {
                 tag: Tag::default(),
                 predicate: Predicate::default(),
-            }]),
+            }]
+            .into(),
             Range::new(Point { row: 0, column: 0 }, Point { row: 0, column: 4 }),
         );
         assert_eq!(format!("{empty_block}"), "");
@@ -526,78 +210,5 @@ end"#;
             format!("{simple_block}"),
             "require\n\t\t\tdefault: True\n\t\t"
         );
-    }
-    #[test]
-    fn fix_routine_specification_wrt_repetition() {
-        let src = "
-            class
-                A
-            feature
-                x (f: BOOLEAN, r: BOOLEAN): BOOLEAN
-                    require
-                        t: f = True
-                    do
-                        Result := f
-                    ensure
-                        res: Result = True
-                    end
-            end
-        ";
-        let system_classes = vec![Class::from_source(src)];
-        let c = &system_classes[0];
-        let f = c.features().first().unwrap();
-
-        let mut vpr = Precondition(vec![Clause::new(Tag::new("q"), Predicate::new("f = r"))]);
-        let mut ipr = Precondition(vec![Clause::new(Tag::new("s"), Predicate::new("f = True"))]);
-        let mut ipr2 = Precondition(vec![
-            Clause::new(Tag::new("qq"), Predicate::new("f = r")),
-            Clause::new(Tag::new("q"), Predicate::new("f = r")),
-        ]);
-
-        let mut vpo = Postcondition(vec![Clause::new(
-            Tag::new("q"),
-            Predicate::new("Result = f"),
-        )]);
-        let mut ipo = Postcondition(vec![Clause::new(
-            Tag::new("t"),
-            Predicate::new("Result = True"),
-        )]);
-        let mut ipo2 = Postcondition(vec![
-            Clause::new(Tag::new("qq"), Predicate::new("Result = f")),
-            Clause::new(Tag::new("q"), Predicate::new("Result = f")),
-        ]);
-
-        eprintln!("preconditions: {}", f.preconditions().unwrap());
-        eprintln!("postconditions: {}", f.postconditions().unwrap());
-
-        assert!(
-            vpr.fix(&system_classes, &c, f),
-            "fixed preconditions: {vpr}",
-        );
-        assert!(
-            ipr.fix(&system_classes, &c, f),
-            "fixed preconditions: {ipr}"
-        );
-        assert!(ipr.is_empty());
-        assert!(
-            ipr2.fix(&system_classes, &c, f),
-            "fixed preconditions: {ipr2}"
-        );
-        assert_eq!(ipr2, vpr);
-
-        assert!(
-            vpo.fix(&system_classes, &c, f),
-            "fixed postconditions: {vpo}",
-        );
-        assert!(
-            ipo.fix(&system_classes, &c, f),
-            "fixed postconditions: {ipo}"
-        );
-        assert!(ipo.is_empty());
-        assert!(
-            ipo2.fix(&system_classes, &c, f),
-            "fixed postconditions: {ipo2}",
-        );
-        assert_eq!(ipo2, vpo);
     }
 }
