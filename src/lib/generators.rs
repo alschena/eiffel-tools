@@ -15,13 +15,11 @@ pub struct Generators {
 }
 impl Generators {
     pub async fn add_new(&mut self) {
-        eprintln!("ADD NEW STARTS");
         let Ok(llm) = constructor_api::LLM::try_new().await else {
             info!("fail to create LLM via constructor API");
             return;
         };
         self.llms.push(Arc::new(llm));
-        eprintln!("ADDED LLM");
     }
     pub async fn more_routine_specifications(
         &self,
