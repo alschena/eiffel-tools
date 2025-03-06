@@ -13,7 +13,18 @@ pub struct Prompt {
 
 impl Default for Prompt {
     fn default() -> Self {
-        Self { system_message: (String::from("You are an expert in formal methods, specifically design by contract for static verification.\nRemember that model-based contract only refer to the model of the current class and the other classes referred by in the signature of the feature.\nYou are optionally adding model-based contracts to the user provided feature.\n")), source: String::new(), injections: Vec::new() }
+        Self {
+            system_message: (String::from(
+                r#"You are a coding assistant, expert in the Eiffel programming language and in formal methods.
+You have extensive training in the usage of AutoProof, the static verifier of Eiffel.
+You will write only model-based contracts, i.e. all qualified calls in all contract clauses will refer to the model of the target class and all unqualified calls in all contract clauses will refer to the model of the current class or its ancestors.
+You will receive a prompt in eiffel code with holes of the form <ADD_*>.
+You will respond with the same code, substituting the holes with valid eiffel code.
+"#,
+            )),
+            source: String::new(),
+            injections: Vec::new(),
+        }
     }
 }
 
