@@ -1,6 +1,5 @@
 use crate::lib::code_entities::prelude::*;
 use anyhow::anyhow;
-use contract::Keyword;
 use std::cmp::Ordering;
 use std::path::Path;
 
@@ -222,8 +221,8 @@ impl Prompt {
 
 #[cfg(test)]
 mod tests {
+    use super::super::constructor_api::MessageOut;
     use super::*;
-    use crate::lib::generator::constructor_api::MessageOut;
     use crate::lib::processed_file::ProcessedFile;
     use assert_fs::prelude::*;
     use assert_fs::{fixture::FileWriteStr, TempDir};

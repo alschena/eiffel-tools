@@ -12,7 +12,7 @@ struct ModelProvider {
 }
 
 #[allow(unused)]
-#[derive(Serialize, Debug, Default)]
+#[derive(Serialize, Debug, Default, Clone)]
 pub enum EnumLanguageModel {
     #[serde(rename = "gemini-2.0-flash-001")]
     GeminiFlash,
@@ -94,7 +94,7 @@ struct ListKnowledgeModels {
     total: i32,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct MessageOut {
     role: String,
     content: String,
@@ -118,14 +118,14 @@ impl MessageOut {
     }
 }
 
-#[derive(Serialize, Debug, Default)]
+#[derive(Serialize, Debug, Default, Clone)]
 #[serde(rename_all = "snake_case")]
 enum OpenAIResponseFormatOptions {
     #[default]
     JsonSchema,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 #[serde(deny_unknown_fields)]
 pub struct OpenAIJsonSchema {
@@ -152,7 +152,7 @@ impl OpenAIJsonSchema {
     }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 #[serde(deny_unknown_fields)]
 pub struct OpenAIResponseFormat {
@@ -169,7 +169,7 @@ impl OpenAIResponseFormat {
     }
 }
 
-#[derive(Serialize, Debug, Default)]
+#[derive(Serialize, Debug, Default, Clone)]
 pub struct CompletionParameters {
     pub model: EnumLanguageModel,
     pub messages: Vec<MessageOut>,

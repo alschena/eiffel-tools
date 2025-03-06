@@ -1,36 +1,32 @@
-use crate::lib::generator::Generator;
+use crate::lib::generators::Generators;
 use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use async_lsp::ClientSocket;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::warn;
 
 #[derive(Clone)]
 pub struct ServerState {
     pub client: ClientSocket,
     pub workspace: Arc<RwLock<Workspace>>,
-    pub generators: Arc<RwLock<Vec<Generator>>>,
+    pub generators: Arc<RwLock<Generators>>,
 }
 impl ServerState {
     pub fn new(client: ClientSocket) -> ServerState {
-        let generator = Arc::new(RwLock::new(Vec::new()));
-        let binding: Arc<RwLock<Vec<Generator>>> = generator.clone();
+        let generators = Arc::new(RwLock::new(Generators::default()));
+        let binding = generators.clone();
         tokio::spawn(async {
-            let mut generator = binding.write_owned().await;
+            let mut generators = binding.write_owned().await;
             for _ in 0..1 {
-                Generator::try_new().await.map_or_else(
-                    |e| warn!("fail to create generator with error:\t{e:#?}"),
-                    |new_generator| generator.push(new_generator),
-                )
+                generators.add_new().await
             }
         });
 
         ServerState {
             client,
             workspace: Arc::new(RwLock::new(Workspace::new())),
-            generators: generator,
+            generators,
         }
     }
     pub async fn find_file(&self, path: &Path) -> Option<ProcessedFile> {

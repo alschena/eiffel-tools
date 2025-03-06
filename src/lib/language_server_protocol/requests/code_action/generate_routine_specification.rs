@@ -1,4 +1,4 @@
-use crate::lib::generator::Generator;
+use crate::lib::generators::Generators;
 use async_lsp::lsp_types::{CodeAction, CodeActionDisabled, TextEdit, Url, WorkspaceEdit};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -80,33 +80,12 @@ fn file_edits_add_routine_specification(
 async fn routine_specifications_as_workspace_edit(
     file: &ProcessedFile,
     feature: &Feature,
-    generators: &[crate::lib::generator::Generator],
+    generators: &Generators,
     system_classes: &[Class],
 ) -> anyhow::Result<WorkspaceEdit> {
-    let mut handles = Vec::new();
-    let bfeature = Arc::from(feature.clone());
-    let bfile = Arc::from(file.clone());
-    let bsystem_classes: Arc<[Class]> = Arc::from(system_classes);
-    let bgenerators: Vec<Generator> = generators.to_vec();
-    for gn in bgenerators.into_iter() {
-        let bfeature = bfeature.clone();
-        let bfile = bfile.clone();
-        let bsystem_classes = bsystem_classes.clone();
-        let jb = tokio::spawn(async move {
-            let bfeature = bfeature.clone();
-            let bfile = bfile.clone();
-            let bsystem_classes = bsystem_classes.clone();
-            gn.clone()
-                .more_routine_specifications(&bfeature, &bfile, &bsystem_classes)
-                .await
-        });
-        handles.push(jb);
-    }
-    let mut more_routine_specs = Vec::new();
-    for jb in handles {
-        let mut output = jb.await??;
-        more_routine_specs.append(&mut output);
-    }
+    let more_routine_specs = generators
+        .more_routine_specifications(feature, file, system_classes)
+        .await?;
 
     let fixed =
         fix_routine_specifications(more_routine_specs, system_classes, file.class(), feature);
@@ -133,7 +112,7 @@ async fn routine_specifications_as_workspace_edit(
 }
 
 pub async fn code_action(
-    generators: &[Generator],
+    generators: &Generators,
     file: Option<&ProcessedFile>,
     system_classes: &[Class],
     cursor_point: &Point,
