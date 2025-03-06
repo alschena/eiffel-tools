@@ -182,19 +182,13 @@ impl Prompt {
                     });
             // If there are no injections, add line to the text.
             let Some((mut oc, oi)) = current_injections.next() else {
-                eprintln!("no injection for this linenum: {linenum}\nand line:\t{line}");
                 text.push_str(line);
                 text.push('\n');
                 continue;
             };
-            eprintln!("injection at linenum: {linenum}\nline: {line}");
-            eprintln!("push {}", &line[..oc]);
-            eprintln!("push {}", oi);
             text.push_str(&line[..oc]);
             text.push_str(oi);
             for (nc, ni) in current_injections {
-                eprintln!("push {}", &line[oc..nc]);
-                eprintln!("push {}", ni);
                 text.push_str(&line[oc..nc]);
                 text.push_str(ni);
                 oc = nc;
