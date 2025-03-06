@@ -16,8 +16,8 @@ impl ServerState {
     pub fn new(client: ClientSocket) -> ServerState {
         let generators = Arc::new(RwLock::new(Generators::default()));
         let binding = generators.clone();
-        tokio::spawn(async {
-            let mut generators = binding.write_owned().await;
+        tokio::spawn(async move {
+            let mut generators = binding.write().await;
             for _ in 0..1 {
                 generators.add_new().await
             }
