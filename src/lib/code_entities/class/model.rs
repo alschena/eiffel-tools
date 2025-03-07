@@ -198,16 +198,18 @@ impl ModelExtended {
 
         match self {
             ModelExtended::Terminal => {
-                text.push_str("the model is implemented in Boogie.\n");
+                text.push_str(
+                    "its model is terminal, no qualified call is allowed on this value.\n",
+                );
             }
-            ModelExtended::Recursive => text.push_str("the model is recursive.\n"),
-            ModelExtended::IsEmpty => text.push_str("the model is empty.\n"),
+            ModelExtended::Recursive => text.push_str("its model is recursive.\n"),
+            ModelExtended::IsEmpty => text.push_str("its model is empty.\n"),
             ModelExtended::Model {
                 names,
                 types,
                 extension,
             } => {
-                text.push_str("the model is: ");
+                text.push_str("its model is: ");
                 for ((name, ty), ext) in names.iter().zip(types.iter()).zip(extension) {
                     text.push_str(format!("{name}: {ty}").as_str());
                     text.push('\n');
@@ -425,7 +427,7 @@ mod tests {
         let model = client.model_extended(&system_classes);
         assert_eq!(
             format!("{model}"),
-            "the model is: nested: NEW_INTEGER\n\tthe model is: value: INTEGER\n\t\tthe model is implemented in Boogie.\n"
+            "its model is: nested: NEW_INTEGER\n\tits model is: value: INTEGER\n\t\tits model is terminal, no qualified call is allowed on this value.\n"
         );
     }
 }
