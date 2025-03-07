@@ -4,9 +4,10 @@ use contract::RoutineSpecification;
 use std::sync::Arc;
 use tracing::info;
 
-mod constructor_api;
+mod post_processing;
 mod prompt;
 
+mod constructor_api;
 use constructor_api::OpenAIResponseFormat;
 
 #[derive(Debug, Default)]

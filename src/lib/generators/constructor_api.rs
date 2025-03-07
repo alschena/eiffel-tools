@@ -197,36 +197,36 @@ pub struct CompletionParameters {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct MessageReceived {
-    role: String,
-    content: String,
+pub(super) struct MessageReceived {
+    pub(super) role: String,
+    pub(super) content: String,
     // Currently always Null, but might change later.
-    tool_calls: Option<String>,
+    pub(super) tool_calls: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct CompletionChoice {
-    index: usize,
-    message: MessageReceived,
-    finish_reason: Option<String>,
+pub(super) struct CompletionChoice {
+    pub(super) index: usize,
+    pub(super) message: MessageReceived,
+    pub(super) finish_reason: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct CompletionTokenUsage {
-    prompt_tokens: i32,
-    completion_tokens: i32,
-    total_tokens: i32,
+pub(super) struct CompletionTokenUsage {
+    pub(super) prompt_tokens: i32,
+    pub(super) completion_tokens: i32,
+    pub(super) total_tokens: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CompletionResponse {
-    id: String,
+    pub(super) id: String,
     /// Response schema. Currently only "chat.completion" is allowed.
-    object: String,
-    created: i32,
-    model: String,
-    choices: Vec<CompletionChoice>,
-    usage: CompletionTokenUsage,
+    pub(super) object: String,
+    pub(super) created: i32,
+    pub(super) model: String,
+    pub(super) choices: Vec<CompletionChoice>,
+    pub(super) usage: CompletionTokenUsage,
 }
 
 impl CompletionResponse {
