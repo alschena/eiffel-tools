@@ -1,5 +1,6 @@
 [workspace]
-members = ["gemini", "gemini_macro_derive"]
+members = []
+
 [package]
 name = "eiffel-tools"
 version = "0.1.0"
@@ -11,31 +12,38 @@ cc="*"
 [dependencies]
 # Error management
 anyhow = "1.0"
+
 # Framework for lsp
 async-lsp = { version = "0.2.*", features = ["client-monitor", "omni-trait", "stdio", "tracing", "tokio"]}
 streaming-iterator = { version = "0.1.9" }
+
 # Asyncronous runtime (framework for lsp is built upon this)
 tokio = { version = "1.27", features = ["full"] }
+
 # Parallelism
 rayon = "1.10"
+
 # Service-based framework (framework for lsp is built upon this)
 tower = "0.5.*"
 tracing-subscriber = "0.3.*"
 tracing = "0.1.*"
+
 # Treesitter
 tree-sitter = "0.24.2"
 tree-sitter-eiffel = { git = "https://github.com/imustafin/tree-sitter-eiffel", branch = "lsp-adaptation"}
+
 # Parsing
 serde = "1.0.*"
+schemars = {version = "0.8.21"}
+
 # Eiffel configuration
 walkdir = "2"
 shellexpand = {version = "3.1"}
 quick-xml = {version = "0.37", features = ["serialize", "overlapped-lists"]}
-# Gemini
+
+# LLM
 reqwest = {version = "0.12.*", features = ["json", "blocking"]}
 serde_json = { version = "1.0" }
-gemini_macro_derive = {path = "./gemini_macro_derive"}
-gemini = {path = "./gemini"}
 
 [dev-dependencies]
 assert_fs = "1.1"

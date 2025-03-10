@@ -53,11 +53,11 @@ async fn main() -> anyhow::Result<()> {
         .append(false)
         .open(log_directory_path.join("log.log"))?;
 
-    let gemini_log_file = std::fs::OpenOptions::new()
+    let llm_log_file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .append(false)
-        .open(log_directory_path.join("gemini.log"))?;
+        .open(log_directory_path.join("llm.log"))?;
 
     let default_layer = fmt::layer()
         .with_span_events(FmtSpan::CLOSE)
@@ -66,18 +66,18 @@ async fn main() -> anyhow::Result<()> {
         .with_filter(
             filter::Targets::default()
                 .with_default(filter::LevelFilter::INFO)
-                .with_target("gemini", filter::LevelFilter::OFF),
+                .with_target("llm", filter::LevelFilter::OFF),
         );
 
-    let gemini_layer = fmt::layer()
+    let llm_layer = fmt::layer()
         .with_span_events(FmtSpan::CLOSE)
         .with_ansi(false)
-        .with_writer(gemini_log_file)
-        .with_filter(filter::Targets::default().with_target("gemini", filter::LevelFilter::INFO));
+        .with_writer(llm_log_file)
+        .with_filter(filter::Targets::default().with_target("llm", filter::LevelFilter::INFO));
 
     Registry::default()
         .with(default_layer)
-        .with(gemini_layer)
+        .with(llm_layer)
         .init();
 
     // Prefer truly asynchronous piped stdin/stdout without blocking tasks.

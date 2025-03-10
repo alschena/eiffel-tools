@@ -26,8 +26,9 @@ impl ProcessedFile {
             String::from_utf8(tokio::fs::read(&path).await.expect("Failed to read file."))
                 .expect("Source code must be UTF8 encoded");
         let tree = parser.parse(&src, None).unwrap();
-        let Ok(class) = Class::parse(&tree.root_node(), &mut QueryCursor::new(), src.as_str())
-            .context("parsing class")
+        let Ok(class) =
+            Class::parse_through(&tree.root_node(), &mut QueryCursor::new(), src.as_str())
+                .context("parsing class")
         else {
             info!("fails to parse {:?}", &path);
             return None;
@@ -38,22 +39,14 @@ impl ProcessedFile {
         &self.tree
     }
     pub(crate) fn feature_around_point(&self, point: &Point) -> Option<&Feature> {
-        let mut features = self.class().features().iter();
-        match features
-            .find(|&feature| point >= feature.range().start() && point <= feature.range().end())
-        {
-            Some(f) => Some(f),
-            None => None,
-        }
+        Feature::feature_around_point(self.class().features().iter(), point)
     }
     pub fn reload(&mut self, parser: &mut Parser) {
         let src = std::fs::read_to_string(self.path()).expect("read file.");
         let tree = parser.parse(&src, None).unwrap();
-        Class::parse(&tree.root_node(), &mut QueryCursor::new(), src.as_str())
-            .inspect(|val| {
+        Class::parse_through(&tree.root_node(), &mut QueryCursor::new(), src.as_str())
+            .inspect(|_| {
                 info!("reloading file at {:#?}", self.path());
-                info!("old class {:#?}", self.class());
-                info!("new class {:#?}", val);
             })
             .inspect_err(|e| {
                 warn!(
@@ -70,45 +63,6 @@ impl ProcessedFile {
     pub(crate) fn class(&self) -> &Class {
         &self.class
     }
-    pub fn feature_src_with_injections<'a>(
-        &self,
-        feature: &Feature,
-        injections: impl Iterator<Item = (&'a Point, &'a str)> + Clone,
-    ) -> Result<String> {
-        debug_assert!(injections.clone().is_sorted_by(|(a, _), (b, _)| { a <= b }));
-
-        let src = String::from_utf8(std::fs::read(self.path())?)?;
-        let range = feature.range();
-        let start = range.start();
-        let end = range.end();
-
-        let mut injections = injections.peekable();
-
-        let mut feature_src = String::new();
-        src.lines()
-            .enumerate()
-            .skip(start.row)
-            .take((end.row - start.row) + 1)
-            .for_each(|(linenum, line)| match injections.peek() {
-                Some((&Point { row, column: _ }, text)) if row < linenum => {
-                    feature_src.push_str(text);
-                    injections.next();
-                }
-                Some((&Point { row, column }, text)) if row == linenum => {
-                    let safe_column = std::primitive::usize::min(column, line.len());
-                    feature_src.push_str(&line[..safe_column]);
-                    feature_src.push_str(text);
-                    feature_src.push_str(&line[safe_column..]);
-                    feature_src.push('\n');
-                    injections.next();
-                }
-                _ => {
-                    feature_src.push_str(line);
-                    feature_src.push('\n');
-                }
-            });
-        Ok(feature_src)
-    }
 }
 
 /// Compatibility with LSP types.
@@ -117,7 +71,7 @@ impl TryFrom<&ProcessedFile> for lsp_types::SymbolInformation {
 
     fn try_from(value: &ProcessedFile) -> std::result::Result<Self, Self::Error> {
         let class = value.class();
-        let name = class.name().into();
+        let ClassName(name) = class.name().to_owned();
         let kind = lsp_types::SymbolKind::CLASS;
         let tags = None;
         let deprecated = None;
@@ -138,7 +92,7 @@ impl TryFrom<&ProcessedFile> for lsp_types::WorkspaceSymbol {
     type Error = anyhow::Error;
 
     fn try_from(value: &ProcessedFile) -> std::result::Result<Self, Self::Error> {
-        let name = value.class().name().to_string();
+        let ClassName(name) = value.class().name().to_owned();
         let location = (&Location::new(value.path().to_path_buf())).try_into()?;
         Ok(lsp_types::WorkspaceSymbol {
             name,
@@ -155,13 +109,18 @@ mod tests {
     use super::*;
     use assert_fs::prelude::*;
     use assert_fs::{fixture::FileWriteStr, TempDir};
-    #[tokio::test]
-    async fn new() {
+
+    fn parser() -> tree_sitter::Parser {
         let mut parser = tree_sitter::Parser::new();
         parser
             .set_language(&tree_sitter_eiffel::LANGUAGE.into())
             .expect("Error loading Eiffel grammar");
+        parser
+    }
 
+    #[tokio::test]
+    async fn new() {
+        let mut parser = parser();
         let temp_dir = TempDir::new().expect("must create temporary directory.");
         let file = temp_dir.child("processed_file_new.e");
         file.write_str(
@@ -178,15 +137,11 @@ end
             .await
             .expect("processed file must be produced.");
         assert_eq!(file.to_path_buf(), processed_file.path());
-        assert_eq!("A", processed_file.class().name());
+        assert_eq!(processed_file.class().name(), "A");
     }
     #[tokio::test]
     async fn reload() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-
+        let mut parser = parser();
         let temp_dir = TempDir::new().expect("must create temporary directory.");
         let file = temp_dir.child("processed_file_new.e");
         file.write_str(
@@ -226,49 +181,5 @@ end
             2,
             "after reload there are two parsed features."
         )
-    }
-    #[tokio::test]
-    async fn feature_str_with_injections() {
-        let temp_dir = TempDir::new().expect("must create temporary directory.");
-        let file = temp_dir.child("processed_file_new.e");
-
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-        file.write_str(
-            r#"
-class A feature
-  f(x, y: INTEGER; z: BOOLEAN)
-    do
-    end
-end
-            "#,
-        )
-        .expect("temp file must be writable");
-        assert!(file.exists());
-        let processed_file = ProcessedFile::new(&mut parser, file.to_path_buf())
-            .await
-            .expect("An instance of processed file is produced.");
-        let feature = processed_file
-            .class
-            .features()
-            .first()
-            .expect("There is a feature");
-        let begin = feature.range().start();
-
-        let text_with_injection = processed_file
-            .feature_src_with_injections(
-                feature,
-                vec![(begin, "[FIRST_LINE_OF_FEATURE] ")].into_iter(),
-            )
-            .expect("the injections must succeed");
-        assert_eq!(
-            r#"  [FIRST_LINE_OF_FEATURE] f(x, y: INTEGER; z: BOOLEAN)
-    do
-    end
-"#,
-            text_with_injection
-        );
     }
 }

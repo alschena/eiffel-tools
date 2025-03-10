@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context};
 use async_lsp::lsp_types;
 use std::cmp::{Ordering, PartialOrd};
+use std::ops::Sub;
 use std::path;
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Point {
@@ -33,6 +34,21 @@ impl PartialOrd for Point {
         }
     }
 }
+impl Sub for Point {
+    type Output = Point;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let Point { row, column } = self;
+        let Point {
+            row: rhs_row,
+            column: rhs_column,
+        } = rhs;
+        Self::Output {
+            row: row - rhs_row,
+            column: column - rhs_column,
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Range {
@@ -60,8 +76,9 @@ impl Range {
 impl PartialOrd for Range {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
+            (s, o) if s.start == o.start && s.end == o.end => Some(Ordering::Equal),
             (s, o) if s.start <= o.start && s.end >= o.end => Some(Ordering::Greater),
-            (s, o) if s.start > o.start && s.end < o.end => Some(Ordering::Less),
+            (s, o) if s.start >= o.start && s.end <= o.end => Some(Ordering::Less),
             _ => None,
         }
     }
@@ -152,15 +169,6 @@ impl TryFrom<async_lsp::lsp_types::Position> for Point {
             .try_into()
             .context("fails to convert character number into column")?;
         Ok(Self { row, column })
-    }
-}
-impl TryFrom<async_lsp::lsp_types::Range> for Range {
-    type Error = anyhow::Error;
-
-    fn try_from(value: async_lsp::lsp_types::Range) -> std::result::Result<Self, Self::Error> {
-        let start = value.start.try_into().context("conversion of start")?;
-        let end = value.end.try_into().context("conversion of end")?;
-        Ok(Self { start, end })
     }
 }
 impl TryFrom<Range> for async_lsp::lsp_types::Range {

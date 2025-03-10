@@ -1,12 +1,16 @@
+use super::class::model::ModelExtended;
 use super::prelude::*;
 use crate::lib::tree_sitter_extension::capture_name_to_nodes;
 use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
+use anyhow::anyhow;
 use async_lsp::lsp_types;
+use contract::RoutineSpecification;
 use contract::{Block, Postcondition, Precondition};
+use std::borrow::Cow;
 use std::fmt::Display;
 use std::ops::Deref;
-use std::ops::DerefMut;
+use std::path::Path;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
 use tracing::warn;
@@ -25,7 +29,7 @@ impl Deref for Notes {
 impl Parse for Notes {
     type Error = anyhow::Error;
 
-    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
         let query = Self::query("(notes (note_entry)* @note_entry)");
         let query_note_entry = Self::query("(note_entry (tag) @tag value: (_)* @value)");
 
@@ -88,9 +92,9 @@ impl Display for EiffelType {
     }
 }
 impl EiffelType {
-    pub fn class_name(&self) -> Result<&str, &str> {
+    pub fn class_name(&self) -> Result<ClassName, &str> {
         match self {
-            EiffelType::ClassType(_, s) => Ok(s),
+            EiffelType::ClassType(_, s) => Ok(ClassName(s.to_owned())),
             EiffelType::TupleType(_) => Err("tuple type"),
             EiffelType::Anchored(_) => Err("anchored type"),
         }
@@ -100,31 +104,40 @@ impl EiffelType {
         mut system_classes: impl Iterator<Item = &'b Class>,
     ) -> &'b Class {
         let class = system_classes
-            .find(|&c| c.name() == self.class_name().unwrap_or_default())
-            .expect("parameters' class name is in system.");
+            .find(|&c| Ok(c.name()) == self.class_name().as_ref())
+            .unwrap_or_else(|| {
+                panic!(
+                    "parameters' class name: {:?} must be in system.",
+                    self.class_name()
+                )
+            });
         class
     }
     pub fn is_terminal_for_model(&self) -> bool {
-        match self.class_name() {
-            Ok("BOOLEAN") => true,
-            Ok("INTEGER") => true,
-            Ok("REAL") => true,
-            Ok("MML_SEQUENCE") => true,
-            Ok("MML_BAG") => true,
-            Ok("MML_SET") => true,
-            Ok("MML_MAP") => true,
-            Ok("MML_PAIR") => true,
-            Ok("MML_RELATION") => true,
-            Err("tuple type") => unimplemented!(),
-            _ => false,
+        self.class_name()
+            .is_ok_and(|class_name| class_name.is_terminal_for_model())
+    }
+    pub fn model_extension(&self, system_classes: &[Class]) -> ModelExtended {
+        if self.is_terminal_for_model() {
+            return ModelExtended::Terminal;
         }
+        let Ok(class_name): Result<ClassName, _> = self.to_owned().try_into() else {
+            unimplemented!("eiffel type's model extension implemented only for class types.")
+        };
+        class_name
+            .model_extended(system_classes)
+            .unwrap_or_default()
     }
 }
 
 impl Parse for EiffelType {
     type Error = anyhow::Error;
 
-    fn parse(node: &Node, query_cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(
+        node: &Node,
+        query_cursor: &mut QueryCursor,
+        src: &str,
+    ) -> Result<Self, Self::Error> {
         let eiffeltype = match node.kind() {
             "class_type" => {
                 let query = Self::query("(class_name) @classname");
@@ -144,51 +157,53 @@ impl Parse for EiffelType {
         Ok(eiffeltype)
     }
 }
+impl TryFrom<EiffelType> for ClassName {
+    type Error = anyhow::Error;
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Parameters(Vec<(String, EiffelType)>);
-impl Deref for Parameters {
-    type Target = Vec<(String, EiffelType)>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    fn try_from(value: EiffelType) -> Result<Self, Self::Error> {
+        value.class_name().map_err(|e| anyhow!("{e}"))
     }
 }
-impl DerefMut for Parameters {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+
+impl From<ClassName> for EiffelType {
+    fn from(value: ClassName) -> Self {
+        let ClassName(name) = value;
+        EiffelType::ClassType(name.clone(), name)
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
+pub struct Parameters {
+    names: Vec<String>,
+    types: Vec<EiffelType>,
 }
 impl Parameters {
+    pub fn names(&self) -> &Vec<String> {
+        &self.names
+    }
+    pub fn types(&self) -> &Vec<EiffelType> {
+        &self.types
+    }
     fn add_parameter(&mut self, id: String, eiffel_type: EiffelType) {
-        self.push((id, eiffel_type));
+        self.names.push(id);
+        self.types.push(eiffel_type);
     }
     fn is_empty(&self) -> bool {
-        self.deref().is_empty()
+        self.names().is_empty() && self.types().is_empty()
     }
-    pub fn full_model<'a>(
-        &self,
-        system_classes: &'a [&'a Class],
-    ) -> impl Iterator<Item = (&str, impl Iterator<Item = &'a ClassModel>)> {
-        self.iter().map(|(name, eiffel_type)| {
-            (
-                name.as_str(),
-                eiffel_type
-                    .class(system_classes.iter().copied())
-                    .full_model(system_classes),
-            )
-        })
-    }
-}
-impl Default for Parameters {
-    fn default() -> Self {
-        Parameters(Vec::new())
+    pub fn model_extension<'s, 'system>(
+        &'s self,
+        system_classes: &'system [Class],
+    ) -> impl Iterator<Item = ModelExtended> + use<'s, 'system> {
+        self.types()
+            .iter()
+            .map(|t| t.model_extension(system_classes))
     }
 }
 impl Parse for Parameters {
     type Error = anyhow::Error;
 
-    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
         debug_assert!(node.kind() == "formal_arguments");
 
         let parameter_query = Self::query(
@@ -200,7 +215,7 @@ impl Parse for Parameters {
         );
         let mut parameters_matches = cursor.matches(&parameter_query, node.clone(), src.as_bytes());
 
-        let mut parameters = Parameters(Vec::new());
+        let mut parameters = Parameters::default();
 
         while let Some(mat) = parameters_matches.next() {
             let name_to_nodes = |name: &str| capture_name_to_nodes(name, &parameter_query, mat);
@@ -208,7 +223,7 @@ impl Parse for Parameters {
 
             let names = name_to_nodes("name").map(|node| node_to_text(node).to_string());
 
-            let eiffeltype = EiffelType::parse(
+            let eiffeltype = EiffelType::parse_through(
                 &name_to_nodes("eiffeltype")
                     .next()
                     .expect("captured eiffel type."),
@@ -224,7 +239,9 @@ impl Parse for Parameters {
 }
 impl Display for Parameters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = self.0.iter().fold(
+        let types = self.types();
+        let names = self.names();
+        let text = names.iter().zip(types.iter()).fold(
             String::new(),
             |mut acc, (parameter_name, parameter_type)| {
                 acc.push_str(parameter_name.as_str());
@@ -251,6 +268,15 @@ pub struct Feature {
     postconditions: Option<Block<Postcondition>>,
 }
 impl Feature {
+    pub fn is_feature_around_point(&self, point: &Point) -> bool {
+        point >= self.range().start() && point <= self.range().end()
+    }
+    pub fn feature_around_point<'feature>(
+        mut features: impl Iterator<Item = &'feature Feature>,
+        point: &Point,
+    ) -> Option<&'feature Feature> {
+        features.find(|f| f.is_feature_around_point(point))
+    }
     pub fn clone_rename(&self, name: String) -> Feature {
         let mut f = self.clone();
         f.name = name;
@@ -263,7 +289,9 @@ impl Feature {
         &self.parameters
     }
     pub fn number_parameters(&self) -> usize {
-        self.parameters().len()
+        let parameters = self.parameters();
+        debug_assert_eq!(parameters.names().len(), parameters.types().len());
+        parameters.names().len()
     }
     pub fn return_type(&self) -> Option<&EiffelType> {
         self.return_type.as_ref()
@@ -276,6 +304,14 @@ impl Feature {
     }
     pub fn postconditions(&self) -> Option<&Postcondition> {
         self.postconditions.as_ref().map(|b| b.item())
+    }
+    pub fn routine_specification(&self) -> RoutineSpecification {
+        let postcondition = self.postconditions().cloned().unwrap_or_default();
+        let precondition = self.preconditions().cloned().unwrap_or_default();
+        RoutineSpecification {
+            precondition,
+            postcondition,
+        }
     }
     pub fn has_precondition(&self) -> bool {
         self.preconditions().is_some_and(|p| !p.is_empty())
@@ -313,6 +349,31 @@ impl Feature {
     pub fn supports_postcondition_block(&self) -> bool {
         self.postconditions.is_some()
     }
+    pub async fn src_unchecked<'src>(&self, path: &Path) -> anyhow::Result<String> {
+        let range = self.range();
+        let start_column = range.start().column;
+        let start_row = range.start().row;
+        let end_column = range.end().column;
+        let end_row = range.end().row;
+
+        let file_source = String::from_utf8(tokio::fs::read(&path).await?)?;
+        let feature = file_source
+            .lines()
+            .skip(start_row)
+            .enumerate()
+            .map_while(|(linenum, line)| match linenum {
+                0 => Some(&line[start_column..]),
+                n if n < end_row - start_row => Some(line),
+                n if n == end_row - start_row => Some(&line[..end_column]),
+                _ => None,
+            })
+            .fold(String::new(), |mut acc, line| {
+                acc.push_str(line);
+                acc.push('\n');
+                acc
+            });
+        Ok(feature)
+    }
 }
 impl Display for Feature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -335,8 +396,8 @@ impl Indent for Feature {
 impl Parse for Feature {
     type Error = anyhow::Error;
     #[instrument(skip_all)]
-    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> anyhow::Result<Self> {
-        debug_assert!(node.kind() == "feature_declaration");
+    fn parse_through(node: &Node, cursor: &mut QueryCursor, src: &str) -> anyhow::Result<Self> {
+        debug_assert!(node.kind() == "feature_declaration" || node.parent().is_none());
 
         let query = Self::query(
             r#"
@@ -364,7 +425,7 @@ impl Parse for Feature {
 
             let parameters = capture_name_to_nodes("parameters", &query, mat)
                 .filter_map(|ref parameter_node| {
-                    Parameters::parse(parameter_node, &mut cursor, src).ok()
+                    Parameters::parse_through(parameter_node, &mut cursor, src).ok()
                 })
                 .next()
                 .unwrap_or_default();
@@ -372,14 +433,14 @@ impl Parse for Feature {
             let return_type = capture_name_to_nodes("return_type", &query, mat)
                 .next()
                 .map(|ref return_type_node| {
-                    EiffelType::parse(return_type_node, &mut cursor, src).ok()
+                    EiffelType::parse_through(return_type_node, &mut cursor, src).ok()
                 })
                 .flatten();
 
             let notes = capture_name_to_nodes("notes", &query, mat)
                 .next()
                 .map(|note_node| {
-                    Notes::parse(&note_node, &mut cursor, src)
+                    Notes::parse_through(&note_node, &mut cursor, src)
                         .ok()
                         .map(|notes| (notes, note_node.range()))
                 })
@@ -401,7 +462,7 @@ impl Parse for Feature {
                             .map(|aor_point| notes_range.map_or_else(|| aor_point, |r| r.end_point))
                             .map(|point| Block::new_empty(point.into()))
                     },
-                    |node| Block::<Precondition>::parse(&node, &mut cursor, src).ok(),
+                    |node| Block::<Precondition>::parse_through(&node, &mut cursor, src).ok(),
                 );
 
             let postconditions = capture_name_to_nodes("postcondition", &query, mat)
@@ -417,7 +478,7 @@ impl Parse for Feature {
                             })
                             .map(|point| Block::new_empty(point))
                     },
-                    |node| Block::<Postcondition>::parse(&node, &mut cursor, src).ok(),
+                    |node| Block::<Postcondition>::parse_through(&node, &mut cursor, src).ok(),
                 );
 
             feature = Some(Feature {
@@ -458,7 +519,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_feature_with_precondition() {
+    fn parse_feature_with_precondition() -> anyhow::Result<()> {
         let src = r#"
 class A feature
   x
@@ -472,7 +533,7 @@ class A feature
     do
     end
 end"#;
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
         eprintln!("{class:?}");
         let feature = class.features().first().expect("first features is `x`");
 
@@ -481,7 +542,8 @@ end"#;
         assert!(feature.preconditions().unwrap().first().is_some());
 
         let predicate = &feature.preconditions().unwrap().first().unwrap().predicate;
-        assert_eq!(predicate.as_str(), "True")
+        assert_eq!(predicate.as_str(), "True");
+        Ok(())
     }
 
     #[test]
@@ -508,7 +570,7 @@ end
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
         let node = captures.next().unwrap().0.captures[0].node;
 
-        let notes = Notes::parse(&node, &mut binding, &src).expect("Parse notes");
+        let notes = Notes::parse_through(&node, &mut binding, &src).expect("Parse notes");
         let Some((tag, value)) = notes.iter().next() else {
             panic!("no note entries were found.")
         };
@@ -541,7 +603,7 @@ end
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
         let node = captures.next().unwrap().0.captures[0].node;
 
-        let feature = Feature::parse(&node, &mut binding, &src).expect("Parse feature");
+        let feature = Feature::parse_through(&node, &mut binding, &src).expect("Parse feature");
         let Some(feature_notes) = feature.notes else {
             panic!("feature notes have not been parsed.")
         };
@@ -553,7 +615,7 @@ end
     }
 
     #[test]
-    fn parse_parameters() {
+    fn parse_parameters() -> anyhow::Result<()> {
         // Example feature
         let src = r#"
 class A feature
@@ -562,28 +624,26 @@ class A feature
     end
 end
         "#;
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
         let feature = class.features().first().expect("parsed feature.");
 
         assert_eq!(
             feature.parameters(),
-            &Parameters(vec![
-                (
-                    "y".to_string(),
+            &Parameters {
+                names: vec!["y".to_string(), "z".to_string()],
+                types: vec![
+                    EiffelType::ClassType(
+                        "MML_SEQUENCE [INTEGER]".to_string(),
+                        "MML_SEQUENCE".to_string()
+                    ),
                     EiffelType::ClassType(
                         "MML_SEQUENCE [INTEGER]".to_string(),
                         "MML_SEQUENCE".to_string()
                     )
-                ),
-                (
-                    "z".to_string(),
-                    EiffelType::ClassType(
-                        "MML_SEQUENCE [INTEGER]".to_string(),
-                        "MML_SEQUENCE".to_string()
-                    )
-                )
-            ])
+                ]
+            }
         );
+        Ok(())
     }
 
     #[test]
@@ -607,7 +667,8 @@ end
         let mut binding = QueryCursor::new();
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
         let node = captures.next().unwrap().0.captures[0].node;
-        let feature = Feature::parse(&node, &mut binding, src).expect("fails to parse feature.");
+        let feature =
+            Feature::parse_through(&node, &mut binding, src).expect("fails to parse feature.");
 
         let return_type = feature.return_type().unwrap();
         assert_eq!(
@@ -622,6 +683,8 @@ end
             "MML_SEQUENCE [INTEGER]".to_string(),
             "MML_SEQUENCE".to_string(),
         );
-        assert_eq!(eiffeltype.class_name(), Ok("MML_SEQUENCE"));
+        assert!(eiffeltype
+            .class_name()
+            .is_ok_and(|name| name == *"MML_SEQUENCE"));
     }
 }

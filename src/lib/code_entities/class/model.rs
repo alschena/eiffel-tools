@@ -32,7 +32,11 @@ impl DerefMut for ModelNames {
 impl Parse for ModelNames {
     type Error = anyhow::Error;
 
-    fn parse(node: &Node, query_cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(
+        node: &Node,
+        query_cursor: &mut QueryCursor,
+        src: &str,
+    ) -> Result<Self, Self::Error> {
         let name_query = Self::query(
             r#"(class_declaration
             (notes (note_entry
@@ -98,11 +102,12 @@ impl Model {
     ) -> Model {
         let (names, types) = names
             .iter()
-            .map(|name| features.into_iter().find(|feature| feature.name() == name))
-            .inspect(|feature| {
-                if feature.is_none() {
-                    warn!("Model feature not found {feature:?}")
+            .map(|name| {
+                let f = features.into_iter().find(|feature| feature.name() == name);
+                if f.is_none() {
+                    warn!("Model feature not found {name:?}")
                 }
+                f
             })
             .zip(names.iter())
             .filter_map(|(feature, name)| feature.map(|feature| (feature, name)))
@@ -141,78 +146,92 @@ impl Display for Model {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub struct ModelExtended {
-    names: ModelNames,
-    types: ModelTypes,
-    extension: Vec<Option<ModelExtended>>,
-}
-
-impl ModelExtended {
-    fn append<'model>(&'model mut self, other: &'model mut ModelExtended) {
-        self.names.append(&mut other.names);
-        self.types.append(&mut other.types);
-        self.extension.append(&mut other.extension);
-    }
+#[derive(Debug, PartialEq, Eq, Hash, Default)]
+pub enum ModelExtended {
+    Terminal,
+    Recursive,
+    #[default]
+    IsEmpty,
+    Model {
+        names: ModelNames,
+        types: ModelTypes,
+        extension: Vec<ModelExtended>,
+    },
 }
 
 impl Model {
-    pub fn extended<'s, 'system: 's>(self, system_classes: &'system [&Class]) -> ModelExtended {
-        let extension: Vec<_> = self
-            .types()
+    pub fn extended<'s, 'system: 's>(self, system_classes: &'system [Class]) -> ModelExtended {
+        self.extended_helper(&mut ModelTypes::new(Vec::new()), system_classes)
+    }
+    fn extended_helper(self, visited: &mut ModelTypes, system_classes: &[Class]) -> ModelExtended {
+        let Model(names, types) = self;
+        if names.is_empty() {
+            return ModelExtended::IsEmpty;
+        }
+        let extension: Vec<_> = types
             .iter()
-            .map(|r#type| {
-                if r#type.is_terminal_for_model() {
-                    None
-                } else {
-                    let base_class_name = r#type.class(system_classes.iter().copied());
-                    base_class_name
-                        .full_model(system_classes)
-                        .cloned()
-                        .map(|nested_model| nested_model.extended(system_classes))
-                        .reduce(|mut acc, ref mut ext| {
-                            acc.append(ext);
-                            acc
-                        })
+            .map(|t| {
+                if t.is_terminal_for_model() {
+                    return ModelExtended::Terminal;
                 }
+                if visited.iter().find(|&visited| t == visited).is_some() {
+                    return ModelExtended::Recursive;
+                }
+
+                visited.extend(types.iter().cloned());
+
+                let base_class_name = t.class(system_classes.iter());
+                base_class_name
+                    .model_with_inheritance(system_classes)
+                    .extended_helper(visited, system_classes)
             })
             .collect();
-        ModelExtended {
-            names: self.0,
-            types: self.1,
+
+        ModelExtended::Model {
+            names,
+            types,
             extension,
         }
     }
 }
 
 impl ModelExtended {
-    fn fmt_helper(&self, indent: usize) -> String {
-        self.names
-            .iter()
-            .zip(self.types.iter())
-            .zip(self.extension.iter())
-            .fold(String::new(), |mut acc, ((name, r#type), ext)| {
-                if !acc.is_empty() {
-                    acc.push(';');
-                    acc.push('\n');
+    pub fn fmt_indented(&self, indent: usize) -> String {
+        let mut text = String::new();
+        (0..indent).for_each(|_| text.push('\t'));
+
+        match self {
+            ModelExtended::Terminal => {
+                text.push_str(
+                    "its model is terminal, no qualified call is allowed on this value.\n",
+                );
+            }
+            ModelExtended::Recursive => text.push_str("its model is recursive.\n"),
+            ModelExtended::IsEmpty => text.push_str("its model is empty.\n"),
+            ModelExtended::Model {
+                names,
+                types,
+                extension,
+            } => {
+                text.push_str("its model is: ");
+                for ((name, ty), ext) in names.iter().zip(types.iter()).zip(extension) {
+                    text.push_str(format!("{name}: {ty}").as_str());
+                    text.push('\n');
+                    text.push_str(ext.fmt_indented(indent + 1).as_str());
                 }
-
-                (0..indent).for_each(|_| acc.push('\t'));
-
-                acc.push_str(format!("{name}: {type}").as_str());
-
-                if let Some(ext) = ext {
-                    acc.push('\n');
-                    acc.push_str(ext.fmt_helper(indent + 1).as_str());
-                }
-                acc
-            })
+            }
+        };
+        text
     }
+}
+
+impl Indent for ModelExtended {
+    const INDENTATION_LEVEL: usize = Model::INDENTATION_LEVEL;
 }
 
 impl Display for ModelExtended {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = self.fmt_helper(0);
+        let text = self.fmt_indented(0);
         write!(f, "{text}")
     }
 }
@@ -222,7 +241,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extended_model() {
+    fn extended_model() -> anyhow::Result<()> {
         let src_client = "
     note
         model: nested
@@ -247,42 +266,46 @@ mod tests {
     		end
     end
     ";
-        let client = Class::from_source(src_client);
-        let supplier = Class::from_source(src_supplier);
-        let system_classes = vec![&client, &supplier];
+        let system_classes = vec![Class::parse(src_client)?, Class::parse(src_supplier)?];
+        let client = &system_classes[0];
 
         let top_model = client.model().clone().extended(&system_classes);
 
         eprintln!("{top_model:?}");
 
-        let nested_model = top_model
-            .extension
-            .first()
-            .expect("Nested model.")
-            .as_ref()
-            .unwrap();
+        let ModelExtended::Model {
+            names,
+            types,
+            extension,
+        } = top_model
+        else {
+            panic!("top model must be populated.")
+        };
 
-        assert_eq!(top_model.names.len(), 1);
-        assert_eq!(top_model.names.first().unwrap(), "nested");
+        assert_eq!(names.len(), 1);
+        assert_eq!(names.first().unwrap(), "nested");
+        assert_eq!(types.len(), 1);
+        assert_eq!(types.first().unwrap().class_name().unwrap(), "NEW_INTEGER");
 
-        assert_eq!(top_model.types.len(), 1);
-        assert_eq!(
-            top_model.types.first().unwrap().class_name().unwrap(),
-            "NEW_INTEGER"
-        );
+        let Some(ModelExtended::Model {
+            names,
+            types,
+            extension,
+        }) = extension.first()
+        else {
+            panic!("nested model must be populated.")
+        };
 
-        assert_eq!(nested_model.names.len(), 1);
-        assert_eq!(nested_model.names.first().unwrap(), "value");
+        assert_eq!(names.len(), 1);
+        assert_eq!(names.first().unwrap(), "value");
 
-        assert_eq!(nested_model.types.len(), 1);
-        assert_eq!(
-            nested_model.types.first().unwrap().class_name().unwrap(),
-            "INTEGER"
-        );
+        assert_eq!(types.len(), 1);
+        assert_eq!(types.first().unwrap().class_name().unwrap(), "INTEGER");
+        Ok(())
     }
 
     #[test]
-    fn extended_model2() {
+    fn extended_model2() -> anyhow::Result<()> {
         let src_client = "
     note
         model: x
@@ -315,43 +338,64 @@ mod tests {
     		end
     end
     ";
-        let client = Class::from_source(src_client);
-        let client2 = Class::from_source(src_client2);
-        let supplier = Class::from_source(src_supplier);
-        let system_classes = vec![&client, &client2, &supplier];
+        let system_classes = vec![
+            Class::parse(src_client)?,
+            Class::parse(src_client2)?,
+            Class::parse(src_supplier)?,
+        ];
 
-        let model = client.model().clone().extended(&system_classes);
+        let client = &system_classes[0];
+        let client2 = &system_classes[1];
 
-        assert_eq!(model.extension.len(), 1);
-        assert_eq!(model.extension.first().unwrap(), &None);
-        assert_eq!(model.names.len(), 1);
-        assert_eq!(model.names.first().unwrap(), "x");
+        let ModelExtended::Model {
+            names,
+            types,
+            extension,
+        } = client.model().clone().extended(&system_classes)
+        else {
+            panic!("client must have a populated model.")
+        };
 
-        assert_eq!(model.types.len(), 1);
-        assert_eq!(
-            model.types.first().unwrap().class_name().unwrap(),
-            "INTEGER"
-        );
+        assert_eq!(extension.len(), 1);
+        assert_eq!(extension.first().unwrap(), &ModelExtended::Terminal);
+        assert_eq!(names.len(), 1);
+        assert_eq!(names.first().unwrap(), "x");
 
-        let model = client2.model().clone().extended(&system_classes);
+        assert_eq!(types.len(), 1);
+        assert_eq!(types.first().unwrap().class_name().unwrap(), "INTEGER");
 
-        assert_eq!(model.names.len(), 1);
-        assert_eq!(model.names.first().unwrap(), "nested");
-        assert_eq!(model.types.len(), 1);
-        assert_eq!(
-            model.types.first().unwrap().class_name().unwrap(),
-            "NEW_INTEGER"
-        );
-        assert_eq!(model.extension.len(), 1);
-        let n = model.extension.first().unwrap().as_ref().unwrap();
-        assert_eq!((&n.names).len(), 1);
-        assert_eq!((&n.names).first().unwrap(), "value");
-        assert_eq!((&n.types).len(), 1);
-        assert_eq!((&n.types).first().unwrap().class_name().unwrap(), "INTEGER");
+        let ModelExtended::Model {
+            names,
+            types,
+            extension,
+        } = client2.model().clone().extended(&system_classes)
+        else {
+            panic!("client must have a populated model.")
+        };
+
+        assert_eq!(names.len(), 1);
+        assert_eq!(names.first().unwrap(), "nested");
+        assert_eq!(types.len(), 1);
+        assert_eq!(types.first().unwrap().class_name().unwrap(), "NEW_INTEGER");
+        assert_eq!(extension.len(), 1);
+
+        let Some(ModelExtended::Model {
+            names,
+            types,
+            extension: _,
+        }) = extension.first()
+        else {
+            panic!("client must have a populated model.")
+        };
+        assert_eq!((names).len(), 1);
+        assert_eq!((names).first().unwrap(), "value");
+        assert_eq!((types).len(), 1);
+        assert_eq!((types).first().unwrap().class_name().unwrap(), "INTEGER");
+        Ok(())
     }
 
     #[test]
-    fn display_extended_model() {
+    fn display_extended_model() -> anyhow::Result<()> {
         let src_client = "
     note
         model: nested
@@ -376,14 +420,15 @@ mod tests {
     		end
     end
     ";
-        let client = Class::from_source(src_client);
-        let supplier = Class::from_source(src_supplier);
-        let system_classes = vec![&client, &supplier];
+        let system_classes = vec![Class::parse(src_client)?, Class::parse(src_supplier)?];
 
-        let mut ext_model = client.full_extended_model(&system_classes);
-        let first = ext_model.next().unwrap();
-        assert!(ext_model.next().is_none());
-        eprintln!("{first}");
-        assert_eq!(format!("{first}"), "nested: NEW_INTEGER\n\tvalue: INTEGER");
+        let client = &system_classes[0];
+
+        let model = client.model_extended(&system_classes);
+        assert_eq!(
+            format!("{model}"),
+            "its model is: nested: NEW_INTEGER\n\tits model is: value: INTEGER\n\t\tits model is terminal, no qualified call is allowed on this value.\n"
+        );
+        Ok(())
     }
 }

@@ -1,23 +1,28 @@
 use crate::lib::tree_sitter_extension::capture_name_to_nodes;
 use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
-use gemini::{Described, ResponseSchema, ToResponseSchema};
-use gemini_macro_derive::ToResponseSchema;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
 use tracing::info;
-use tree_sitter::{Node, Query, QueryCursor, Tree};
+use tree_sitter::Node;
+use tree_sitter::Query;
+use tree_sitter::QueryCursor;
+use tree_sitter::Tree;
 
 use super::*;
 
-#[derive(Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+#[schemars(description = "A valid contract clause of the eiffel programming language.")]
 pub struct Clause {
     pub tag: Tag,
     pub predicate: Predicate,
 }
+
 impl Default for Clause {
     fn default() -> Self {
         Self {
@@ -29,20 +34,24 @@ impl Default for Clause {
 impl Fix for Clause {
     fn fix_syntax(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
-        self.tag
+        info!(target: "llm", "clause before fix:\t{self}");
+        let val = self
+            .tag
             .fix_syntax(system_classes, current_class, current_feature)
             && self
                 .predicate
-                .fix_syntax(system_classes, current_class, current_feature)
+                .fix_syntax(system_classes, current_class, current_feature);
+        info!(target: "llm", "clause fixed:\t{val}\tclause after fix:\t{self}");
+        val
     }
 
     fn fix_identifiers(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -55,7 +64,7 @@ impl Fix for Clause {
 
     fn fix_calls(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -68,7 +77,11 @@ impl Fix for Clause {
 }
 impl Parse for Clause {
     type Error = anyhow::Error;
-    fn parse(assertion_clause: &Node, cursor: &mut QueryCursor, src: &str) -> anyhow::Result<Self> {
+    fn parse_through(
+        assertion_clause: &Node,
+        cursor: &mut QueryCursor,
+        src: &str,
+    ) -> anyhow::Result<Self> {
         debug_assert_eq!(assertion_clause.kind(), "assertion_clause");
         debug_assert!(assertion_clause.child_count() > 0);
 
@@ -100,9 +113,20 @@ impl Clause {
     pub fn new(tag: Tag, predicate: Predicate) -> Clause {
         Clause { tag, predicate }
     }
+    pub fn from_line(line: &str) -> Option<Clause> {
+        line.rsplit_once(": ").map(|(tag_str, predicate_str)| {
+            Clause::new(
+                Tag::new(tag_str.trim()),
+                Predicate::new(predicate_str.trim()),
+            )
+        })
+    }
 }
-#[derive(Deserialize, Clone, ToResponseSchema, Debug, PartialEq, Eq, Hash)]
+
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq, Hash, JsonSchema)]
 #[serde(transparent)]
+#[schemars(deny_unknown_fields)]
+#[schemars(description = "A valid tag clause for the Eiffel programming language.")]
 pub struct Tag(String);
 
 impl Tag {
@@ -123,7 +147,7 @@ impl Default for Tag {
 impl Fix for Tag {
     fn fix_syntax(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         _current_feature: &Feature,
     ) -> bool {
@@ -141,8 +165,11 @@ impl From<String> for Tag {
         Tag(value)
     }
 }
-#[derive(Hash, Deserialize, ToResponseSchema, Debug, PartialEq, Eq, Clone)]
+
+#[derive(Hash, Deserialize, Debug, PartialEq, Eq, Clone, JsonSchema)]
 #[serde(transparent)]
+#[schemars(deny_unknown_fields)]
+#[schemars(description = "A valid boolean expression for the Eiffel programming language.")]
 pub struct Predicate(String);
 
 impl Predicate {
@@ -251,7 +278,7 @@ impl Default for Predicate {
 impl Fix for Predicate {
     fn fix_syntax(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         _current_feature: &Feature,
     ) -> bool {
@@ -266,7 +293,7 @@ impl Fix for Predicate {
 
     fn fix_identifiers(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -279,8 +306,9 @@ impl Fix for Predicate {
                 .any(|feature| {
                     current_feature
                         .parameters()
+                        .names()
                         .iter()
-                        .any(|(name, _)| name == identifier)
+                        .any(|name| name == identifier)
                         || (identifier == feature.name())
                 })
         })
@@ -289,7 +317,7 @@ impl Fix for Predicate {
     /// NOTE: For now only checks the number of arguments of each unqualified call is correct.
     fn fix_calls(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
@@ -313,27 +341,9 @@ impl Display for Predicate {
     }
 }
 
-impl Described for Clause {
-    fn description() -> String {
-        String::from("A valid contract clause of the eiffel programming language.")
-    }
-}
-impl Described for Tag {
-    fn description() -> String {
-        "A valid tag clause for the Eiffel programming language.".to_string()
-    }
-}
-impl Described for Predicate {
-    fn description() -> String {
-        "A valid boolean expression for the Eiffel programming language.".to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Result;
-    use gemini::SchemaType;
 
     #[test]
     fn parse_clause() {
@@ -365,82 +375,13 @@ end"#;
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
 
         let node = captures.next().unwrap().0.captures[0].node;
-        let clause = Clause::parse(&node, &mut binding, &src).expect("Parse feature");
+        let clause = Clause::parse_through(&node, &mut binding, &src).expect("Parse feature");
         assert_eq!(clause.tag, Tag::from(String::new()));
         assert_eq!(clause.predicate, Predicate::new("True".to_string()));
     }
 
-    // BEGIN: For gemini completions.
-    // When the LSP grows in maturity, gemini will be decoupled and these tests will be moved to a compatibility layer.
     #[test]
-    fn clause_response_schema() -> Result<()> {
-        let response_schema = Clause::to_response_schema();
-        let oracle_schema_type = SchemaType::Object;
-        let oracle_format = None;
-        let oracle_description = Some(Clause::description());
-        let oracle_nullable = None;
-        let oracle_possibilities = None;
-        let oracle_max_items = None;
-        let oracle_properties = Some(std::collections::HashMap::from([
-            (String::from("tag"), Tag::to_response_schema()),
-            (String::from("predicate"), Predicate::to_response_schema()),
-        ]));
-        let oracle_required = Some(vec![String::from("tag"), String::from("predicate")]);
-        let oracle_items = None;
-        assert_eq!(response_schema.schema_type, oracle_schema_type);
-        assert_eq!(response_schema.format, oracle_format);
-        assert_eq!(response_schema.description, oracle_description);
-        assert_eq!(response_schema.nullable, oracle_nullable);
-        assert_eq!(response_schema.possibilities, oracle_possibilities);
-        assert_eq!(response_schema.max_items, oracle_max_items);
-        assert_eq!(response_schema.properties, oracle_properties);
-        assert_eq!(
-            response_schema.required.map(|r| r
-                .clone()
-                .into_iter()
-                .collect::<std::collections::HashSet<_>>()),
-            oracle_required.map(|r| { r.clone().into_iter().collect() })
-        );
-        assert_eq!(response_schema.items, oracle_items);
-        Ok(())
-    }
-    #[test]
-    fn tag_response_schema() -> Result<()> {
-        let response_schema = Tag::to_response_schema();
-        let oracle_response = ResponseSchema {
-            schema_type: SchemaType::String,
-            format: None,
-            description: Some(Tag::description()),
-            nullable: None,
-            possibilities: None,
-            max_items: None,
-            properties: None,
-            required: None,
-            items: None,
-        };
-        assert_eq!(response_schema, oracle_response);
-        Ok(())
-    }
-    #[test]
-    fn predicate_response_schema() -> Result<()> {
-        let response_schema = Predicate::to_response_schema();
-        let oracle_response = ResponseSchema {
-            schema_type: SchemaType::String,
-            format: None,
-            description: Some(Predicate::description()),
-            nullable: None,
-            possibilities: None,
-            max_items: None,
-            properties: None,
-            required: None,
-            items: None,
-        };
-        assert_eq!(response_schema, oracle_response);
-        Ok(())
-    }
-    // END: For gemini completion
-    #[test]
-    fn fix_predicate_syntax() {
+    fn fix_predicate_syntax() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -455,18 +396,19 @@ end"#;
                     end
             end
         ";
-        let c = Class::from_source(src);
+        let sc = vec![Class::parse(src)?];
+        let c = &sc[0];
         let f = c.features().first().unwrap();
-        let sc = vec![&c];
 
         let mut invalid_predicate = Predicate::new("min min");
         let mut valid_predicate = Predicate::new("min (x, y)");
         assert!(!invalid_predicate.fix_syntax(&sc, &c, f));
         assert!(valid_predicate.fix_syntax(&sc, &c, f));
         assert_eq!(valid_predicate, Predicate::new("min (x, y)"));
+        Ok(())
     }
     #[test]
-    fn fix_tag_syntax() {
+    fn fix_tag_syntax() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -481,9 +423,9 @@ end"#;
                     end
             end
         ";
-        let c = Class::from_source(src);
+        let sc = vec![Class::parse(src)?];
+        let c = &sc[0];
         let f = c.features().first().unwrap();
-        let sc = vec![&c];
 
         let mut invalid_tag: Tag = String::from("this was not valid").into();
         let mut valid_tag: Tag = String::from("this_is_valid").into();
@@ -491,6 +433,7 @@ end"#;
         assert!(invalid_tag == Tag::new("this_was_not_valid"));
         assert!(valid_tag.fix_syntax(&sc, &c, f));
         assert!(valid_tag == Tag::new("this_is_valid"));
+        Ok(())
     }
     #[test]
     fn predicate_identifiers() {
@@ -511,7 +454,7 @@ end"#;
         assert!(ids.len() == 3);
     }
     #[test]
-    fn fix_predicates_identifiers() {
+    fn fix_predicates_identifiers() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -523,13 +466,13 @@ end"#;
                     end
             end
         ";
-        let class = Class::from_source(src);
+        let system_classes = vec![Class::parse(src)?];
+        let class = &system_classes[0];
         let feature = class
             .features()
             .iter()
             .find(|f| f.name() == "y".to_string())
             .expect("parse feature y");
-        let system_classes = vec![&class];
 
         // Create an invalid and a valid predicates.
         let mut invalid_predicate = Predicate(String::from("z"));
@@ -537,9 +480,10 @@ end"#;
 
         assert!(!invalid_predicate.fix_identifiers(&system_classes, &class, feature));
         assert!(valid_predicate.fix_identifiers(&system_classes, &class, feature));
+        Ok(())
     }
     #[test]
-    fn fix_identifiers_predicate_ancestor() {
+    fn fix_identifiers_predicate_ancestor() -> anyhow::Result<()> {
         let parent_src = "
             class
                 B
@@ -560,8 +504,8 @@ end"#;
             end
         ";
 
-        let parent = Class::from_source(parent_src);
-        let child = Class::from_source(child_src);
+        let system_classes = vec![Class::parse(parent_src)?, Class::parse(child_src)?];
+        let child = &system_classes[1];
         let feature = child
             .features()
             .iter()
@@ -574,12 +518,12 @@ end"#;
             .find(|f| f.name() == "x")
             .is_none());
 
-        let system_classes = vec![&child, &parent];
         let mut valid_predicate = Predicate(String::from("x"));
         assert!(valid_predicate.fix_identifiers(&system_classes, &child, feature));
+        Ok(())
     }
     #[test]
-    fn fix_identifiers_in_predicate() {
+    fn fix_identifiers_in_predicate() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -590,16 +534,17 @@ end"#;
                     end
             end
         ";
-        let c = Class::from_source(src);
+        let system_classes = vec![Class::parse(src)?];
+        let c = &system_classes[0];
         let f = c.features().first().expect("first feature exists.");
         let mut vp = Predicate::new("f".to_string());
         let mut ip = Predicate::new("r".to_string());
-        let system_classes = vec![&c];
         assert!(vp.fix_identifiers(&system_classes, &c, f));
         assert!(!ip.fix_identifiers(&system_classes, &c, f));
+        Ok(())
     }
     #[test]
-    fn fix_calls_in_predicate() {
+    fn fix_calls_in_predicate() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -615,13 +560,13 @@ end"#;
                     end
             end
         ";
-        let c = Class::from_source(src);
+        let system_classes = vec![Class::parse(src)?];
+        let c = &system_classes[0];
         let f = c
             .features()
             .iter()
             .find(|f| f.name() == "y")
             .expect("first feature exists.");
-        let system_classes = vec![&c];
 
         let mut vp = Predicate::new("x (z)".to_string());
         let mut ip = Predicate::new("x (z, z)".to_string());
@@ -630,9 +575,10 @@ end"#;
         assert!(vp.fix_calls(&system_classes, &c, f));
         assert!(!ip.fix_calls(&system_classes, &c, f));
         assert!(!ip2.fix_calls(&system_classes, &c, f));
+        Ok(())
     }
     #[test]
-    fn fix_tag() {
+    fn fix_tag() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -647,9 +593,9 @@ end"#;
                     end
             end
         ";
-        let c = Class::from_source(src);
+        let sc = vec![Class::parse(src)?];
+        let c = &sc[0];
         let f = c.features().first().unwrap();
-        let sc = vec![&c];
 
         let mut tag = Tag("Not good enough".to_string());
         assert!(tag.fix(&sc, &c, &f));
@@ -658,6 +604,7 @@ end"#;
             tag,
             Tag("not_good_enough".to_string()),
             "tag is:\t{tag}\nBut it must be:\t`not_good_enough`"
-        )
+        );
+        Ok(())
     }
 }

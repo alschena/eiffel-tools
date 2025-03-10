@@ -11,22 +11,39 @@ pub use blocks::RoutineSpecification;
 
 mod clause;
 use clause::Clause;
+use tracing::info;
 
-pub(crate) trait Fix {
+pub(crate) trait Fix: Debug {
     fn fix(
         &mut self,
-        system_classes: &[&Class],
+        system_classes: &[Class],
         current_class: &Class,
         current_feature: &Feature,
     ) -> bool {
-        self.fix_syntax(system_classes, current_class, current_feature)
-            && self.fix_identifiers(system_classes, current_class, current_feature)
-            && self.fix_calls(system_classes, current_class, current_feature)
-            && self.fix_repetition(system_classes, current_class, current_feature)
+        if !self.fix_syntax(system_classes, current_class, current_feature) {
+            info!(target:"llm", "fail fix syntax {self:?}");
+            return false;
+        }
+
+        if !self.fix_identifiers(system_classes, current_class, current_feature) {
+            info!(target:"llm", "fail fix identifiers");
+            return false;
+        }
+
+        if !self.fix_calls(system_classes, current_class, current_feature) {
+            info!(target:"llm", "fail fix calls");
+            return false;
+        }
+
+        if !self.fix_repetition(system_classes, current_class, current_feature) {
+            info!(target:"llm", "fail fix repetition");
+            return false;
+        }
+        true
     }
     fn fix_syntax(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         _current_feature: &Feature,
     ) -> bool {
@@ -34,7 +51,7 @@ pub(crate) trait Fix {
     }
     fn fix_identifiers(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         _current_feature: &Feature,
     ) -> bool {
@@ -42,7 +59,7 @@ pub(crate) trait Fix {
     }
     fn fix_calls(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         _current_feature: &Feature,
     ) -> bool {
@@ -50,7 +67,7 @@ pub(crate) trait Fix {
     }
     fn fix_repetition(
         &mut self,
-        _system_classes: &[&Class],
+        _system_classes: &[Class],
         _current_class: &Class,
         _current_feature: &Feature,
     ) -> bool {
