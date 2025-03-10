@@ -40,10 +40,9 @@ impl Generators {
             file.path(),
             &system_classes,
         )?;
-        // Generate json with specifications
+        // Generate feature with specifications
         let completion_parameters = constructor_api::CompletionParameters {
-            messages: prompt.to_llm_messages(),
-            response_format: Some(OpenAIResponseFormat::json::<RoutineSpecification>()),
+            messages: prompt.to_llm_messages_code_output(),
             n: Some(50),
             ..Default::default()
         };
@@ -74,5 +73,59 @@ impl Generators {
             .collect();
 
         Ok(completion_response_processed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lib::generators::constructor_api::CompletionParameters;
+    use crate::lib::generators::constructor_api::MessageOut;
+    use crate::lib::generators::constructor_api::LLM;
+    use crate::lib::tree_sitter_extension::Parse;
+
+    #[tokio::test]
+    async fn extract_from_code_output() -> anyhow::Result<()> {
+        let llm = LLM::try_new().await?;
+        let system_message_content = r#"You are a coding assistant, expert in the Eiffel programming language and in formal methods.
+You have extensive training in the usage of AutoProof, the static verifier of Eiffel.
+You will receive a prompt in eiffel code with holes of the form <ADD_*>.
+Write only model-based contracts, i.e. all qualified calls in all contract clauses will refer to the model of the target class and all unqualified calls in all contract clauses will refer to the model of the current class or its ancestors.
+Respond with the same code, substituting the holes with valid eiffel code.            
+"#;
+        let user_message_content = r#"-- For the current class and its ancestors, the model is value: INTEGER
+-- the model is implemented in Boogie.
+-- For the argument other: NEW_INTEGER
+--  the model is value: INTEGER
+--    the model is terminal, no qualified call on it is allowed.
+smaller (other: NEW_INTEGER): BOOLEAN
+	do
+		Result := value < other.value
+	ensure
+		Result = (value < other.value)
+	end
+	
+"#;
+        let messages = vec![
+            MessageOut::new_system(system_message_content.to_string()),
+            MessageOut::new_user(user_message_content.to_string()),
+        ];
+        let llm_parameters = CompletionParameters {
+            messages,
+            model: constructor_api::EnumLanguageModel::GeminiPro,
+            ..Default::default()
+        };
+        let output = llm.model_complete(&llm_parameters).await?;
+        let specs: Vec<RoutineSpecification> = output
+            .extract_multiline_code()
+            .into_iter()
+            .inspect(|code| eprintln!("{code}"))
+            .map(|code| {
+                Feature::parse(&code).expect("parsing must succed (possibly with error nodes).")
+            })
+            .map(|ft| ft.routine_specification())
+            .inspect(|spec| eprintln!("{spec:#?}"))
+            .collect();
+        Ok(())
     }
 }

@@ -305,6 +305,14 @@ impl Feature {
     pub fn postconditions(&self) -> Option<&Postcondition> {
         self.postconditions.as_ref().map(|b| b.item())
     }
+    pub fn routine_specification(&self) -> RoutineSpecification {
+        let postcondition = self.postconditions().cloned().unwrap_or_default();
+        let precondition = self.preconditions().cloned().unwrap_or_default();
+        RoutineSpecification {
+            precondition,
+            postcondition,
+        }
+    }
     pub fn has_precondition(&self) -> bool {
         self.preconditions().is_some_and(|p| !p.is_empty())
     }

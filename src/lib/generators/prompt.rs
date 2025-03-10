@@ -17,9 +17,9 @@ impl Default for Prompt {
             system_message: (String::from(
                 r#"You are a coding assistant, expert in the Eiffel programming language and in formal methods.
 You have extensive training in the usage of AutoProof, the static verifier of Eiffel.
-You will write only model-based contracts, i.e. all qualified calls in all contract clauses will refer to the model of the target class and all unqualified calls in all contract clauses will refer to the model of the current class or its ancestors.
 You will receive a prompt in eiffel code with holes of the form <ADD_*>.
-You will respond with the same code, substituting the holes with valid eiffel code.
+Write only model-based contracts, i.e. all qualified calls in all contract clauses will refer to the model of the target class and all unqualified calls in all contract clauses will refer to the model of the current class or its ancestors.
+Respond with the same code, substituting the holes with valid eiffel code.
 "#,
             )),
             source: String::new(),
@@ -209,7 +209,7 @@ impl Prompt {
         }
         text
     }
-    pub fn to_llm_messages(self) -> Vec<super::constructor_api::MessageOut> {
+    pub fn to_llm_messages_code_output(self) -> Vec<super::constructor_api::MessageOut> {
         let system_message = self.system_message;
         let source = self.source;
 
@@ -229,6 +229,7 @@ mod tests {
     use super::super::constructor_api::MessageOut;
     use super::*;
     use crate::lib::processed_file::ProcessedFile;
+    use crate::lib::tree_sitter_extension::Parse;
     use assert_fs::prelude::*;
     use assert_fs::{fixture::FileWriteStr, TempDir};
 
@@ -293,7 +294,7 @@ end
         prompt.add_model_of_current_injections(&class_model);
         prompt.add_model_of_parameters_injections(feature, &system_classes);
 
-        let messages = prompt.clone().to_llm_messages();
+        let messages = prompt.clone().to_llm_messages_code_output();
         eprintln!("{messages:#?}");
 
         let system_message = MessageOut::new_system(prompt.system_message);

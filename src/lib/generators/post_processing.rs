@@ -1,7 +1,7 @@
 use super::constructor_api::CompletionResponse;
 
 impl CompletionResponse {
-    fn extract_multiline_code(&self) -> Vec<String> {
+    pub fn extract_multiline_code(&self) -> Vec<String> {
         self.contents()
             .map(|content| {
                 content
