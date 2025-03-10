@@ -84,6 +84,7 @@ mod tests {
     use crate::lib::generators::constructor_api::LLM;
     use crate::lib::tree_sitter_extension::Parse;
 
+    #[ignore]
     #[tokio::test]
     async fn extract_from_code_output() -> anyhow::Result<()> {
         let llm = LLM::try_new().await?;
