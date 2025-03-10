@@ -110,7 +110,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fix_repetition_in_preconditions() {
+    fn fix_repetition_in_preconditions() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -125,7 +125,7 @@ mod tests {
                     end
             end
         ";
-        let sc = vec![Class::from_source(src)];
+        let sc = vec![Class::parse(src)?];
         let c = &sc[0];
         let f = c.features().first().unwrap();
 
@@ -138,10 +138,11 @@ mod tests {
         assert!(fp.fix(&sc, &c, f));
         assert!(fp
             .first()
-            .is_some_and(|p| p.predicate == Predicate::new("f = r")))
+            .is_some_and(|p| p.predicate == Predicate::new("f = r")));
+        Ok(())
     }
     #[test]
-    fn parse_precondition() {
+    fn parse_precondition() -> anyhow::Result<()> {
         let src = r#"
 class A feature
   x
@@ -150,7 +151,7 @@ class A feature
     do
     end
 end"#;
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
         let feature = class
             .features()
             .first()
@@ -173,5 +174,6 @@ end"#;
 
         assert_eq!(*predicate, Predicate::new("True".to_string()));
         assert_eq!(*tag, Tag::new(""));
+        Ok(())
     }
 }

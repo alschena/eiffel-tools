@@ -32,7 +32,11 @@ impl DerefMut for ModelNames {
 impl Parse for ModelNames {
     type Error = anyhow::Error;
 
-    fn parse(node: &Node, query_cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(
+        node: &Node,
+        query_cursor: &mut QueryCursor,
+        src: &str,
+    ) -> Result<Self, Self::Error> {
         let name_query = Self::query(
             r#"(class_declaration
             (notes (note_entry
@@ -237,7 +241,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extended_model() {
+    fn extended_model() -> anyhow::Result<()> {
         let src_client = "
     note
         model: nested
@@ -262,10 +266,7 @@ mod tests {
     		end
     end
     ";
-        let system_classes = vec![
-            Class::from_source(src_client),
-            Class::from_source(src_supplier),
-        ];
+        let system_classes = vec![Class::parse(src_client)?, Class::parse(src_supplier)?];
         let client = &system_classes[0];
 
         let top_model = client.model().clone().extended(&system_classes);
@@ -300,10 +301,11 @@ mod tests {
 
         assert_eq!(types.len(), 1);
         assert_eq!(types.first().unwrap().class_name().unwrap(), "INTEGER");
+        Ok(())
     }
 
     #[test]
-    fn extended_model2() {
+    fn extended_model2() -> anyhow::Result<()> {
         let src_client = "
     note
         model: x
@@ -337,9 +339,9 @@ mod tests {
     end
     ";
         let system_classes = vec![
-            Class::from_source(src_client),
-            Class::from_source(src_client2),
-            Class::from_source(src_supplier),
+            Class::parse(src_client)?,
+            Class::parse(src_client2)?,
+            Class::parse(src_supplier)?,
         ];
 
         let client = &system_classes[0];
@@ -389,10 +391,11 @@ mod tests {
         assert_eq!((names).first().unwrap(), "value");
         assert_eq!((types).len(), 1);
         assert_eq!((types).first().unwrap().class_name().unwrap(), "INTEGER");
+        Ok(())
     }
 
     #[test]
-    fn display_extended_model() {
+    fn display_extended_model() -> anyhow::Result<()> {
         let src_client = "
     note
         model: nested
@@ -417,10 +420,7 @@ mod tests {
     		end
     end
     ";
-        let system_classes = vec![
-            Class::from_source(src_client),
-            Class::from_source(src_supplier),
-        ];
+        let system_classes = vec![Class::parse(src_client)?, Class::parse(src_supplier)?];
 
         let client = &system_classes[0];
 
@@ -429,5 +429,6 @@ mod tests {
             format!("{model}"),
             "its model is: nested: NEW_INTEGER\n\tits model is: value: INTEGER\n\t\tits model is terminal, no qualified call is allowed on this value.\n"
         );
+        Ok(())
     }
 }

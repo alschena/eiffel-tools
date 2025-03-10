@@ -1,6 +1,6 @@
 use super::prelude::*;
 use crate::lib::tree_sitter_extension::{capture_name_to_nodes, node_to_text, Parse};
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use async_lsp::lsp_types;
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -178,17 +178,6 @@ impl Class {
     pub fn add_parent(&mut self, parent: Parent) {
         self.parents.push(parent)
     }
-    #[cfg(test)]
-    pub fn from_source(source: &str) -> Class {
-        let mut parser = ::tree_sitter::Parser::new();
-        let lang = tree_sitter_eiffel::LANGUAGE.into();
-        parser
-            .set_language(&lang)
-            .expect("Error loading Eiffel grammar");
-        let tree = parser.parse(source, None).unwrap();
-        Class::parse(&tree.root_node(), &mut QueryCursor::new(), source)
-            .expect("fails to parse class from given source code.")
-    }
 }
 impl Indent for Class {
     const INDENTATION_LEVEL: usize = 1;
@@ -198,7 +187,7 @@ impl Parse for Class {
     type Error = anyhow::Error;
 
     #[instrument(skip_all)]
-    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> anyhow::Result<Self> {
+    fn parse_through(node: &Node, cursor: &mut QueryCursor, src: &str) -> anyhow::Result<Self> {
         let query = Self::query(
             "(class_declaration
             (class_name) @name
@@ -207,7 +196,9 @@ impl Parse for Class {
         );
 
         let mut matches = cursor.matches(&query, *node, src.as_bytes());
-        let class_match = matches.next().ok_or(anyhow!("File has no class."))?;
+        let class_match = matches.next().with_context(|| {
+            format!("fails to parse a class out of the file whose content is:\n{src}")
+        })?;
 
         let name = ClassName(
             node_to_text(
@@ -227,15 +218,16 @@ impl Parse for Class {
 
         let parents: Vec<Parent> = capture_name_to_nodes("parent", &query, class_match)
             .map(|ref node| {
-                Parent::parse(node, &mut QueryCursor::new(), src).expect("error parsing parent.")
+                Parent::parse_through(node, &mut QueryCursor::new(), src)
+                    .expect("error parsing parent.")
             })
             .collect();
 
         let features: Vec<Feature> = capture_name_to_nodes("feature", &query, class_match)
-            .filter_map(|ref node| Feature::parse(node, &mut QueryCursor::new(), src).ok())
+            .filter_map(|ref node| Feature::parse_through(node, &mut QueryCursor::new(), src).ok())
             .collect();
 
-        let model = Model::from_model_names(ModelNames::parse(node, cursor, src)?, &features);
+        let model = Model::from_model_names(ModelNames::parse_through(node, cursor, src)?, &features);
         Ok(Class {
             name,
             model,
@@ -303,7 +295,7 @@ impl Parse for Parent {
     type Error = anyhow::Error;
 
     #[instrument(skip_all)]
-    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
         debug_assert!(node.kind() == "parent");
 
         let query = Self::query(
@@ -355,13 +347,13 @@ mod tests {
     use tree_sitter;
 
     #[test]
-    fn parse_base_class() {
+    fn parse_base_class() -> anyhow::Result<()> {
         let src = "
     class A
     note
     end
         ";
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
 
         assert_eq!(
             class.name(),
@@ -370,10 +362,11 @@ mod tests {
             class.name(),
             "A"
         );
+        Ok(())
     }
 
     #[test]
-    fn parse_annotated_class() {
+    fn parse_annotated_class() -> anyhow::Result<()> {
         let src = "
 note
   demo_note: True
@@ -384,11 +377,12 @@ invariant
     note_after_invariant: True
 end
     ";
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
         assert_eq!(class.name(), "DEMO_CLASS");
+        Ok(())
     }
     #[test]
-    fn parse_procedure() {
+    fn parse_procedure() -> anyhow::Result<()> {
         let src = "
 class A feature
   f(x, y: INTEGER; z: BOOLEAN)
@@ -396,27 +390,29 @@ class A feature
     end
 end
 ";
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
         assert_eq!(class.name(), "A");
         eprintln!("{class:?}");
         assert_eq!(class.features().first().unwrap().name(), "f".to_string());
+        Ok(())
     }
 
     #[test]
-    fn parse_attribute() {
+    fn parse_attribute() -> anyhow::Result<()> {
         let src = "
 class A
 feature
     x: INTEGER
 end
 ";
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
         assert_eq!(class.name(), "A");
         eprintln!("{class:?}");
         assert_eq!(class.features().first().unwrap().name(), "x".to_string());
+        Ok(())
     }
     #[test]
-    fn parse_model() {
+    fn parse_model() -> anyhow::Result<()> {
         let src = "
 note
     model: seq
@@ -426,7 +422,7 @@ feature
     seq: MML_SEQUENCE [INTEGER]
 end
 ";
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
         assert_eq!(class.name(), "A");
         assert_eq!(
             class
@@ -437,9 +433,10 @@ end
             "x".to_string()
         );
         assert_eq!((class.model().names().first().expect("Model name")), "seq");
+        Ok(())
     }
     #[test]
-    fn parse_ancestors_names() {
+    fn parse_ancestors_names() -> anyhow::Result<()> {
         let src = "
 class A
 inherit {NONE}
@@ -449,7 +446,7 @@ inherit
   W
 end
 ";
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
         let mut ancestors = class.parents().into_iter();
 
         assert_eq!(class.name(), "A");
@@ -482,9 +479,10 @@ end
                 .name(),
             "W".to_string()
         );
+        Ok(())
     }
     #[test]
-    fn parse_ancestors_renames() {
+    fn parse_ancestors_renames() -> anyhow::Result<()> {
         let src = "
 class A
 inherit
@@ -492,7 +490,7 @@ inherit
     rename e as f
 end
 ";
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
         let mut ancestors = class.parents().into_iter();
 
         assert_eq!(
@@ -505,10 +503,11 @@ end
                 undefine: Vec::new()
             }
         );
+        Ok(())
     }
 
     #[test]
-    fn rename_inherit_features() {
+    fn rename_inherit_features() -> anyhow::Result<()> {
         let child_src = "
 class A
 inherit
@@ -529,9 +528,9 @@ feature
     x: BOOLEAN
 end
 ";
-        let grandparent = Class::from_source(grandparent_src);
-        let parent = Class::from_source(parent_src);
-        let child = Class::from_source(child_src);
+        let grandparent = Class::parse(grandparent_src)?;
+        let parent = Class::parse(parent_src)?;
+        let child = Class::parse(child_src)?;
         let system_classes = vec![grandparent.clone(), parent.clone(), child.clone()];
         let child_features = child.inhereted_features(&system_classes);
         let parent_features = parent.inhereted_features(&system_classes);
@@ -550,6 +549,7 @@ end
             "z",
             "child features"
         );
+        Ok(())
     }
 
     #[tokio::test]
@@ -576,7 +576,7 @@ end
         Ok(())
     }
     #[test]
-    fn parse_parent_classes() {
+    fn parse_parent_classes() -> anyhow::Result<()> {
         let src_child = "
     class A
     inherit {NONE}
@@ -604,18 +604,16 @@ end
         seq: MML_SEQUENCE [INTEGER]
     end
     ";
-        let system_classes = vec![
-            Class::from_source(src_child),
-            Class::from_source(src_parent),
-        ];
+        let system_classes = vec![Class::parse(src_child)?, Class::parse(src_parent)?];
         let child = &system_classes[0];
         let parent = &system_classes[1];
         let child_parents = child.parent_classes(&system_classes).collect::<Vec<_>>();
         assert_eq!(child_parents, vec![parent]);
+        Ok(())
     }
 
     #[test]
-    fn ancestor_classes() {
+    fn ancestor_classes() -> anyhow::Result<()> {
         let child_src = "
 class A
 inherit
@@ -637,9 +635,9 @@ feature
 end
 ";
         let system_classes = vec![
-            Class::from_source(child_src),
-            Class::from_source(parent_src),
-            Class::from_source(grandparent_src),
+            Class::parse(child_src)?,
+            Class::parse(parent_src)?,
+            Class::parse(grandparent_src)?,
         ];
         let child = &system_classes[0];
         let parent = &system_classes[1];
@@ -653,9 +651,10 @@ end
         let mut parent_ancestors = HashSet::new();
         parent_ancestors.insert(grandparent);
         assert_eq!(parent.ancestor_classes(&system_classes), parent_ancestors,);
+        Ok(())
     }
     #[test]
-    fn full_model() -> Result<()> {
+    fn full_model() -> anyhow::Result<()> {
         let src_child = "
     note
         model: seq_child
@@ -674,10 +673,7 @@ end
         seq_parent: MML_SEQUENCE [INTEGER]
     end
     ";
-        let system_classes = vec![
-            Class::from_source(src_child),
-            Class::from_source(src_parent),
-        ];
+        let system_classes = vec![Class::parse(src_child)?, Class::parse(src_parent)?];
         let child = &system_classes[0];
         let parent = &system_classes[1];
 
@@ -691,7 +687,7 @@ end
         Ok(())
     }
     #[test]
-    fn parameters_models() {
+    fn parameters_models() -> anyhow::Result<()> {
         let current_class = r#"class
     CLIENT
 feature
@@ -699,8 +695,9 @@ feature
         do
             a.value
         end
+end
 "#;
-        let current_class = Class::from_source(current_class);
+        let current_class = Class::parse(current_class)?;
         let src_class_of_argument = r#"note
 	model: value
 class
@@ -715,7 +712,7 @@ feature
 		end
 end
     "#;
-        let class_of_argument = Class::from_source(src_class_of_argument);
+        let class_of_argument = Class::parse(src_class_of_argument)?;
         let model = class_of_argument.model();
         eprintln!("clas_of_argument {class_of_argument:#?}");
         assert_eq!(format!("{model}"), "value: INTEGER", "model: {model}");
@@ -750,5 +747,6 @@ end
 
         assert_eq!(parameter_model_first_name, "value");
         assert_eq!(parameter_model_first_type, "INTEGER");
+        Ok(())
     }
 }

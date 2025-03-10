@@ -5,6 +5,7 @@ use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
 use anyhow::anyhow;
 use async_lsp::lsp_types;
+use contract::RoutineSpecification;
 use contract::{Block, Postcondition, Precondition};
 use std::borrow::Cow;
 use std::fmt::Display;
@@ -28,7 +29,7 @@ impl Deref for Notes {
 impl Parse for Notes {
     type Error = anyhow::Error;
 
-    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
         let query = Self::query("(notes (note_entry)* @note_entry)");
         let query_note_entry = Self::query("(note_entry (tag) @tag value: (_)* @value)");
 
@@ -132,7 +133,11 @@ impl EiffelType {
 impl Parse for EiffelType {
     type Error = anyhow::Error;
 
-    fn parse(node: &Node, query_cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(
+        node: &Node,
+        query_cursor: &mut QueryCursor,
+        src: &str,
+    ) -> Result<Self, Self::Error> {
         let eiffeltype = match node.kind() {
             "class_type" => {
                 let query = Self::query("(class_name) @classname");
@@ -198,7 +203,7 @@ impl Parameters {
 impl Parse for Parameters {
     type Error = anyhow::Error;
 
-    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
         debug_assert!(node.kind() == "formal_arguments");
 
         let parameter_query = Self::query(
@@ -218,7 +223,7 @@ impl Parse for Parameters {
 
             let names = name_to_nodes("name").map(|node| node_to_text(node).to_string());
 
-            let eiffeltype = EiffelType::parse(
+            let eiffeltype = EiffelType::parse_through(
                 &name_to_nodes("eiffeltype")
                     .next()
                     .expect("captured eiffel type."),
@@ -383,8 +388,8 @@ impl Indent for Feature {
 impl Parse for Feature {
     type Error = anyhow::Error;
     #[instrument(skip_all)]
-    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> anyhow::Result<Self> {
-        debug_assert!(node.kind() == "feature_declaration");
+    fn parse_through(node: &Node, cursor: &mut QueryCursor, src: &str) -> anyhow::Result<Self> {
+        debug_assert!(node.kind() == "feature_declaration" || node.parent().is_none());
 
         let query = Self::query(
             r#"
@@ -412,7 +417,7 @@ impl Parse for Feature {
 
             let parameters = capture_name_to_nodes("parameters", &query, mat)
                 .filter_map(|ref parameter_node| {
-                    Parameters::parse(parameter_node, &mut cursor, src).ok()
+                    Parameters::parse_through(parameter_node, &mut cursor, src).ok()
                 })
                 .next()
                 .unwrap_or_default();
@@ -420,14 +425,14 @@ impl Parse for Feature {
             let return_type = capture_name_to_nodes("return_type", &query, mat)
                 .next()
                 .map(|ref return_type_node| {
-                    EiffelType::parse(return_type_node, &mut cursor, src).ok()
+                    EiffelType::parse_through(return_type_node, &mut cursor, src).ok()
                 })
                 .flatten();
 
             let notes = capture_name_to_nodes("notes", &query, mat)
                 .next()
                 .map(|note_node| {
-                    Notes::parse(&note_node, &mut cursor, src)
+                    Notes::parse_through(&note_node, &mut cursor, src)
                         .ok()
                         .map(|notes| (notes, note_node.range()))
                 })
@@ -449,7 +454,7 @@ impl Parse for Feature {
                             .map(|aor_point| notes_range.map_or_else(|| aor_point, |r| r.end_point))
                             .map(|point| Block::new_empty(point.into()))
                     },
-                    |node| Block::<Precondition>::parse(&node, &mut cursor, src).ok(),
+                    |node| Block::<Precondition>::parse_through(&node, &mut cursor, src).ok(),
                 );
 
             let postconditions = capture_name_to_nodes("postcondition", &query, mat)
@@ -465,7 +470,7 @@ impl Parse for Feature {
                             })
                             .map(|point| Block::new_empty(point))
                     },
-                    |node| Block::<Postcondition>::parse(&node, &mut cursor, src).ok(),
+                    |node| Block::<Postcondition>::parse_through(&node, &mut cursor, src).ok(),
                 );
 
             feature = Some(Feature {
@@ -506,7 +511,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_feature_with_precondition() {
+    fn parse_feature_with_precondition() -> anyhow::Result<()> {
         let src = r#"
 class A feature
   x
@@ -520,7 +525,7 @@ class A feature
     do
     end
 end"#;
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
         eprintln!("{class:?}");
         let feature = class.features().first().expect("first features is `x`");
 
@@ -529,7 +534,8 @@ end"#;
         assert!(feature.preconditions().unwrap().first().is_some());
 
         let predicate = &feature.preconditions().unwrap().first().unwrap().predicate;
-        assert_eq!(predicate.as_str(), "True")
+        assert_eq!(predicate.as_str(), "True");
+        Ok(())
     }
 
     #[test]
@@ -556,7 +562,7 @@ end
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
         let node = captures.next().unwrap().0.captures[0].node;
 
-        let notes = Notes::parse(&node, &mut binding, &src).expect("Parse notes");
+        let notes = Notes::parse_through(&node, &mut binding, &src).expect("Parse notes");
         let Some((tag, value)) = notes.iter().next() else {
             panic!("no note entries were found.")
         };
@@ -589,7 +595,7 @@ end
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
         let node = captures.next().unwrap().0.captures[0].node;
 
-        let feature = Feature::parse(&node, &mut binding, &src).expect("Parse feature");
+        let feature = Feature::parse_through(&node, &mut binding, &src).expect("Parse feature");
         let Some(feature_notes) = feature.notes else {
             panic!("feature notes have not been parsed.")
         };
@@ -601,7 +607,7 @@ end
     }
 
     #[test]
-    fn parse_parameters() {
+    fn parse_parameters() -> anyhow::Result<()> {
         // Example feature
         let src = r#"
 class A feature
@@ -610,7 +616,7 @@ class A feature
     end
 end
         "#;
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
         let feature = class.features().first().expect("parsed feature.");
 
         assert_eq!(
@@ -629,6 +635,7 @@ end
                 ]
             }
         );
+        Ok(())
     }
 
     #[test]
@@ -652,7 +659,8 @@ end
         let mut binding = QueryCursor::new();
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
         let node = captures.next().unwrap().0.captures[0].node;
-        let feature = Feature::parse(&node, &mut binding, src).expect("fails to parse feature.");
+        let feature =
+            Feature::parse_through(&node, &mut binding, src).expect("fails to parse feature.");
 
         let return_type = feature.return_type().unwrap();
         assert_eq!(

@@ -26,8 +26,9 @@ impl ProcessedFile {
             String::from_utf8(tokio::fs::read(&path).await.expect("Failed to read file."))
                 .expect("Source code must be UTF8 encoded");
         let tree = parser.parse(&src, None).unwrap();
-        let Ok(class) = Class::parse(&tree.root_node(), &mut QueryCursor::new(), src.as_str())
-            .context("parsing class")
+        let Ok(class) =
+            Class::parse_through(&tree.root_node(), &mut QueryCursor::new(), src.as_str())
+                .context("parsing class")
         else {
             info!("fails to parse {:?}", &path);
             return None;
@@ -43,7 +44,7 @@ impl ProcessedFile {
     pub fn reload(&mut self, parser: &mut Parser) {
         let src = std::fs::read_to_string(self.path()).expect("read file.");
         let tree = parser.parse(&src, None).unwrap();
-        Class::parse(&tree.root_node(), &mut QueryCursor::new(), src.as_str())
+        Class::parse_through(&tree.root_node(), &mut QueryCursor::new(), src.as_str())
             .inspect(|_| {
                 info!("reloading file at {:#?}", self.path());
             })

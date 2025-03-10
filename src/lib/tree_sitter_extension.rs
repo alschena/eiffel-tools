@@ -21,9 +21,27 @@ pub fn capture_name_to_nodes<'tree, 'cursor, 'querymatch>(
 
 pub trait Parse: Sized {
     type Error;
+    fn parser() -> tree_sitter::Parser {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+        parser
+    }
     fn query(sexp: &str) -> Query {
         Query::new(&tree_sitter_eiffel::LANGUAGE.into(), sexp)
             .unwrap_or_else(|e| panic!("query:\t{sexp}\n\thas error: {e}"))
     }
-    fn parse(node: &Node, query_cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error>;
+    fn parse_through(
+        node: &Node,
+        query_cursor: &mut QueryCursor,
+        src: &str,
+    ) -> Result<Self, Self::Error>;
+
+    fn parse(src: &str) -> Result<Self, Self::Error> {
+        let mut parser = Self::parser();
+        let tree = parser.parse(&src, None).unwrap();
+
+        Self::parse_through(&tree.root_node(), &mut QueryCursor::new(), src)
+    }
 }

@@ -275,7 +275,7 @@ feature
 		end
 end
     "#;
-        let supplier = Class::from_source(&src_supplier);
+        let supplier = Class::parse(&src_supplier)?;
 
         let system_classes = vec![class.clone(), supplier.clone()];
         let class_model = class

@@ -77,7 +77,11 @@ impl Fix for Clause {
 }
 impl Parse for Clause {
     type Error = anyhow::Error;
-    fn parse(assertion_clause: &Node, cursor: &mut QueryCursor, src: &str) -> anyhow::Result<Self> {
+    fn parse_through(
+        assertion_clause: &Node,
+        cursor: &mut QueryCursor,
+        src: &str,
+    ) -> anyhow::Result<Self> {
         debug_assert_eq!(assertion_clause.kind(), "assertion_clause");
         debug_assert!(assertion_clause.child_count() > 0);
 
@@ -371,13 +375,13 @@ end"#;
         let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
 
         let node = captures.next().unwrap().0.captures[0].node;
-        let clause = Clause::parse(&node, &mut binding, &src).expect("Parse feature");
+        let clause = Clause::parse_through(&node, &mut binding, &src).expect("Parse feature");
         assert_eq!(clause.tag, Tag::from(String::new()));
         assert_eq!(clause.predicate, Predicate::new("True".to_string()));
     }
 
     #[test]
-    fn fix_predicate_syntax() {
+    fn fix_predicate_syntax() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -392,7 +396,7 @@ end"#;
                     end
             end
         ";
-        let sc = vec![Class::from_source(src)];
+        let sc = vec![Class::parse(src)?];
         let c = &sc[0];
         let f = c.features().first().unwrap();
 
@@ -401,9 +405,10 @@ end"#;
         assert!(!invalid_predicate.fix_syntax(&sc, &c, f));
         assert!(valid_predicate.fix_syntax(&sc, &c, f));
         assert_eq!(valid_predicate, Predicate::new("min (x, y)"));
+        Ok(())
     }
     #[test]
-    fn fix_tag_syntax() {
+    fn fix_tag_syntax() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -418,7 +423,7 @@ end"#;
                     end
             end
         ";
-        let sc = vec![Class::from_source(src)];
+        let sc = vec![Class::parse(src)?];
         let c = &sc[0];
         let f = c.features().first().unwrap();
 
@@ -428,6 +433,7 @@ end"#;
         assert!(invalid_tag == Tag::new("this_was_not_valid"));
         assert!(valid_tag.fix_syntax(&sc, &c, f));
         assert!(valid_tag == Tag::new("this_is_valid"));
+        Ok(())
     }
     #[test]
     fn predicate_identifiers() {
@@ -448,7 +454,7 @@ end"#;
         assert!(ids.len() == 3);
     }
     #[test]
-    fn fix_predicates_identifiers() {
+    fn fix_predicates_identifiers() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -460,7 +466,7 @@ end"#;
                     end
             end
         ";
-        let system_classes = vec![Class::from_source(src)];
+        let system_classes = vec![Class::parse(src)?];
         let class = &system_classes[0];
         let feature = class
             .features()
@@ -474,9 +480,10 @@ end"#;
 
         assert!(!invalid_predicate.fix_identifiers(&system_classes, &class, feature));
         assert!(valid_predicate.fix_identifiers(&system_classes, &class, feature));
+        Ok(())
     }
     #[test]
-    fn fix_identifiers_predicate_ancestor() {
+    fn fix_identifiers_predicate_ancestor() -> anyhow::Result<()> {
         let parent_src = "
             class
                 B
@@ -497,10 +504,7 @@ end"#;
             end
         ";
 
-        let system_classes = vec![
-            Class::from_source(parent_src),
-            Class::from_source(child_src),
-        ];
+        let system_classes = vec![Class::parse(parent_src)?, Class::parse(child_src)?];
         let child = &system_classes[1];
         let feature = child
             .features()
@@ -516,9 +520,10 @@ end"#;
 
         let mut valid_predicate = Predicate(String::from("x"));
         assert!(valid_predicate.fix_identifiers(&system_classes, &child, feature));
+        Ok(())
     }
     #[test]
-    fn fix_identifiers_in_predicate() {
+    fn fix_identifiers_in_predicate() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -529,16 +534,17 @@ end"#;
                     end
             end
         ";
-        let system_classes = vec![Class::from_source(src)];
+        let system_classes = vec![Class::parse(src)?];
         let c = &system_classes[0];
         let f = c.features().first().expect("first feature exists.");
         let mut vp = Predicate::new("f".to_string());
         let mut ip = Predicate::new("r".to_string());
         assert!(vp.fix_identifiers(&system_classes, &c, f));
         assert!(!ip.fix_identifiers(&system_classes, &c, f));
+        Ok(())
     }
     #[test]
-    fn fix_calls_in_predicate() {
+    fn fix_calls_in_predicate() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -554,7 +560,7 @@ end"#;
                     end
             end
         ";
-        let system_classes = vec![Class::from_source(src)];
+        let system_classes = vec![Class::parse(src)?];
         let c = &system_classes[0];
         let f = c
             .features()
@@ -569,9 +575,10 @@ end"#;
         assert!(vp.fix_calls(&system_classes, &c, f));
         assert!(!ip.fix_calls(&system_classes, &c, f));
         assert!(!ip2.fix_calls(&system_classes, &c, f));
+        Ok(())
     }
     #[test]
-    fn fix_tag() {
+    fn fix_tag() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -586,7 +593,7 @@ end"#;
                     end
             end
         ";
-        let sc = vec![Class::from_source(src)];
+        let sc = vec![Class::parse(src)?];
         let c = &sc[0];
         let f = c.features().first().unwrap();
 
@@ -597,6 +604,7 @@ end"#;
             tag,
             Tag("not_good_enough".to_string()),
             "tag is:\t{tag}\nBut it must be:\t`not_good_enough`"
-        )
+        );
+        Ok(())
     }
 }

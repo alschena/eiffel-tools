@@ -10,7 +10,7 @@ mod precondition;
 pub use postcondition::Postcondition;
 pub use precondition::Precondition;
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, JsonSchema)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Deserialize, JsonSchema, Default)]
 #[schemars(deny_unknown_fields)]
 #[schemars(
     description = "Hoare-style specifications of a given feature as preconditions and postconditions for AutoProof, Eiffel's static verifier."
@@ -130,7 +130,7 @@ mod tests {
     use super::super::clause::Tag;
     use super::*;
     #[test]
-    fn fix_routine_specification_wrt_repetition() {
+    fn fix_routine_specification_wrt_repetition() -> anyhow::Result<()> {
         let src = "
             class
                 A
@@ -145,7 +145,7 @@ mod tests {
                     end
             end
         ";
-        let system_classes = vec![Class::from_source(src)];
+        let system_classes = vec![Class::parse(src)?];
         let c = &system_classes[0];
         let f = c.features().first().unwrap();
 
@@ -201,5 +201,6 @@ mod tests {
             "fixed postconditions: {ipo2}",
         );
         assert_eq!(ipo2, vpo);
+        Ok(())
     }
 }

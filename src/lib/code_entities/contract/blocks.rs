@@ -1,4 +1,6 @@
+use crate::lib::tree_sitter_extension::capture_name_to_nodes;
 use crate::lib::tree_sitter_extension::Parse;
+use anyhow::anyhow;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::fmt::Debug;
@@ -65,15 +67,19 @@ impl<T: Display + Indent + Contract + Deref<Target = Vec<Clause>>> Display for B
 impl Parse for Block<Precondition> {
     type Error = anyhow::Error;
 
-    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(
+        node: &Node,
+        cursor: &mut QueryCursor,
+        src: &str,
+    ) -> Result<Self, Self::Error> {
         debug_assert!(node.kind() == "precondition");
         let query = Self::query("(assertion_clause (expression))* @assertion_clause");
 
         let clauses: Vec<_> = cursor
-            .matches(&query, node.clone(), src.as_bytes())
+            .matches(&query, *node, src.as_bytes())
             .map_deref(|mat| mat.captures)
             .flatten()
-            .filter_map(|cap| Clause::parse(&cap.node, &mut QueryCursor::new(), src).ok())
+            .filter_map(|cap| Clause::parse_through(&cap.node, &mut QueryCursor::new(), src).ok())
             .collect();
 
         Ok(Self::new(clauses.into(), node.range().into()))
@@ -82,18 +88,110 @@ impl Parse for Block<Precondition> {
 impl Parse for Block<Postcondition> {
     type Error = anyhow::Error;
 
-    fn parse(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(
+        node: &Node,
+        cursor: &mut QueryCursor,
+        src: &str,
+    ) -> Result<Self, Self::Error> {
         debug_assert!(node.kind() == "postcondition");
         let query = Self::query("(assertion_clause (expression))* @assertion_clause");
 
         let clauses: Vec<_> = cursor
-            .matches(&query, node.clone(), src.as_bytes())
+            .matches(&query, *node, src.as_bytes())
             .map_deref(|mat| mat.captures)
             .flatten()
-            .filter_map(|cap| Clause::parse(&cap.node, &mut QueryCursor::new(), src).ok())
+            .filter_map(|cap| Clause::parse_through(&cap.node, &mut QueryCursor::new(), src).ok())
             .collect();
 
         Ok(Self::new(clauses.into(), node.range().into()))
+    }
+}
+
+impl Parse for RoutineSpecification {
+    type Error = anyhow::Error;
+
+    fn parse_through(
+        node: &Node,
+        query_cursor: &mut QueryCursor,
+        src: &str,
+    ) -> Result<Self, Self::Error> {
+        debug_assert!(node.parent().is_none());
+        let query = Self::query(
+            r#"
+            (feature_declaration 
+            (attribute_or_routine
+                (notes)? @notes
+                (precondition)? @precondition
+                (postcondition)? @postcondition)? @attribute_or_routine)
+            "#,
+        );
+        query_cursor
+            .matches(&query, *node, src.as_bytes())
+            .next()
+            .map(|query_match| {
+                let mut nested_cursor = QueryCursor::new();
+                let attribute_or_routine_range: Option<Range> =
+                    capture_name_to_nodes("attribute_or_routine", &query, query_match)
+                        .next()
+                        .map(|node| node.range().into());
+                let note_point_end: Option<Point> =
+                    capture_name_to_nodes("notes", &query, query_match)
+                        .next()
+                        .map(|node| node.end_position().into());
+                let precondition =
+                    capture_name_to_nodes("precondition", &query, query_match)
+                        .next()
+                        .map_or_else(
+                            || {
+                                Ok(Block::new_empty(note_point_end.clone().unwrap_or_else(
+                                    || {
+                                        attribute_or_routine_range
+                                    .as_ref()
+                                    .expect("if precondition matches attribute_or_routine matches.")
+                                    .end()
+                                    .clone()
+                                    },
+                                )))
+                            },
+                            |precondition| {
+                                Block::<Precondition>::parse_through(
+                                    &precondition,
+                                    &mut nested_cursor,
+                                    src,
+                                )
+                            },
+                        );
+                let postcondition = capture_name_to_nodes("postcondition", &query, query_match)
+                    .next()
+                    .map_or_else(
+                        || {
+                            Ok(Block::new_empty(note_point_end.unwrap_or_else(|| {
+                                attribute_or_routine_range
+                                    .expect(
+                                        "if postcondition matches attribute_or_routine matches.",
+                                    )
+                                    .end()
+                                    .clone()
+                            })))
+                        },
+                        |postcondition| {
+                            Block::<Postcondition>::parse_through(
+                                &postcondition,
+                                &mut nested_cursor,
+                                src,
+                            )
+                        },
+                    );
+                let precondition = precondition?.item;
+                let postcondition = postcondition?.item;
+                Ok(RoutineSpecification {
+                    precondition,
+                    postcondition,
+                })
+            })
+            .ok_or(anyhow!(
+                "fail to match routine specification with query: {query:#?}"
+            ))?
     }
 }
 
@@ -105,7 +203,7 @@ mod tests {
     use anyhow::Result;
 
     #[test]
-    fn parse_postcondition() {
+    fn parse_postcondition() -> anyhow::Result<()> {
         let src = r#"
 class A feature
   x
@@ -114,7 +212,7 @@ class A feature
       True
     end
 end"#;
-        let class = Class::from_source(src);
+        let class = Class::parse(src)?;
         let feature = class.features().first().expect("first feature is `x`.");
 
         let postcondition = feature
@@ -128,6 +226,7 @@ end"#;
 
         assert_eq!(&clause.predicate, &Predicate::new("True".to_string()));
         assert_eq!(&clause.tag, &Tag::new(""));
+        Ok(())
     }
     #[test]
     fn display_precondition_block() {
