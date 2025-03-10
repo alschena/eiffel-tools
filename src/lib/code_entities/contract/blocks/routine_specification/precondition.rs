@@ -8,7 +8,7 @@ use std::ops::DerefMut;
 use super::clause::Clause;
 use super::*;
 
-#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema, Default)]
 #[serde(transparent)]
 #[schemars(deny_unknown_fields)]
 #[schemars(
@@ -26,12 +26,6 @@ impl Deref for Precondition {
 impl DerefMut for Precondition {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
-    }
-}
-
-impl Default for Precondition {
-    fn default() -> Self {
-        Self(Vec::new())
     }
 }
 
