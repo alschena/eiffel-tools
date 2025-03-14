@@ -1,10 +1,9 @@
+use async_lsp::client_monitor::ClientProcessMonitorLayer;
 use async_lsp::concurrency::ConcurrencyLayer;
-use async_lsp::lsp_types::request;
 use async_lsp::panic::CatchUnwindLayer;
 use async_lsp::router;
 use async_lsp::server::LifecycleLayer;
 use async_lsp::tracing::TracingLayer;
-use async_lsp::{client_monitor::ClientProcessMonitorLayer, lsp_types::notification};
 use eiffel_tools::lib::language_server_protocol::prelude::*;
 use std::path::Path;
 use tower::ServiceBuilder;
@@ -20,18 +19,8 @@ async fn main() -> anyhow::Result<()> {
         let server_state = ServerState::new(client.clone());
 
         let mut router = Router::new(server_state);
-        router.set_handler_request::<request::Initialize>();
-        router.set_handler_request::<request::HoverRequest>();
-        router.set_handler_request::<request::GotoDefinition>();
-        router.set_handler_request::<request::DocumentSymbolRequest>();
-        router.set_handler_request::<request::WorkspaceSymbolRequest>();
-        router.set_handler_request::<request::CodeActionRequest>();
-        router.set_handler_notification::<notification::Initialized>();
-        router.set_handler_notification::<notification::DidOpenTextDocument>();
-        router.set_handler_notification::<notification::DidChangeTextDocument>();
-        router.set_handler_notification::<notification::DidSaveTextDocument>();
-        router.set_handler_notification::<notification::DidCloseTextDocument>();
-        router.set_handler_notification::<notification::DidChangeConfiguration>();
+        router.set_request_handlers();
+        router.set_notification_handlers();
 
         ServiceBuilder::new()
             .layer(TracingLayer::default())
