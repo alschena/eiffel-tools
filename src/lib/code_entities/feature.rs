@@ -29,7 +29,11 @@ impl Deref for Notes {
 impl Parse for Notes {
     type Error = anyhow::Error;
 
-    fn parse_through(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(
+        node: &Node,
+        cursor: &mut QueryCursor,
+        src: &str,
+    ) -> Result<Self, Self::Error> {
         let query = Self::query("(notes (note_entry)* @note_entry)");
         let query_note_entry = Self::query("(note_entry (tag) @tag value: (_)* @value)");
 
@@ -203,7 +207,11 @@ impl Parameters {
 impl Parse for Parameters {
     type Error = anyhow::Error;
 
-    fn parse_through(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(
+        node: &Node,
+        cursor: &mut QueryCursor,
+        src: &str,
+    ) -> Result<Self, Self::Error> {
         debug_assert!(node.kind() == "formal_arguments");
 
         let parameter_query = Self::query(
@@ -268,12 +276,12 @@ pub struct Feature {
     postconditions: Option<Block<Postcondition>>,
 }
 impl Feature {
-    pub fn is_feature_around_point(&self, point: &Point) -> bool {
-        point >= self.range().start() && point <= self.range().end()
+    pub fn is_feature_around_point(&self, point: Point) -> bool {
+        point >= self.range().start && point <= self.range().end
     }
     pub fn feature_around_point<'feature>(
         mut features: impl Iterator<Item = &'feature Feature>,
-        point: &Point,
+        point: Point,
     ) -> Option<&'feature Feature> {
         features.find(|f| f.is_feature_around_point(point))
     }
@@ -319,27 +327,27 @@ impl Feature {
     pub fn has_postcondition(&self) -> bool {
         self.postconditions().is_some_and(|p| !p.is_empty())
     }
-    pub fn point_end_preconditions(&self) -> Option<&Point> {
+    pub fn point_end_preconditions(&self) -> Option<Point> {
         match &self.preconditions {
-            Some(pre) => Some(pre.range().end()),
+            Some(pre) => Some(pre.range().end),
             None => return None,
         }
     }
-    pub fn point_start_preconditions(&self) -> Option<&Point> {
+    pub fn point_start_preconditions(&self) -> Option<Point> {
         match &self.preconditions {
-            Some(pre) => Some(pre.range().start()),
+            Some(pre) => Some(pre.range().start),
             None => return None,
         }
     }
-    pub fn point_end_postconditions(&self) -> Option<&Point> {
+    pub fn point_end_postconditions(&self) -> Option<Point> {
         match &self.postconditions {
-            Some(post) => Some(post.range().end()),
+            Some(post) => Some(post.range().end),
             None => None,
         }
     }
-    pub fn point_start_postconditions(&self) -> Option<&Point> {
+    pub fn point_start_postconditions(&self) -> Option<Point> {
         match &self.postconditions {
-            Some(post) => Some(post.range().start()),
+            Some(post) => Some(post.range().start),
             None => None,
         }
     }
@@ -351,10 +359,10 @@ impl Feature {
     }
     pub async fn src_unchecked<'src>(&self, path: &Path) -> anyhow::Result<String> {
         let range = self.range();
-        let start_column = range.start().column;
-        let start_row = range.start().row;
-        let end_column = range.end().column;
-        let end_row = range.end().row;
+        let start_column = range.start.column;
+        let start_row = range.start.row;
+        let end_column = range.end.column;
+        let end_row = range.end.row;
 
         let file_source = String::from_utf8(tokio::fs::read(&path).await?)?;
         let feature = file_source

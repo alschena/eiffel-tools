@@ -1,165 +1,198 @@
-use crate::lib::generators::Generators;
-use async_lsp::lsp_types::{CodeAction, CodeActionDisabled, TextEdit, Url, WorkspaceEdit};
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use crate::lib::code_entities::contract::Fix;
 use crate::lib::code_entities::prelude::*;
+use crate::lib::generators::Generators;
 use crate::lib::processed_file::ProcessedFile;
+use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Context;
+use async_lsp::lsp_types::{CodeAction, CodeActionDisabled, TextEdit, Url, WorkspaceEdit};
+use contract::Postcondition;
+use contract::Precondition;
 use contract::RoutineSpecification;
+use std::collections::HashMap;
+use std::ops::Deref;
 
-fn fix_routine_specifications(
-    routine_specifications: Vec<RoutineSpecification>,
-    system_classes: &[Class],
-    current_class: &Class,
-    current_feature: &Feature,
-) -> Option<RoutineSpecification> {
-    let specs = routine_specifications
-        .into_iter()
-        .reduce(|mut acc, mut val| {
-            acc.precondition.append(&mut val.precondition);
-            acc.postcondition.append(&mut val.postcondition);
-            acc
-        });
+#[derive(Clone)]
+pub struct SourceGenerationContext<'ws> {
+    workspace: &'ws Workspace,
+    file: &'ws ProcessedFile,
+    cursor: Point,
+}
+impl Deref for SourceGenerationContext<'_> {
+    type Target = Workspace;
 
-    specs
-        .map(|mut spec| (spec.fix(system_classes, current_class, current_feature)).then_some(spec))
-        .flatten()
+    fn deref(&self) -> &Self::Target {
+        &self.workspace
+    }
 }
 
-fn file_edits_add_routine_specification(
-    file: &ProcessedFile,
-    feature: &Feature,
-    precondition_insertion_point: Point,
-    postcondition_insertion_point: Point,
-    routine_specification: RoutineSpecification,
-) -> anyhow::Result<WorkspaceEdit> {
-    let precondition = routine_specification.precondition;
-    let precondition_insertion_range = Range::new_collapsed(precondition_insertion_point);
-    let precondition_edit: TextEdit = TextEdit {
-        range: precondition_insertion_range.clone().try_into()?,
-        new_text: if feature.has_precondition() {
+impl SourceGenerationContext<'_> {
+    pub fn new<'ws>(
+        workspace: &'ws Workspace,
+        file: &'ws ProcessedFile,
+        cursor: Point,
+    ) -> SourceGenerationContext<'ws> {
+        SourceGenerationContext {
+            workspace,
+            file,
+            cursor,
+        }
+    }
+    fn class(&self) -> &Class {
+        self.file.class()
+    }
+
+    fn feature(&self) -> anyhow::Result<&Feature> {
+        let cursor = self.cursor;
+        self.file
+            .feature_around_point(cursor)
+            .with_context(|| "cursor is not around feature.")
+    }
+
+    fn precondition_add_point(&self) -> anyhow::Result<Point> {
+        let feature = self.feature()?;
+        let Some(precondition_point) = feature.point_end_preconditions() else {
+            bail!("The current feature must have an injection point for preconditions.");
+        };
+        Ok(precondition_point)
+    }
+
+    fn postcondition_add_point(&self) -> anyhow::Result<Point> {
+        let feature = self.feature()?;
+        let Some(postcondition_point) = feature.point_end_postconditions() else {
+            bail!("The current feature must have an injection point for postconditions.");
+        };
+        Ok(postcondition_point)
+    }
+
+    fn precondition_edit(&self, precondition: Precondition) -> anyhow::Result<TextEdit> {
+        let point = self.precondition_add_point()?;
+        let range = Range::new_collapsed(point);
+        let feature = self.feature()?;
+
+        let new_text = if feature.has_precondition() {
             format!("{}", precondition)
         } else {
             format!(
                 "{}",
-                contract::Block::<contract::Precondition>::new(
-                    precondition,
-                    precondition_insertion_range
-                )
+                contract::Block::<contract::Precondition>::new(precondition, range.clone())
             )
-        },
-    };
+        };
+        Ok(TextEdit {
+            range: range.try_into()?,
+            new_text,
+        })
+    }
 
-    let postcondition = routine_specification.postcondition;
-    let postcondition_insertion_range = Range::new_collapsed(postcondition_insertion_point);
-    let postcondition_edit: TextEdit = TextEdit {
-        range: postcondition_insertion_range.clone().try_into()?,
-        new_text: if feature.has_postcondition() {
+    fn postcondition_edit(&self, postcondition: Postcondition) -> anyhow::Result<TextEdit> {
+        let point = self.postcondition_add_point()?;
+        let range = Range::new_collapsed(point);
+        let feature = self.feature()?;
+
+        let new_text = if feature.has_postcondition() {
             format!("{}", postcondition)
         } else {
             format!(
                 "{}",
-                contract::Block::<contract::Postcondition>::new(
-                    postcondition,
-                    postcondition_insertion_range
-                )
+                contract::Block::<contract::Postcondition>::new(postcondition, range.clone())
             )
-        },
-    };
+        };
+        Ok(TextEdit {
+            range: range.try_into()?,
+            new_text,
+        })
+    }
 
-    Ok(WorkspaceEdit::new(HashMap::from([(
-        Url::from_file_path(file.path()).map_err(|e| {
-            anyhow!("if on unix path must be absolute. if on windows path must have disk prefix")
-        })?,
-        vec![precondition_edit, postcondition_edit],
-    )])))
-}
+    fn routine_specification_edit(
+        &self,
+        routine_specification: RoutineSpecification,
+    ) -> anyhow::Result<WorkspaceEdit> {
+        let precondition = routine_specification.precondition;
+        let postcondition = routine_specification.postcondition;
+        let pre_edit = self.precondition_edit(precondition)?;
+        let post_edit = self.postcondition_edit(postcondition)?;
 
-async fn routine_specifications_as_workspace_edit(
-    file: &ProcessedFile,
-    feature: &Feature,
-    generators: &Generators,
-    system_classes: &[Class],
-) -> anyhow::Result<WorkspaceEdit> {
-    let more_routine_specs = generators
-        .more_routine_specifications(feature, file, system_classes)
-        .await?;
-
-    let fixed =
-        fix_routine_specifications(more_routine_specs, system_classes, file.class(), feature);
-    let Some(spec) = fixed else {
-        return Err(anyhow!("No valid specifications were generated."));
-    };
-    let Some(precondition_injection_point) = feature.point_end_preconditions() else {
-        return Err(anyhow!(
-            "The current feature must have an injection point for preconditions."
-        ));
-    };
-    let Some(postcondition_injection_point) = feature.point_end_postconditions() else {
-        return Err(anyhow!(
-            "The current feature must have an injection point for postconditions."
-        ));
-    };
-    file_edits_add_routine_specification(
-        file,
-        feature,
-        precondition_injection_point.clone(),
-        postcondition_injection_point.clone(),
-        spec,
-    )
-}
-
-pub async fn code_action(
-    generators: &Generators,
-    file: Option<&ProcessedFile>,
-    system_classes: &[Class],
-    cursor_point: &Point,
-) -> CodeAction {
-    let (edit, disabled) = match file {
-        Some(file) => match file.feature_around_point(&cursor_point) {
-            Some(feature) => {
-                match routine_specifications_as_workspace_edit(
-                    file,
-                    &feature,
-                    generators,
-                    &system_classes,
+        Ok(WorkspaceEdit::new(HashMap::from([(
+            Url::from_file_path(self.file.path()).map_err(|_| {
+                anyhow!(
+                    "if on unix path must be absolute. if on windows path must have disk prefix"
                 )
-                .await
-                {
-                    Ok(edit) => (Some(edit), None),
-                    Err(e) => (
-                        None,
-                        Some(CodeActionDisabled {
-                            reason: format!("{e:#?}"),
-                        }),
-                    ),
-                }
-            }
-            None => (
-                None,
-                Some(CodeActionDisabled {
-                    reason: String::from("The cursor must be inside a feature."),
-                }),
-            ),
-        },
-        None => (
-            None,
-            Some(CodeActionDisabled {
-                reason: "The current file must be parsed.".to_string(),
-            }),
-        ),
-    };
+            })?,
+            vec![pre_edit, post_edit],
+        )])))
+    }
 
-    CodeAction {
-        title: String::from("Add contracts to current routine"),
-        kind: None,
-        diagnostics: None,
-        edit,
-        command: None,
-        is_preferred: Some(false),
-        disabled,
-        data: None,
+    fn fix_routine_specifications(
+        &self,
+        routine_specifications: Vec<RoutineSpecification>,
+    ) -> Option<RoutineSpecification> {
+        let system_classes = self.system_classes();
+        let class = self.class();
+        let feature = self.feature().ok()?;
+
+        let specs = routine_specifications
+            .into_iter()
+            .reduce(|mut acc, mut val| {
+                acc.precondition.append(&mut val.precondition);
+                acc.postcondition.append(&mut val.postcondition);
+                acc
+            });
+
+        specs
+            .map(|mut spec| (spec.fix(&system_classes, class, feature)).then_some(spec))
+            .flatten()
+    }
+
+    async fn generate_edits(&self, generators: &Generators) -> anyhow::Result<WorkspaceEdit> {
+        let file = self.file;
+        let feature = self.feature()?;
+        let system_classes = self.system_classes();
+        let more_routine_spec = generators
+            .more_routine_specifications(feature, file, &system_classes)
+            .await
+            .inspect(|val| eprintln!("mVAL:\t{val:#?}"))
+            .inspect_err(|e| eprintln!("mERR:\t{e:#?}"))?;
+        let fixed = self
+            .fix_routine_specifications(more_routine_spec)
+            .with_context(|| "fix routine specifications.")
+            .inspect(|val| eprintln!("VAL:\t{val:#?}"))
+            .inspect_err(|e| eprintln!("ERR:\t{e:#?}"))?;
+        self.routine_specification_edit(fixed)
+            .inspect(|val| eprintln!("val:\t{val:#?}"))
+            .inspect_err(|e| eprintln!("err:\t{e:#?}"))
+    }
+
+    pub async fn code_action(&self, generators: &Generators) -> CodeAction {
+        let title = String::from("Add contracts to current routine");
+        let kind = None;
+        let diagnostics = None;
+        let command = None;
+        let is_preferred = Some(false);
+        let data = None;
+        match self.generate_edits(generators).await {
+            Ok(text) => CodeAction {
+                title,
+                kind,
+                diagnostics,
+                edit: Some(text),
+                command,
+                is_preferred,
+                disabled: None,
+                data,
+            },
+            Err(e) => CodeAction {
+                title,
+                kind,
+                diagnostics,
+                edit: None,
+                command,
+                is_preferred,
+                disabled: Some(CodeActionDisabled {
+                    reason: format!("{e}"),
+                }),
+                data,
+            },
+        }
     }
 }

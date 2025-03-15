@@ -148,8 +148,7 @@ impl Parse for RoutineSpecification {
                                         attribute_or_routine_range
                                     .as_ref()
                                     .expect("if precondition matches attribute_or_routine matches.")
-                                    .end()
-                                    .clone()
+                                    .end
                                     },
                                 )))
                             },
@@ -170,8 +169,7 @@ impl Parse for RoutineSpecification {
                                     .expect(
                                         "if postcondition matches attribute_or_routine matches.",
                                     )
-                                    .end()
-                                    .clone()
+                                    .end
                             })))
                         },
                         |postcondition| {

@@ -39,7 +39,8 @@ impl Generators {
             &current_class_model,
             file.path(),
             &system_classes,
-        )?;
+        )
+        .await?;
         // Generate feature with specifications
         let completion_parameters = constructor_api::CompletionParameters {
             messages: prompt.to_llm_messages_code_output(),
@@ -65,12 +66,14 @@ impl Generators {
             })
             .flat_map(|reply| {
                 reply.contents().filter_map(|candidate| {
+                    eprintln!("candidate:\t{candidate}");
                     serde_json::from_str::<RoutineSpecification>(candidate)
                         .map_err(|e| info!("fail to parse generated output with error: {e:#?}"))
                         .ok()
                 })
             })
             .collect();
+        eprintln!("completions:\t{completion_response_processed:#?}");
 
         Ok(completion_response_processed)
     }
@@ -113,7 +116,7 @@ smaller (other: NEW_INTEGER): BOOLEAN
         ];
         let llm_parameters = CompletionParameters {
             messages,
-            model: constructor_api::EnumLanguageModel::GeminiPro,
+            model: constructor_api::EnumLanguageModel::GeminiFlash,
             ..Default::default()
         };
         let output = llm.model_complete(&llm_parameters).await?;

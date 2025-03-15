@@ -29,15 +29,15 @@ Respond with the same code, substituting the holes with valid eiffel code.
 }
 
 impl Prompt {
-    pub fn for_feature_specification(
+    pub async fn for_feature_specification(
         feature: &Feature,
         class_model: &ClassModel,
         filepath: &Path,
         system_classes: &[Class],
     ) -> anyhow::Result<Self> {
         let mut var = Self::default();
-        var.set_feature_src(feature, filepath);
-        var.add_feature_contracts_injections_for_feature_source(feature);
+        var.set_feature_src(feature, filepath).await?;
+        var.add_feature_contracts_injections_for_feature_source(feature)?;
         var.add_model_of_current_injections(class_model);
         var.add_model_of_parameters_injections(feature, system_classes);
         Ok(var)
@@ -64,7 +64,7 @@ impl Prompt {
         &mut self,
         feature: &Feature,
     ) -> anyhow::Result<()> {
-        let feature_point = feature.range().start().clone();
+        let feature_point = feature.range().start;
         let Some(point_insert_preconditions) = feature.point_end_preconditions() else {
             return Err(anyhow!(
                 "Only attributes with an attribute block and routines support adding preconditions"
@@ -217,10 +217,12 @@ impl Prompt {
         Self::sort_injections(&mut injections);
 
         let text = Self::inject_sorted_to_source(injections, source);
-        vec![
+        let val = vec![
             super::constructor_api::MessageOut::new_system(system_message),
             super::constructor_api::MessageOut::new_user(text),
-        ]
+        ];
+        eprintln!("{val:#?}");
+        val
     }
 }
 

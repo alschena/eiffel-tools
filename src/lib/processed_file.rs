@@ -38,7 +38,7 @@ impl ProcessedFile {
     pub(crate) fn tree(&self) -> &Tree {
         &self.tree
     }
-    pub(crate) fn feature_around_point(&self, point: &Point) -> Option<&Feature> {
+    pub(crate) fn feature_around_point(&self, point: Point) -> Option<&Feature> {
         Feature::feature_around_point(self.class().features().iter(), point)
     }
     pub fn reload(&mut self, parser: &mut Parser) {
