@@ -1,5 +1,6 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::processed_file::ProcessedFile;
+use crate::lib::tree_sitter_extension::Parse;
 use contract::RoutineSpecification;
 use std::sync::Arc;
 use tracing::info;
@@ -8,7 +9,6 @@ mod post_processing;
 mod prompt;
 
 mod constructor_api;
-use constructor_api::OpenAIResponseFormat;
 
 #[derive(Debug, Default)]
 pub struct Generators {
@@ -67,7 +67,7 @@ impl Generators {
             .flat_map(|reply| {
                 reply.contents().filter_map(|candidate| {
                     eprintln!("candidate:\t{candidate}");
-                    serde_json::from_str::<RoutineSpecification>(candidate)
+                    <RoutineSpecification as Parse>::parse(candidate)
                         .map_err(|e| info!("fail to parse generated output with error: {e:#?}"))
                         .ok()
                 })

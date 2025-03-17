@@ -16,6 +16,7 @@ struct ModelProvider {
 pub enum EnumLanguageModel {
     #[serde(rename = "gemini-2.0-flash-001")]
     GeminiFlash,
+    #[default]
     #[serde(rename = "gemini-1.5-pro")]
     GeminiPro,
     #[serde(rename = "learnlm-1.5-pro-experimental")]
@@ -30,7 +31,6 @@ pub enum EnumLanguageModel {
     DeepSeekChat,
     #[serde(rename = "deepseek/deepseek-r1")]
     DeepSeekR1,
-    #[default]
     #[serde(rename = "gpt-4o-mini")]
     Gpt4OMini,
     #[serde(rename = "gpt-4o-2024-08-06")]
@@ -106,7 +106,7 @@ impl MessageOut {
         MessageOut {
             role: "system".to_string(),
             content,
-            name: None,
+            name: Some("AutoProof's coding assistant.".to_string()),
         }
     }
     pub fn new_user(content: String) -> MessageOut {
