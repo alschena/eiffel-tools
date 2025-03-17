@@ -106,7 +106,17 @@ impl Parse for Clause {
 }
 impl Display for Clause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}\n", self.tag, self.predicate)
+        match (&self.tag, &self.predicate) {
+            (_, predicate) if predicate.as_str().is_empty() => {
+                write!(f, "")
+            }
+            (tag, predicate) if tag.as_str().is_empty() => {
+                write!(f, "({})\n", predicate)
+            }
+            (tag, predicate) => {
+                write!(f, "{}: {}\n", tag, predicate)
+            }
+        }
     }
 }
 impl Clause {
