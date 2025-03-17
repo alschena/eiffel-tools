@@ -48,6 +48,8 @@ impl Generators {
             ..Default::default()
         };
 
+        info!("{completion_parameters:#?}");
+
         let mut tasks = tokio::task::JoinSet::new();
         for llm in self.llms.iter().cloned() {
             let completion_parameters = completion_parameters.clone();
@@ -66,14 +68,14 @@ impl Generators {
             })
             .flat_map(|reply| {
                 reply.contents().filter_map(|candidate| {
-                    eprintln!("candidate:\t{candidate}");
+                    info!("candidate:\t{candidate}");
                     <RoutineSpecification as Parse>::parse(candidate)
                         .map_err(|e| info!("fail to parse generated output with error: {e:#?}"))
                         .ok()
                 })
             })
             .collect();
-        eprintln!("completions:\t{completion_response_processed:#?}");
+        info!("completions:\t{completion_response_processed:#?}");
 
         Ok(completion_response_processed)
     }

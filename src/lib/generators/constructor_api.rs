@@ -3,6 +3,7 @@ use schemars::schema_for;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
+use tracing::info;
 
 const END_POINT: &'static str = r#"https://training.constructor.app/api/platform-kmapi/v1"#;
 
@@ -308,15 +309,17 @@ impl LLM {
     ) -> anyhow::Result<CompletionResponse> {
         let knowledge_model_id = &self.knowledge_model_id;
 
-        let response = self
+        let request = self
             .client
             .post(format!(
                 "{END_POINT}/knowledge-models/{knowledge_model_id}/chat/completions"
             ))
             .json(&parameters)
-            .headers(self.headers.clone())
-            .send()
-            .await?;
+            .headers(self.headers.clone());
+
+        info!("request:\t{request:#?}");
+
+        let response = request.send().await?;
 
         debug_assert!(response.status().is_success(), "{}", response.text().await?);
 

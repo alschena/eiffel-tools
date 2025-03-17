@@ -2,6 +2,7 @@ use crate::lib::code_entities::prelude::*;
 use anyhow::anyhow;
 use std::cmp::Ordering;
 use std::path::Path;
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct Prompt {
@@ -221,7 +222,7 @@ impl Prompt {
             super::constructor_api::MessageOut::new_system(system_message),
             super::constructor_api::MessageOut::new_user(text),
         ];
-        eprintln!("{val:#?}");
+        info!("{val:#?}");
         val
     }
 }

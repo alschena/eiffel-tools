@@ -12,6 +12,7 @@ use contract::Precondition;
 use contract::RoutineSpecification;
 use std::collections::HashMap;
 use std::ops::Deref;
+use tracing::info;
 
 #[derive(Clone)]
 pub struct SourceGenerationContext<'ws> {
@@ -151,16 +152,16 @@ impl SourceGenerationContext<'_> {
         let more_routine_spec = generators
             .more_routine_specifications(feature, file, &system_classes)
             .await
-            .inspect(|val| eprintln!("mVAL:\t{val:#?}"))
-            .inspect_err(|e| eprintln!("mERR:\t{e:#?}"))?;
+            .inspect(|val| info!("Routine spec before fixes:\t{val:#?}"))
+            .inspect_err(|e| info!("Error in routine spec before fixes:\t{e:#?}"))?;
         let fixed = self
             .fix_routine_specifications(more_routine_spec)
             .with_context(|| "fix routine specifications.")
-            .inspect(|val| eprintln!("VAL:\t{val:#?}"))
-            .inspect_err(|e| eprintln!("ERR:\t{e:#?}"))?;
+            .inspect(|val| info!("Routine spec after fixes:\t{val:#?}"))
+            .inspect_err(|e| info!("Error in routine spec after fixes:\t{e:#?}"))?;
         self.routine_specification_edit(fixed)
-            .inspect(|val| eprintln!("val:\t{val:#?}"))
-            .inspect_err(|e| eprintln!("err:\t{e:#?}"))
+            .inspect(|val| info!("Text edits of routine specs:\t{val:#?}"))
+            .inspect_err(|e| info!("Error in text edit of routine specs:\t{e:#?}"))
     }
 
     pub async fn code_action(&self, generators: &Generators) -> CodeAction {
