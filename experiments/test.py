@@ -8,30 +8,6 @@ You have extensive training in the usage of AutoProof, the static verifier of Ei
 Write only model-based contracts, i.e. all qualified calls in all contract clauses will refer to the model of the target class and all unqualified calls in all contract clauses will refer to the model of the current class or its ancestors.
 Respond with the same code, substituting the holes with valid eiffel code. """
 
-	default_content_user_message = """note
-	model: model_feature1, model_feature2
-class
-	MODEL_BASED_CONTRACTS
-
-feature
-
-	model_feature1: INTEGER
-	model_feature2: INTEGER
-	not_model_feature1: INTEGER
-	not_model_feature2: INTEGER
-
-	-- Add model-based contracts to the following feature, responding only in eiffel code.
-	min: INTEGER
-		require
-			model_is_synced1: model_feature1 = not_model_feature1
-			model_is_synced2: model_feature2 = not_model_feature2
-		do
-			if not_model_feature1 < not_model_feature2 then
-				Result := not_model_feature1
-			else 
-				Result := not_model_feature2
-		end
-end """
 	TOKEN = os.getenv('CONSTRUCTOR_APP_API_TOKEN')
 	END_POINT='https://training.constructor.app/api/platform-kmapi/v1'
 	HEADERS = {
@@ -62,32 +38,113 @@ end """
 	def _user_message(self, content):
 		return self._message("user", content)
 
-	def __init__(self):
-		self.km_id = self._any_knowledge_model_id()
-		url = f'{self.END_POINT}/alive'
-		alive_response = requests.post(url, headers = self.HEADERS)
-		print(f'{alive_response}') 
-
-	def messages(self,
-	               system_message_content = default_content_system_message,
-	               user_message_content = default_content_user_message):
+	def _messages(self,
+					user_message_content,
+					system_message_content = default_content_system_message):
 		system_message = self._system_message(system_message_content)
 		user_message = self._user_message(user_message_content)
 		print(f'system_message: {system_message}')
 		return [system_message, user_message]
 
-	def send_messages(self, messages, model = "gemini-1.5-pro", stream="false"):
-	    data = {"model": model, "messages": messages, "stream":stream}
-	    print(f'data: {data}')
-	    url = f'{self.END_POINT}/knowledge-models/{self.km_id}/chat/completions'
-	    print(f'url: {url}')
-	    response = requests.post(url, headers=self.HEADERS, json=data)
-	    print(f'response: {response}')
-	    return response.json()
+	def __init__(self):
+		self._km_id = self._any_knowledge_model_id()
+		url = f'{self.END_POINT}/alive'
+		alive_response = requests.post(url, headers = self.HEADERS)
+		print(f'{alive_response}') 
+
+	def upload_file(self, file_path):
+	    # Prepare the file for uploading
+	    files = {
+	        'file': open(file_path, 'rb')
+	    }
+
+	    # Make the request to upload the file
+	    response = requests.post(
+	        f'{self.END_POINT}/knowledge-models/{self._km_id}/files',
+	        headers=self.HEADERS,
+	        files=files)
+
+	    # Check the response from the API
+	    if response.status_code == 200:
+	        print("File uploaded successfully:", response.json())
+	    else:
+	        print("Failed to upload file. Status code:", response.status_code)
+	        print("Response:", response.json())
+
+	def list_documents(self):
+		response = requests.get(f'{self.END_POINT}/knowledge-models/{self._km_id}/files',headers=self.HEADERS)
+		response_json_fmt = response.json()
+		print(f"{response_json_fmt}")
+		for doc in response_json_fmt['results']:
+		    print(f'{doc["filename"]}, {doc["in_use"]}, {doc["indexing_status"]}, {doc["id"]}')
+
+	def query(self, user_message_content, system_message_content=default_content_system_message, model = "gemini-1.5-pro", stream="false"):
+		messages = self._messages(user_message_content)
+		data = {"model": model, "messages": messages, "stream":stream}
+		print(f'Model: {model}')
+		print(f'Input messages: {messages}')
+		url = f'{self.END_POINT}/knowledge-models/{self._km_id}/chat/completions'
+		response = requests.post(url, headers=self.HEADERS, json=data)
+		print(f'response: {response}')
+		return response.json()
+
+default_content_user_message = """note
+	description: "[
+			Indexable containers with arbitrary bounds, whose elements are stored in a continuous memory area.
+			Random access is constant time, but resizing requires memory reallocation and copying elements, and takes linear time.
+			The logical size of array is the same as the physical size of the underlying memory area.
+		]"
+	author: "Nadia Polikarpova"
+	revised_by: "Alexander Kogtenkov"
+	model: sequence, lower_
+	manual_inv: true
+	false_guards: true
+
+frozen class
+	V_ARRAY [G]
+
+inherit
+	V_MUTABLE_SEQUENCE [G]
+		redefine
+			is_equal_,
+			upper,
+			fill,
+			clear,
+			is_model_equal
+		end
+
+create
+	make,
+	make_filled,
+	copy_
+
+feature {NONE} -- Initialization
+-- 
+-- 
+feature -- Access
+
+	-- Respond with the following feature, adding model-based contracts.
+	-- Model-based contracts either refer to the model of current or the models of the arguments.
+	-- INTEGER values can be used directly as they are themselves a model.
+	subarray (l, u: INTEGER): V_ARRAY [G]
+			-- Array consisting of elements of Current in index range [`l', `u'].
+		note
+			status: impure
+		do
+			create Result.make (l, u)
+			check Result.inv end
+			Result.copy_range (Current, l, u, Result.lower)
+			check ∀ i: 1 |..| Result.sequence.count ¦ Result.sequence [i] = sequence [i - 1 + idx (l)] end
+		end
+"""
+path_base2 = "/home/al_work/repos/reif/research/extension/autoproof/library/base/base2"
 
 model = Model()
-messages = model.messages()
-response = model.send_messages(messages)
+model.upload_file(f'{path_base2}/container/v_mutable_sequence.txt')
+model.upload_file(f'{path_base2}/container/v_sequence.txt')
+model.upload_file(f'{path_base2}/container/v_container.txt')
+model.list_documents()
+response = model.query(default_content_user_message)
 val = json.dumps(response)
 
-print(f'val: {val}')
+print(f'Output: {val}')
