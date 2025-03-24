@@ -1,9 +1,10 @@
 use anyhow::{anyhow, Context};
 use async_lsp::lsp_types;
+use serde::Deserialize;
 use std::cmp::{Ordering, PartialOrd};
 use std::ops::Sub;
 use std::path;
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Copy, Deserialize)]
 pub struct Point {
     pub row: usize,
     pub column: usize,

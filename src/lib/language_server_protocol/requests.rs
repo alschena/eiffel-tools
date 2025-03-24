@@ -6,6 +6,7 @@ use std::future::Future;
 
 mod code_action;
 mod document_symbol;
+mod execute_command;
 mod goto_definition;
 mod hover;
 mod initialize;

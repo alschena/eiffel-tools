@@ -1,2 +1,4 @@
 target/
 Cargo.lock
+.lsp_eiffel.d
+experiments/examples
