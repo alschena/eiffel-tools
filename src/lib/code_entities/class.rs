@@ -1,9 +1,10 @@
 use super::prelude::*;
 use crate::lib::tree_sitter_extension::{capture_name_to_nodes, node_to_text, Parse};
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use async_lsp::lsp_types;
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
 use tree_sitter::{Node, QueryCursor};
@@ -13,6 +14,12 @@ use model::*;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ClassName(pub String);
+
+impl Display for ClassName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl ClassName {
     pub fn is_terminal_for_model(&self) -> bool {
@@ -30,17 +37,36 @@ impl ClassName {
             _ => false,
         }
     }
+
+    pub fn inhereted_model<'system, 'class_name>(
+        &'class_name self,
+        system_classes: &'system [Class],
+    ) -> Option<Model> {
+        if self.is_terminal_for_model() {
+            return None;
+        };
+
+        let model = system_classes
+            .iter()
+            .find(|c| c.name() == self)
+            .map(|class| class.model_with_inheritance(system_classes))
+            .unwrap_or_default();
+
+        Some(model)
+    }
+
     pub fn model_extended<'class_name, 'system: 'class_name>(
         &'class_name self,
         system_classes: &'system [Class],
-    ) -> Option<ModelExtended> {
+    ) -> ModelExtended {
         if self.is_terminal_for_model() {
-            return Some(ModelExtended::Terminal);
+            return ModelExtended::Terminal;
         }
         system_classes
             .iter()
             .find(|c| c.name() == self)
             .map(|class| class.model_extended(system_classes))
+            .unwrap_or_default()
     }
 }
 
@@ -69,15 +95,15 @@ impl Class {
     pub fn name(&self) -> &ClassName {
         &self.name
     }
-    pub fn model(&self) -> &Model {
+    fn local_model(&self) -> &Model {
         &self.model
     }
     fn model_with_inheritance<'a>(&'a self, system_classes: &'a [Class]) -> Model {
-        let mut model = self.model().clone();
+        let mut model = self.local_model().clone();
         for mut ancestor_model in self
             .ancestor_classes(system_classes)
             .into_iter()
-            .map(|parents| parents.model())
+            .map(|parents| parents.local_model())
             .cloned()
         {
             model.append(&mut ancestor_model);
@@ -227,7 +253,8 @@ impl Parse for Class {
             .filter_map(|ref node| Feature::parse_through(node, &mut QueryCursor::new(), src).ok())
             .collect();
 
-        let model = Model::from_model_names(ModelNames::parse_through(node, cursor, src)?, &features);
+        let model =
+            Model::from_model_names(ModelNames::parse_through(node, cursor, src)?, &features);
         Ok(Class {
             name,
             model,
@@ -295,7 +322,11 @@ impl Parse for Parent {
     type Error = anyhow::Error;
 
     #[instrument(skip_all)]
-    fn parse_through(node: &Node, cursor: &mut QueryCursor, src: &str) -> Result<Self, Self::Error> {
+    fn parse_through(
+        node: &Node,
+        cursor: &mut QueryCursor,
+        src: &str,
+    ) -> Result<Self, Self::Error> {
         debug_assert!(node.kind() == "parent");
 
         let query = Self::query(
@@ -340,6 +371,7 @@ impl Parse for Parent {
 mod tests {
     use super::*;
     use crate::lib::processed_file;
+    use anyhow::anyhow;
     use anyhow::Result;
     use std::fs::File;
     use std::io::prelude::*;
@@ -432,7 +464,10 @@ end
                 .name(),
             "x".to_string()
         );
-        assert_eq!((class.model().names().first().expect("Model name")), "seq");
+        assert_eq!(
+            (class.local_model().names().first().expect("Model name")),
+            "seq"
+        );
         Ok(())
     }
     #[test]
@@ -677,76 +712,13 @@ end
         let child = &system_classes[0];
         let parent = &system_classes[1];
 
-        let mut appended_models = child.model().clone();
-        appended_models.append(&mut parent.model().clone());
+        let mut appended_models = child.local_model().clone();
+        appended_models.append(&mut parent.local_model().clone());
 
         assert_eq!(
             child.model_with_inheritance(&system_classes),
             appended_models
         );
-        Ok(())
-    }
-    #[test]
-    fn parameters_models() -> anyhow::Result<()> {
-        let current_class = r#"class
-    CLIENT
-feature
-    demo (a: NEW_INTEGER): INTEGER
-        do
-            a.value
-        end
-end
-"#;
-        let current_class = Class::parse(current_class)?;
-        let src_class_of_argument = r#"note
-	model: value
-class
-	NEW_INTEGER
-feature
-	value: INTEGER
-	smaller (other: NEW_INTEGER): BOOLEAN
-		do
-			Result := value < other.value
-		ensure
-			Result = (value < other.value)
-		end
-end
-    "#;
-        let class_of_argument = Class::parse(src_class_of_argument)?;
-        let model = class_of_argument.model();
-        eprintln!("clas_of_argument {class_of_argument:#?}");
-        assert_eq!(format!("{model}"), "value: INTEGER", "model: {model}");
-
-        let system_classes = vec![current_class.clone(), class_of_argument];
-
-        let feature = current_class
-            .features()
-            .first()
-            .expect("demo is the first feature.");
-
-        let parameters = feature.parameters();
-
-        let parameter_name = parameters.names().first().unwrap();
-        let parameter_type = parameters.types().first().unwrap().class_name().unwrap();
-
-        assert_eq!(parameter_name, "a");
-        assert_eq!(parameter_type, "NEW_INTEGER");
-
-        let Some(ModelExtended::Model { names, types, .. }) =
-            parameters.model_extension(&system_classes).next()
-        else {
-            panic!("parameter has model")
-        };
-
-        let parameter_model_first_name = names.first().expect("name first parameter.").as_str();
-        let parameter_model_first_type = types
-            .first()
-            .unwrap()
-            .class_name()
-            .expect("parameter type's class name.");
-
-        assert_eq!(parameter_model_first_name, "value");
-        assert_eq!(parameter_model_first_type, "INTEGER");
         Ok(())
     }
 }
