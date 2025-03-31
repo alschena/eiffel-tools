@@ -1,9 +1,11 @@
 use crate::lib::config::System;
+use crate::lib::language_server_protocol::commands::Commands;
 use crate::lib::language_server_protocol::prelude::*;
 use async_lsp::lsp_types::{
     request::{Initialize, Request},
-    HoverProviderCapability, InitializeResult, OneOf, ServerCapabilities,
+    ExecuteCommandOptions, HoverProviderCapability, InitializeResult, OneOf, ServerCapabilities,
     TextDocumentSyncCapability, TextDocumentSyncOptions, TextDocumentSyncSaveOptions,
+    WorkDoneProgress, WorkDoneProgressOptions,
 };
 use async_lsp::ResponseError;
 use async_lsp::Result;
@@ -63,6 +65,12 @@ impl HandleRequest for Initialize {
                             ..TextDocumentSyncOptions::default()
                         },
                     )),
+                    execute_command_provider: Some(ExecuteCommandOptions {
+                        commands: Commands::list_names(),
+                        work_done_progress_options: WorkDoneProgressOptions {
+                            work_done_progress: None,
+                        },
+                    }),
                     ..ServerCapabilities::default()
                 },
                 server_info: None,

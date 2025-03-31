@@ -1,4 +1,5 @@
 use crate::lib::code_entities::prelude::*;
+use crate::lib::language_server_protocol::commands;
 use crate::lib::language_server_protocol::prelude::{HandleRequest, ServerState};
 use async_lsp::lsp_types;
 use async_lsp::lsp_types::request;
@@ -7,31 +8,30 @@ use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::path::PathBuf;
 
-mod generate_routine_specification;
-use generate_routine_specification::SourceGenerationContext;
-
 impl HandleRequest for request::CodeActionRequest {
     async fn handle_request(
         st: ServerState,
         params: <Self as request::Request>::Params,
     ) -> Result<<Self as request::Request>::Result, ResponseError> {
         let ws = st.workspace.read().await;
-        let generators = st.generators.write().await;
         let params = CodeActionParams(params);
         let path = params.path_owned();
         let point: Point = params.cursor();
 
-        let file = ws.find_file(&path).ok_or_else(|| {
-            ResponseError::new(async_lsp::ErrorCode::REQUEST_FAILED, "fail to find file.")
-        })?;
+        let command =
+            commands::Commands::try_new_add_routine_specification_at_cursor(&ws, &path, point)
+                .map_err(|e| {
+                    ResponseError::new(
+                        async_lsp::ErrorCode::INTERNAL_ERROR,
+                        format!(
+                    "fails to create command to generate routine specifications with error: {e}"
+                ),
+                    )
+                })?
+                .command()
+                .await;
 
-        let generate_routine_specification = SourceGenerationContext::new(&ws, file, point)
-            .code_action(&generators)
-            .await;
-
-        Ok(Some(vec![CodeActionOrCommand::CodeAction(
-            generate_routine_specification,
-        )]))
+        Ok(Some(vec![CodeActionOrCommand::Command(command)]))
     }
 }
 

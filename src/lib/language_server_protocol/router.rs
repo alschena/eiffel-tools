@@ -33,6 +33,7 @@ impl Router<ServerState> {
         self.add_handler_request::<request::DocumentSymbolRequest>();
         self.add_handler_request::<request::WorkspaceSymbolRequest>();
         self.add_handler_request::<request::CodeActionRequest>();
+        self.add_handler_request::<request::ExecuteCommand>();
     }
     fn add_handler_notification<T: HandleNotification + 'static>(&mut self) {
         self.0
