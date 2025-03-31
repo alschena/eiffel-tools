@@ -7,7 +7,6 @@ use anyhow::anyhow;
 use async_lsp::lsp_types;
 use contract::RoutineSpecification;
 use contract::{Block, Postcondition, Precondition};
-use std::borrow::Cow;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::path::Path;
@@ -203,6 +202,15 @@ impl Parameters {
             .iter()
             .map(|t| t.model_extension(system_classes))
     }
+    pub fn fmt_model(&self, system_classes: &[Class]) -> String {
+        let parameters_models = self.model_extension(system_classes);
+
+        format!("{self}")
+            .lines()
+            .zip(parameters_models)
+            .map(|(line, model)| format!("The argument {line}\n{}", model.fmt_indented(1)))
+            .collect()
+    }
 }
 impl Parse for Parameters {
     type Error = anyhow::Error;
@@ -253,8 +261,10 @@ impl Display for Parameters {
             String::new(),
             |mut acc, (parameter_name, parameter_type)| {
                 acc.push_str(parameter_name.as_str());
-                acc.push_str(": ");
+                acc.push(':');
+                acc.push(' ');
                 acc.push_str(format!("{parameter_type}").as_str());
+                acc.push('\n');
                 acc
             },
         );
@@ -522,6 +532,7 @@ impl TryFrom<&Feature> for lsp_types::DocumentSymbol {
         })
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -694,5 +705,47 @@ end
         assert!(eiffeltype
             .class_name()
             .is_ok_and(|name| name == *"MML_SEQUENCE"));
+    }
+
+    fn integer_parameter(name: String) -> Parameters {
+        Parameters {
+            names: vec![name],
+            types: vec![EiffelType::ClassType(
+                "INTEGER".to_string(),
+                "INTEGER".to_string(),
+            )],
+        }
+    }
+
+    #[test]
+    fn display_parameter() {
+        let p = integer_parameter("test".to_string());
+        assert_eq!(format!("{p}"), "test: INTEGER\n");
+    }
+
+    #[test]
+    fn display_model_parameter() -> anyhow::Result<()> {
+        let src = r#"note
+	model: value
+class
+	NEW_INTEGER
+feature
+	value: INTEGER
+end
+    "#;
+        let system_classes = [Class::parse(src)?];
+        let p = Parameters {
+            names: vec!["test".to_string()],
+            types: vec![EiffelType::ClassType(
+                "NEW_INTEGER".to_string(),
+                "NEW_INTEGER".to_string(),
+            )],
+        };
+        assert_eq!(
+            format!("{}", p.fmt_model(&system_classes)),
+            "The argument test: NEW_INTEGER\n\thas model: value: INTEGER\n\t\tis terminal. No qualified call is allowed on this value.\n"
+        );
+
+        Ok(())
     }
 }
