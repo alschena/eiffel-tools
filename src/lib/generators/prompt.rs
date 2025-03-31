@@ -1,5 +1,5 @@
 use crate::lib::code_entities::prelude::*;
-use anyhow::anyhow;
+use anyhow::Context;
 use std::cmp::Ordering;
 use std::path::Path;
 use tracing::info;
@@ -38,9 +38,9 @@ impl Prompt {
     ) -> anyhow::Result<Self> {
         let mut var = Self::default();
         var.set_feature_src(feature, filepath).await?;
-        var.add_feature_contracts_injections_for_feature_source(feature)?;
-        var.add_model_of_current_injections(class_model);
-        var.add_model_of_parameters_injections(feature, system_classes);
+        var.add_contracts_injection(feature)?;
+        var.add_current_model_injections(class_model);
+        var.add_parameters_model_injections(feature, system_classes);
         Ok(var)
     }
     fn set_system_message(&mut self, preable: &str) {
@@ -61,23 +61,22 @@ impl Prompt {
         self.source.push_str(&feature_src);
         Ok(())
     }
-    fn add_feature_contracts_injections_for_feature_source(
-        &mut self,
-        feature: &Feature,
-    ) -> anyhow::Result<()> {
+    fn offset_precondition(feature: &Feature) -> anyhow::Result<Point> {
         let feature_point = feature.range().start;
-        let Some(point_insert_preconditions) = feature.point_end_preconditions() else {
-            return Err(anyhow!(
-                "Only attributes with an attribute block and routines support adding preconditions"
-            ));
-        };
-        let diff_point_insert_preconditions =
-            point_insert_preconditions.clone() - feature_point.clone();
-        let Some(point_insert_postconditions) = feature.point_end_postconditions() else {
-            return Err(anyhow!("Only attributes with an attribute block and routines support adding postconditions"));
-        };
-        let diff_point_insert_postconditions = point_insert_postconditions.clone() - feature_point;
-        let precondition_hole = if feature.has_precondition() {
+        let point_insert_preconditions = feature
+            .point_end_preconditions()
+            .with_context(|| "The feature:\t{feature:#?} cannot have contracts.")?;
+        Ok(point_insert_preconditions - feature_point)
+    }
+    fn offset_postcondition(feature: &Feature) -> anyhow::Result<Point> {
+        let feature_point = feature.range().start;
+        let point_insert_postconditions = feature
+            .point_end_postconditions()
+            .with_context(|| "The feature:\t{feature:#?} cannot have contracts.")?;
+        Ok(point_insert_postconditions - feature_point)
+    }
+    fn hole_preconditions(feature: &Feature) -> String {
+        if feature.has_precondition() {
             format!(
                 "\n{}<ADD_PRECONDITION_CLAUSES>",
                 contract::Precondition::indentation_string()
@@ -87,75 +86,65 @@ impl Prompt {
                 "require\n{}<ADD_PRECONDITION_CLAUSES>\n",
                 contract::Precondition::indentation_string(),
             )
-        };
-        let postcondition_hole = if feature.has_postcondition() {
+        }
+    }
+    fn hole_postconditions(feature: &Feature) -> String {
+        if feature.has_postcondition() {
             format!(
                 "\n{}<ADD_POSTCONDITION_CLAUSES>",
                 contract::Postcondition::indentation_string()
             )
         } else {
             format!(
-                "ensure\n{}<ADD_POSTCONDITION_CLAUSES>\n",
+                "require\n{}<ADD_POSTCONDITION_CLAUSES>\n",
                 contract::Postcondition::indentation_string(),
             )
-        };
+        }
+    }
+    fn add_precondition_injection(&mut self, feature: &Feature) -> anyhow::Result<()> {
+        let point_offset_precondition = Self::offset_precondition(feature)?;
+        let hole_preconditions = Self::hole_preconditions(feature);
         self.injections
-            .push((diff_point_insert_preconditions, precondition_hole));
-        self.injections
-            .push((diff_point_insert_postconditions, postcondition_hole));
+            .push((point_offset_precondition, hole_preconditions));
         Ok(())
     }
-    fn add_model_of_current_injections(&mut self, class_model: &ClassModel) {
+    fn add_postcondition_injection(&mut self, feature: &Feature) -> anyhow::Result<()> {
+        let point_offset_postcondition = Self::offset_postcondition(feature)?;
+        let hole_postconditions = Self::hole_postconditions(feature);
+        self.injections
+            .push((point_offset_postcondition, hole_postconditions));
+        Ok(())
+    }
+    fn add_contracts_injection(&mut self, feature: &Feature) -> anyhow::Result<()> {
+        self.add_precondition_injection(feature)?;
+        self.add_postcondition_injection(feature)
+    }
+    fn eiffel_comment(text: String) -> String {
+        text.lines().fold(String::new(), |mut acc, line| {
+            if !line.trim_start().is_empty() {
+                acc.push_str("-- ");
+            }
+            acc.push_str(line);
+            acc.push('\n');
+            acc
+        })
+    }
+    fn add_current_model_injections(&mut self, class_model: &ClassModel) {
         let injection_point = Point { row: 0, column: 0 };
-        let display_model = format!(
+        let model_fmt = format!(
             "For the current class and its ancestors, {}",
             class_model.fmt_indented(0),
         );
-        let display_model_as_comment =
-            display_model.lines().fold(String::new(), |mut acc, line| {
-                if !line.trim_start().is_empty() {
-                    acc.push_str("-- ");
-                }
-                acc.push_str(line);
-                acc.push('\n');
-                acc
-            });
+        let display_model_as_comment = Self::eiffel_comment(model_fmt);
         self.injections
             .push((injection_point, display_model_as_comment))
     }
-    fn add_model_of_parameters_injections(&mut self, feature: &Feature, system_classes: &[Class]) {
+
+    fn add_parameters_model_injections(&mut self, feature: &Feature, system_classes: &[Class]) {
         let injection_point = Point { row: 0, column: 0 };
-        let parameters = feature.parameters();
-        let parameters_types = parameters.types();
-        let parameters_names = parameters.names();
+        let parameters_fmt = feature.parameters().fmt_model(system_classes);
 
-        let mut parameters_models = parameters_types
-            .iter()
-            .map(|t| t.model_extension(system_classes));
-        let mut parameters_types = parameters_types.iter();
-        let mut parameters_names = parameters_names.iter();
-
-        let mut display_parameters = String::new();
-        while let (Some(n), Some(ty), Some(m)) = (
-            parameters_names.next(),
-            parameters_types.next(),
-            parameters_models.next(),
-        ) {
-            display_parameters
-                .push_str(format!("For the argument {n}: {ty}\n{}", m.fmt_indented(1)).as_str());
-        }
-
-        let display_parameters_as_comment =
-            display_parameters
-                .lines()
-                .fold(String::new(), |mut acc, line| {
-                    if !line.trim_start().is_empty() {
-                        acc.push_str("-- ");
-                    }
-                    acc.push_str(line);
-                    acc.push('\n');
-                    acc
-                });
+        let display_parameters_as_comment = Self::eiffel_comment(parameters_fmt);
         self.injections
             .push((injection_point, display_parameters_as_comment));
     }
@@ -181,7 +170,9 @@ impl Prompt {
             },
         );
     }
-    fn inject_sorted_to_source(injections: Vec<(Point, String)>, source: String) -> String {
+    fn inject_into_source(mut injections: Vec<(Point, String)>, source: String) -> String {
+        Self::sort_injections(&mut injections);
+
         let mut text = String::new();
         for (linenum, line) in source.lines().enumerate() {
             // Select injections of current line;
@@ -211,15 +202,10 @@ impl Prompt {
         text
     }
     pub fn to_llm_messages_code_output(self) -> Vec<super::constructor_api::MessageOut> {
-        let system_message = self.system_message;
-        let source = self.source;
+        let text = Self::inject_into_source(self.injections, self.source);
 
-        let mut injections = self.injections;
-        Self::sort_injections(&mut injections);
-
-        let text = Self::inject_sorted_to_source(injections, source);
         let val = vec![
-            super::constructor_api::MessageOut::new_system(system_message),
+            super::constructor_api::MessageOut::new_system(self.system_message),
             super::constructor_api::MessageOut::new_user(text),
         ];
         info!("{val:#?}");
@@ -293,9 +279,9 @@ end
         prompt
             .set_feature_src(feature, processed_file.path())
             .await?;
-        prompt.add_feature_contracts_injections_for_feature_source(feature)?;
-        prompt.add_model_of_current_injections(&class_model);
-        prompt.add_model_of_parameters_injections(feature, &system_classes);
+        prompt.add_contracts_injection(feature)?;
+        prompt.add_current_model_injections(&class_model);
+        prompt.add_parameters_model_injections(feature, &system_classes);
 
         let messages = prompt.clone().to_llm_messages_code_output();
         eprintln!("{messages:#?}");
@@ -303,7 +289,7 @@ end
         let system_message = MessageOut::new_system(prompt.system_message);
         let inj = prompt.injections;
         let src = prompt.source;
-        let user_message = MessageOut::new_user(Prompt::inject_sorted_to_source(inj, src));
+        let user_message = MessageOut::new_user(Prompt::inject_into_source(inj, src));
 
         assert!(messages.contains(&system_message));
         assert!(messages.contains(&user_message));
