@@ -6,6 +6,11 @@ use async_lsp::ResponseError;
 use std::future::Future;
 use std::path::Path;
 
+#[cfg(test)]
+pub mod command_mock;
+#[cfg(test)]
+use command_mock::MockCommand;
+
 mod add_class_specification;
 pub use add_class_specification::ClassSpecificationGenerator;
 
@@ -43,6 +48,73 @@ trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
         }
     }
 }
+
+macro_rules! impl_commands {
+    (
+    $enum_name:ident;
+    $variants:tt;
+    $(functions: $($fn_name:ident $fn_params:tt -> $fn_ret_type:ty),+)?
+     ) => {
+        impl_commands!(@def_enum $enum_name, $variants);
+        impl<'ws> $enum_name<'ws> {
+            pub fn try_new(
+                ws: &'ws Workspace,
+                params: lsp_types::ExecuteCommandParams,
+            ) -> anyhow::Result<Self> {
+                let name = params.command;
+                let args = params.arguments;
+
+                #[cfg(test)]
+                impl_commands!(@create $enum_name, [MockCommand], name, args, ws);
+                impl_commands!(@create $enum_name, $variants, name, args, ws);
+                unimplemented!()
+            }
+            $(impl_commands!(@functions $enum_name, self.[$($fn_name $fn_params -> $fn_ret_type),+], $variants))?;
+        }
+    };
+    (@create $enum_name:ident, [$($variant:ident),+], $name:ident, $arguments:ident, $workspace:ident) => {
+        $(if $variant::is_called(&$name) {
+            let command = $variant::try_from(($workspace,$arguments))?;
+            return Ok($enum_name::$variant(command));
+        })+
+    };
+    (@def_enum $enum_name:ident, [$($variants:ident),+] ) => {
+        #[derive(Debug, Clone)]
+        pub enum $enum_name<'ws> {
+            $($variants($variants<'ws>)),*,
+            #[cfg(test)]
+            MockCommand(MockCommand),
+        }
+        #[cfg(test)]
+        impl $enum_name<'_> {
+            fn mock() -> Self {
+                Self::MockCommand(MockCommand::default())
+            }
+        }
+    };
+    (@functions $enum_name:ident, $self:ident.[$($func:ident ($($param_name:ident : $param_type:ty),*) -> $ret_type:ty),+], $variants:tt) => {
+        $(fn $func(&$self $(, $($param_name : $param_type),+)?) -> $ret_type {
+            impl_commands!(@match_variants $enum_name, $self, $variants, $func ($($param_name),*) -> $ret_type)
+        })+
+    };
+    (@match_variants $enum_name:ident, $self:ident, [$($variant:ident),+], $func:ident $params_names:tt -> $ret_type:ty) => {
+        match $self {
+            #[cfg(test)]
+            $enum_name::MockCommand(ref inner) => MockCommand::$func(impl_commands!(@args inner $params_names)),
+            $($enum_name::$variant(ref inner) => {$variant::$func(impl_commands!(@args inner $params_names))}),+
+        }
+
+    };
+    (@args $target:ident ($($param_name:ident),*)) => {
+        $target $(, $($param_name),+)?
+    };
+}
+
+impl_commands!(
+    CommandsEnum;
+    [ClassSpecificationGenerator, RoutineSpecificationGenerator];
+    functions: command() -> lsp_types::Command
+);
 
 pub enum Commands<'ws> {
     AddClassSpecification(ClassSpecificationGenerator<'ws>),
@@ -89,6 +161,7 @@ impl<'ws> Commands<'ws> {
         &self,
         generators: &Generators,
     ) -> anyhow::Result<lsp_types::WorkspaceEdit> {
+        // apply_on_any!(generate_edits(generators).await);
         match self {
             Commands::AddClassSpecification(class_specification_generator) => {
                 class_specification_generator
@@ -155,5 +228,36 @@ impl<'ws> Commands<'ws> {
             RoutineSpecificationGenerator::NAME.to_string(),
             ClassSpecificationGenerator::NAME.to_string(),
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lib::workspace::tests::*;
+
+    #[test]
+    fn command_enum_command() {
+        let ws = Workspace::mock();
+        let commands_enum = CommandsEnum::mock();
+
+        let command = commands_enum.command();
+        eprintln!("command: {command:#?}");
+        eprintln!("command_enum: {commands_enum:#?}");
+        assert_eq!(command.title, "Mock");
+        assert_eq!(command.command, "mock");
+        assert_eq!(command.arguments, None);
+    }
+
+    #[test]
+    fn constructor_command_enum() {
+        let ws = Workspace::mock();
+        let params = lsp_types::ExecuteCommandParams {
+            command: "mock".to_string(),
+            arguments: Vec::new(),
+            ..Default::default()
+        };
+        let command = CommandsEnum::try_new(&ws, params);
+        eprintln!("{command:#?}");
     }
 }

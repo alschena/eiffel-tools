@@ -16,7 +16,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use tracing::info;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct RoutineSpecificationGenerator<'ws> {
     workspace: &'ws Workspace,
     file: &'ws ProcessedFile,

@@ -4,6 +4,7 @@ use crate::lib::processed_file::ProcessedFile;
 use std::path::Path;
 use tokio::task::JoinSet;
 
+#[derive(Debug)]
 pub struct Workspace {
     files: Vec<ProcessedFile>,
 }
@@ -51,5 +52,19 @@ impl Workspace {
             .filter_map(|file| file)
             .collect();
         self.set_files(files);
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    pub use super::*;
+
+    impl Workspace {
+        pub fn mock() -> Self {
+            Self { files: Vec::new() }
+        }
+        pub fn is_mock(&self) -> bool {
+            self.files.is_empty()
+        }
     }
 }

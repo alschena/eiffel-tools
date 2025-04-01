@@ -8,7 +8,7 @@ use serde_json;
 use std::path;
 use std::path::Path;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ClassSpecificationGenerator<'ws> {
     workspace: &'ws Workspace,
     file: &'ws ProcessedFile,
