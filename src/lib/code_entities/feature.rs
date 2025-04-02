@@ -127,9 +127,7 @@ impl EiffelType {
         let Ok(class_name): Result<ClassName, _> = self.to_owned().try_into() else {
             unimplemented!("eiffel type's model extension implemented only for class types.")
         };
-        class_name
-            .model_extended(system_classes)
-            .unwrap_or_default()
+        class_name.model_extended(system_classes)
     }
 }
 
@@ -191,7 +189,7 @@ impl Parameters {
         self.names.push(id);
         self.types.push(eiffel_type);
     }
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.names().is_empty() && self.types().is_empty()
     }
     pub fn model_extension<'s, 'system>(
@@ -208,7 +206,7 @@ impl Parameters {
         format!("{self}")
             .lines()
             .zip(parameters_models)
-            .map(|(line, model)| format!("The argument {line}\n{}", model.fmt_indented(1)))
+            .map(|(line, model)| format!("The argument {line}\n{}", model.fmt_verbose_indented(1)))
             .collect()
     }
 }

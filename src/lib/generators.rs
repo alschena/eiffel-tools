@@ -29,10 +29,7 @@ impl Generators {
         system_classes: &[Class],
     ) -> anyhow::Result<Vec<RoutineSpecification>> {
         let current_class = file.class();
-        let current_class_model = current_class
-            .name()
-            .model_extended(&system_classes)
-            .unwrap_or_default();
+        let current_class_model = current_class.name().model_extended(&system_classes);
 
         let prompt = prompt::Prompt::for_feature_specification(
             feature,
@@ -43,7 +40,7 @@ impl Generators {
         .await?;
         // Generate feature with specifications
         let completion_parameters = constructor_api::CompletionParameters {
-            messages: prompt.to_llm_messages_code_output(),
+            messages: prompt.into(),
             n: Some(50),
             ..Default::default()
         };

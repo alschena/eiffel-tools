@@ -90,6 +90,10 @@ impl DerefMut for ModelTypes {
 pub struct Model(ModelNames, ModelTypes);
 
 impl Model {
+    pub fn is_empty(&self) -> bool {
+        assert_eq!(self.0.len(), self.1.len());
+        self.0.is_empty()
+    }
     pub fn names(&self) -> &ModelNames {
         &self.0
     }
@@ -133,12 +137,9 @@ impl Display for Model {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display_text = self.names().iter().zip(self.types().iter()).fold(
             String::new(),
-            |mut acc, (name, r#type)| {
-                if !acc.is_empty() {
-                    acc.push(',');
-                    acc.push(' ');
-                }
-                acc.push_str(format!("{name}: {type}").as_str());
+            |mut acc, (name, ty)| {
+                acc.push_str(format!("{name}: {ty}").as_str());
+                acc.push('\n');
                 acc
             },
         );
@@ -196,7 +197,7 @@ impl Model {
 }
 
 impl ModelExtended {
-    pub fn fmt_indented(&self, indent: usize) -> String {
+    pub fn fmt_verbose_indented(&self, indent: usize) -> String {
         let mut text = String::new();
         (0..indent).for_each(|_| text.push('\t'));
 
@@ -215,7 +216,7 @@ impl ModelExtended {
                 for ((name, ty), ext) in names.iter().zip(types.iter()).zip(extension) {
                     text.push_str(format!("{name}: {ty}").as_str());
                     text.push('\n');
-                    text.push_str(ext.fmt_indented(indent + 1).as_str());
+                    text.push_str(ext.fmt_verbose_indented(indent + 1).as_str());
                 }
             }
         };
@@ -229,7 +230,7 @@ impl Indent for ModelExtended {
 
 impl Display for ModelExtended {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = self.fmt_indented(0);
+        let text = self.fmt_verbose_indented(0);
         write!(f, "{text}")
     }
 }
@@ -267,7 +268,7 @@ mod tests {
         let system_classes = vec![Class::parse(src_client)?, Class::parse(src_supplier)?];
         let client = &system_classes[0];
 
-        let top_model = client.model().clone().extended(&system_classes);
+        let top_model = client.local_model().clone().extended(&system_classes);
 
         eprintln!("{top_model:?}");
 
@@ -349,7 +350,7 @@ mod tests {
             names,
             types,
             extension,
-        } = client.model().clone().extended(&system_classes)
+        } = client.local_model().clone().extended(&system_classes)
         else {
             panic!("client must have a populated model.")
         };
@@ -366,7 +367,7 @@ mod tests {
             names,
             types,
             extension,
-        } = client2.model().clone().extended(&system_classes)
+        } = client2.local_model().clone().extended(&system_classes)
         else {
             panic!("client must have a populated model.")
         };
