@@ -1,7 +1,5 @@
 use super::HandleRequest;
-use async_lsp::lsp_types;
 use async_lsp::lsp_types::request;
-use async_lsp::ResponseError;
 
 use crate::lib::language_server_protocol::commands::Commands;
 

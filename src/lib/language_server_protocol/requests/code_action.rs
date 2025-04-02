@@ -28,8 +28,7 @@ impl HandleRequest for request::CodeActionRequest {
                 ),
                     )
                 })?
-                .command()
-                .await;
+                .command();
 
         Ok(Some(vec![CodeActionOrCommand::Command(command)]))
     }

@@ -36,7 +36,6 @@ impl ServerState {
         ws.find_file(path).map(|f| f.to_owned())
     }
     pub async fn run(&self, command: commands::Commands<'_>) -> Result<(), ResponseError> {
-        let ws = self.workspace.read().await;
         let client = &self.client;
         let generators = self.generators.read().await;
         command.run(client, &generators).await
