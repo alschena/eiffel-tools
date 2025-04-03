@@ -3,272 +3,30 @@ use super::prelude::*;
 use crate::lib::tree_sitter_extension::capture_name_to_nodes;
 use crate::lib::tree_sitter_extension::node_to_text;
 use crate::lib::tree_sitter_extension::Parse;
-use anyhow::anyhow;
 use async_lsp::lsp_types;
 use contract::RoutineSpecification;
 use contract::{Block, Postcondition, Precondition};
 use std::fmt::Display;
-use std::ops::Deref;
 use std::path::Path;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
 use tracing::warn;
 use tree_sitter::{Node, QueryCursor};
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Notes(Vec<(String, Vec<String>)>);
-impl Deref for Notes {
-    type Target = Vec<(String, Vec<String>)>;
+mod notes;
+use notes::Notes;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+mod eiffel_type;
+pub use eiffel_type::EiffelType;
 
-impl Parse for Notes {
-    type Error = anyhow::Error;
-
-    fn parse_through(
-        node: &Node,
-        cursor: &mut QueryCursor,
-        src: &str,
-    ) -> Result<Self, Self::Error> {
-        let query = Self::query("(notes (note_entry)* @note_entry)");
-        let query_note_entry = Self::query("(note_entry (tag) @tag value: (_)* @value)");
-
-        let notes_entries: Vec<_> = cursor
-            .matches(&query, *node, src.as_bytes())
-            .filter_map_deref(|mat| capture_name_to_nodes("note_entry", &query, mat).next())
-            .collect();
-
-        let notes = notes_entries
-            .iter()
-            .filter_map(|note_entry_node| {
-                let mut binding =
-                    cursor.matches(&query_note_entry, *note_entry_node, src.as_bytes());
-                let Some(mat) = binding.next() else {
-                    return None;
-                };
-                let tag = capture_name_to_nodes("tag", &query_note_entry, mat)
-                    .next()
-                    .map_or_else(
-                        || String::new(),
-                        |ref tag| node_to_text(tag, src).to_string(),
-                    );
-                let values = capture_name_to_nodes("value", &query_note_entry, mat).fold(
-                    Vec::new(),
-                    |mut acc, ref value| {
-                        acc.push(node_to_text(value, src).to_string());
-                        acc
-                    },
-                );
-                Some((tag, values))
-            })
-            .collect();
-        Ok(Self(notes))
-    }
-}
+mod parameters;
+pub use parameters::Parameters;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum FeatureVisibility {
     Private,
     Some(Box<Class>),
     Public,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum EiffelType {
-    /// The first string is the whole string.
-    /// The second string is the class name.
-    ClassType(String, String),
-    TupleType(String),
-    Anchored(String),
-}
-impl Display for EiffelType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = match self {
-            EiffelType::ClassType(s, _) => s,
-            EiffelType::TupleType(s) => s,
-            EiffelType::Anchored(s) => s,
-        };
-        write!(f, "{text}")
-    }
-}
-impl EiffelType {
-    pub fn class_name(&self) -> Result<ClassName, &str> {
-        match self {
-            EiffelType::ClassType(_, s) => Ok(ClassName(s.to_owned())),
-            EiffelType::TupleType(_) => Err("tuple type"),
-            EiffelType::Anchored(_) => Err("anchored type"),
-        }
-    }
-    pub fn class<'a, 'b: 'a>(
-        &'a self,
-        mut system_classes: impl Iterator<Item = &'b Class>,
-    ) -> &'b Class {
-        let class = system_classes
-            .find(|&c| Ok(c.name()) == self.class_name().as_ref())
-            .unwrap_or_else(|| {
-                panic!(
-                    "parameters' class name: {:?} must be in system.",
-                    self.class_name()
-                )
-            });
-        class
-    }
-    pub fn is_terminal_for_model(&self) -> bool {
-        self.class_name()
-            .is_ok_and(|class_name| class_name.is_terminal_for_model())
-    }
-    pub fn model_extension(&self, system_classes: &[Class]) -> ModelExtended {
-        if self.is_terminal_for_model() {
-            return ModelExtended::Terminal;
-        }
-        let Ok(class_name): Result<ClassName, _> = self.to_owned().try_into() else {
-            unimplemented!("eiffel type's model extension implemented only for class types.")
-        };
-        class_name.model_extended(system_classes)
-    }
-}
-
-impl Parse for EiffelType {
-    type Error = anyhow::Error;
-
-    fn parse_through(
-        node: &Node,
-        query_cursor: &mut QueryCursor,
-        src: &str,
-    ) -> Result<Self, Self::Error> {
-        let eiffeltype = match node.kind() {
-            "class_type" => {
-                let query = Self::query("(class_name) @classname");
-                let mut matches = query_cursor.matches(&query, *node, src.as_bytes());
-                let mat = matches.next().expect("match for classname in classtype.");
-                let classname_node = capture_name_to_nodes("classname", &query, mat)
-                    .next()
-                    .expect("capture for classname in classtype.");
-
-                let classname = node_to_text(&classname_node, src).to_string();
-                EiffelType::ClassType(node_to_text(&node, src).to_string(), classname)
-            }
-            "tuple_type" => EiffelType::TupleType(node_to_text(&node, src).to_string()),
-            "anchored" => EiffelType::Anchored(node_to_text(&node, src).to_string()),
-            _ => unreachable!(),
-        };
-        Ok(eiffeltype)
-    }
-}
-impl TryFrom<EiffelType> for ClassName {
-    type Error = anyhow::Error;
-
-    fn try_from(value: EiffelType) -> Result<Self, Self::Error> {
-        value.class_name().map_err(|e| anyhow!("{e}"))
-    }
-}
-
-impl From<ClassName> for EiffelType {
-    fn from(value: ClassName) -> Self {
-        let ClassName(name) = value;
-        EiffelType::ClassType(name.clone(), name)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
-pub struct Parameters {
-    names: Vec<String>,
-    types: Vec<EiffelType>,
-}
-impl Parameters {
-    pub fn names(&self) -> &Vec<String> {
-        &self.names
-    }
-    pub fn types(&self) -> &Vec<EiffelType> {
-        &self.types
-    }
-    fn add_parameter(&mut self, id: String, eiffel_type: EiffelType) {
-        self.names.push(id);
-        self.types.push(eiffel_type);
-    }
-    pub fn is_empty(&self) -> bool {
-        self.names().is_empty() && self.types().is_empty()
-    }
-    pub fn model_extension<'s, 'system>(
-        &'s self,
-        system_classes: &'system [Class],
-    ) -> impl Iterator<Item = ModelExtended> + use<'s, 'system> {
-        self.types()
-            .iter()
-            .map(|t| t.model_extension(system_classes))
-    }
-    pub fn fmt_model(&self, system_classes: &[Class]) -> String {
-        let parameters_models = self.model_extension(system_classes);
-
-        format!("{self}")
-            .lines()
-            .zip(parameters_models)
-            .map(|(line, model)| format!("The argument {line}\n{}", model.fmt_verbose_indented(1)))
-            .collect()
-    }
-}
-impl Parse for Parameters {
-    type Error = anyhow::Error;
-
-    fn parse_through(
-        node: &Node,
-        cursor: &mut QueryCursor,
-        src: &str,
-    ) -> Result<Self, Self::Error> {
-        debug_assert!(node.kind() == "formal_arguments");
-
-        let parameter_query = Self::query(
-            r#"(entity_declaration_group
-                (identifier) @name
-                ("," (identifier) @name)*
-                type: (_) @eiffeltype
-                )"#,
-        );
-        let mut parameters_matches = cursor.matches(&parameter_query, node.clone(), src.as_bytes());
-
-        let mut parameters = Parameters::default();
-
-        while let Some(mat) = parameters_matches.next() {
-            let name_to_nodes = |name: &str| capture_name_to_nodes(name, &parameter_query, mat);
-            let node_to_text = |node: Node<'_>| node_to_text(&node, &src);
-
-            let names = name_to_nodes("name").map(|node| node_to_text(node).to_string());
-
-            let eiffeltype = EiffelType::parse_through(
-                &name_to_nodes("eiffeltype")
-                    .next()
-                    .expect("captured eiffel type."),
-                &mut QueryCursor::new(),
-                src,
-            )
-            .expect("parse parameters.");
-
-            names.for_each(|name| parameters.add_parameter(name, eiffeltype.clone()));
-        }
-        Ok(parameters)
-    }
-}
-impl Display for Parameters {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let types = self.types();
-        let names = self.names();
-        let text = names.iter().zip(types.iter()).fold(
-            String::new(),
-            |mut acc, (parameter_name, parameter_type)| {
-                acc.push_str(parameter_name.as_str());
-                acc.push(':');
-                acc.push(' ');
-                acc.push_str(format!("{parameter_type}").as_str());
-                acc.push('\n');
-                acc
-            },
-        );
-        write!(f, "{text}")?;
-        Ok(())
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -533,6 +291,8 @@ impl TryFrom<&Feature> for lsp_types::DocumentSymbol {
 
 #[cfg(test)]
 mod tests {
+    use super::parameters::tests::integer_parameter;
+    use super::parameters::tests::new_integer_parameter;
     use super::*;
 
     #[test]
@@ -632,38 +392,6 @@ end
     }
 
     #[test]
-    fn parse_parameters() -> anyhow::Result<()> {
-        // Example feature
-        let src = r#"
-class A feature
-  x (y, z: MML_SEQUENCE [INTEGER]): MML_SEQUENCE [INTEGER]
-    do
-    end
-end
-        "#;
-        let class = Class::parse(src)?;
-        let feature = class.features().first().expect("parsed feature.");
-
-        assert_eq!(
-            feature.parameters(),
-            &Parameters {
-                names: vec!["y".to_string(), "z".to_string()],
-                types: vec![
-                    EiffelType::ClassType(
-                        "MML_SEQUENCE [INTEGER]".to_string(),
-                        "MML_SEQUENCE".to_string()
-                    ),
-                    EiffelType::ClassType(
-                        "MML_SEQUENCE [INTEGER]".to_string(),
-                        "MML_SEQUENCE".to_string()
-                    )
-                ]
-            }
-        );
-        Ok(())
-    }
-
-    #[test]
     fn parse_return_type() {
         // Example feature
         let src = r#"
@@ -703,47 +431,5 @@ end
         assert!(eiffeltype
             .class_name()
             .is_ok_and(|name| name == *"MML_SEQUENCE"));
-    }
-
-    fn integer_parameter(name: String) -> Parameters {
-        Parameters {
-            names: vec![name],
-            types: vec![EiffelType::ClassType(
-                "INTEGER".to_string(),
-                "INTEGER".to_string(),
-            )],
-        }
-    }
-
-    #[test]
-    fn display_parameter() {
-        let p = integer_parameter("test".to_string());
-        assert_eq!(format!("{p}"), "test: INTEGER\n");
-    }
-
-    #[test]
-    fn display_model_parameter() -> anyhow::Result<()> {
-        let src = r#"note
-	model: value
-class
-	NEW_INTEGER
-feature
-	value: INTEGER
-end
-    "#;
-        let system_classes = [Class::parse(src)?];
-        let p = Parameters {
-            names: vec!["test".to_string()],
-            types: vec![EiffelType::ClassType(
-                "NEW_INTEGER".to_string(),
-                "NEW_INTEGER".to_string(),
-            )],
-        };
-        assert_eq!(
-            format!("{}", p.fmt_model(&system_classes)),
-            "The argument test: NEW_INTEGER\n\thas model: value: INTEGER\n\t\tis terminal. No qualified call is allowed on this value.\n"
-        );
-
-        Ok(())
     }
 }
