@@ -6,11 +6,6 @@ use async_lsp::ResponseError;
 use std::future::Future;
 use std::path::Path;
 
-#[cfg(test)]
-pub mod command_mock;
-#[cfg(test)]
-use command_mock::MockCommand;
-
 mod add_class_specification;
 pub use add_class_specification::ClassSpecificationGenerator;
 
@@ -51,8 +46,8 @@ trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
 
 macro_rules! commands {
     (
-    $enum_name:ident;
-    $variants:tt
+    name: $enum_name:ident;
+    variants: $variants:tt
     $(; functions: $($fn_name:ident $fn_params:tt -> $fn_ret_type:ty),+)?
     $(; async_functions: $($async_fn_name:ident $async_fn_params:tt -> $async_fn_ret_type:ty),+)?
      ) => {
@@ -121,8 +116,8 @@ macro_rules! commands {
 }
 
 commands!(
-    Commands;
-    [ClassSpecificationGenerator, RoutineSpecificationGenerator];
+    name: Commands;
+    variants: [ClassSpecificationGenerator, RoutineSpecificationGenerator];
     functions: command() -> lsp_types::Command;
     async_functions: generate_edits(g: &Generators) -> anyhow::Result<lsp_types::WorkspaceEdit>
 );
@@ -187,10 +182,12 @@ mod tests {
     use super::*;
     use crate::lib::workspace::tests::*;
     use async_lsp::lsp_types::WorkspaceEdit;
+    mod command_mock;
+    use command_mock::MockCommand;
 
     commands!(
-        CommandsTest;
-        [MockCommand];
+        name: CommandsTest;
+        variants: [MockCommand];
         functions: command() -> lsp_types::Command, test_function_with_arg(s: String)-> String;
         async_functions: generate_edits(g: &Generators) -> anyhow::Result<WorkspaceEdit>
     );
