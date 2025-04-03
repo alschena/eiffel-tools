@@ -1,18 +1,18 @@
 use crate::lib::code_entities::prelude::Point;
 use crate::lib::generators::Generators;
 use crate::lib::workspace::Workspace;
+use async_lsp::lsp_types;
 use async_lsp::lsp_types::request;
 use async_lsp::ResponseError;
+use serde_json;
 use std::future::Future;
 use std::path::Path;
 
 mod add_class_specification;
-pub use add_class_specification::ClassSpecificationGenerator;
+use add_class_specification::ClassSpecificationGenerator;
 
 mod add_routine_specification;
-pub use add_routine_specification::RoutineSpecificationGenerator;
-use async_lsp::lsp_types;
-use serde_json;
+use add_routine_specification::RoutineSpecificationGenerator;
 
 trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
     const NAME: &'static str;
