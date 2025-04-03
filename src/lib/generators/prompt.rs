@@ -330,11 +330,10 @@ impl From<Prompt> for Vec<super::constructor_api::MessageOut> {
 mod tests {
     use super::super::constructor_api::MessageOut;
     use super::*;
+    use crate::lib::parser::Parse;
     use crate::lib::processed_file::ProcessedFile;
-    use crate::lib::tree_sitter_extension::Parse;
     use assert_fs::prelude::*;
     use assert_fs::{fixture::FileWriteStr, TempDir};
-    use async_lsp::lsp_types;
 
     fn parser() -> tree_sitter::Parser {
         let mut parser = tree_sitter::Parser::new();

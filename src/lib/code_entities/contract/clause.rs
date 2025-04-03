@@ -1,6 +1,6 @@
-use crate::lib::tree_sitter_extension::capture_name_to_nodes;
-use crate::lib::tree_sitter_extension::node_to_text;
-use crate::lib::tree_sitter_extension::Parse;
+use crate::lib::parser::capture_name_to_nodes;
+use crate::lib::parser::node_to_text;
+use crate::lib::parser::Parse;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::collections::HashSet;

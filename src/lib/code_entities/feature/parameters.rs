@@ -1,8 +1,8 @@
 use crate::lib::code_entities::class::model::ModelExtended;
 use crate::lib::code_entities::prelude::*;
-use crate::lib::tree_sitter_extension::capture_name_to_nodes;
-use crate::lib::tree_sitter_extension::node_to_text;
-use crate::lib::tree_sitter_extension::Parse;
+use crate::lib::parser::capture_name_to_nodes;
+use crate::lib::parser::node_to_text;
+use crate::lib::parser::Parse;
 use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node, QueryCursor};

@@ -1,6 +1,6 @@
 use crate::lib::code_entities::prelude::*;
+use crate::lib::parser::Parse;
 use crate::lib::processed_file::ProcessedFile;
-use crate::lib::tree_sitter_extension::Parse;
 use contract::RoutineSpecification;
 use std::sync::Arc;
 use tracing::info;
@@ -84,7 +84,7 @@ mod tests {
     use crate::lib::generators::constructor_api::CompletionParameters;
     use crate::lib::generators::constructor_api::MessageOut;
     use crate::lib::generators::constructor_api::LLM;
-    use crate::lib::tree_sitter_extension::Parse;
+    use crate::lib::parser::Parse;
 
     #[ignore]
     #[tokio::test]

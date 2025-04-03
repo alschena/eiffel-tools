@@ -1,12 +1,9 @@
-use crate::lib::tree_sitter_extension::capture_name_to_nodes;
-use crate::lib::tree_sitter_extension::Parse;
+use crate::lib::parser::capture_name_to_nodes;
+use crate::lib::parser::Parse;
 use anyhow::anyhow;
-use schemars::JsonSchema;
-use serde::Deserialize;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::ops::Deref;
-use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::Node;
 use tree_sitter::QueryCursor;

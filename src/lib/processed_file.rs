@@ -1,5 +1,5 @@
 use super::code_entities::prelude::*;
-use super::tree_sitter_extension::Parse;
+use super::parser::Parse;
 use anyhow::{Context, Result};
 use async_lsp::lsp_types;
 use std::path::{Path, PathBuf};

@@ -1,5 +1,5 @@
 use crate::lib::code_entities::prelude::*;
-use crate::lib::tree_sitter_extension::{capture_name_to_nodes, node_to_text, Parse};
+use crate::lib::parser::{capture_name_to_nodes, node_to_text, Parse};
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;

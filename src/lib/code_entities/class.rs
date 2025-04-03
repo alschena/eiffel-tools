@@ -1,5 +1,5 @@
 use super::prelude::*;
-use crate::lib::tree_sitter_extension::{capture_name_to_nodes, node_to_text, Parse};
+use crate::lib::parser::{capture_name_to_nodes, node_to_text, Parse};
 use anyhow::Context;
 use async_lsp::lsp_types;
 use std::borrow::Cow;
