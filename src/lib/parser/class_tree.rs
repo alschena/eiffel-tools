@@ -5,7 +5,7 @@ mod feature_tree;
 mod inheritance_tree;
 mod notes_tree;
 
-pub trait ClassTree: Nodes {
+pub trait ClassTree<'source, 'tree>: Nodes<'source, 'tree> {
     fn query() -> Query {
         util::query(
             r#"
@@ -19,20 +19,20 @@ pub trait ClassTree: Nodes {
             "#,
         )
     }
-    fn class_name(&mut self) -> Result<Node<'_>, Self::Error> {
+    fn class_name(&mut self) -> Result<Node<'tree>, Self::Error> {
         let mut nodes = self.nodes("name")?;
         assert_eq!(nodes.len(), 1);
         Ok(nodes.pop().unwrap())
     }
-    fn inheritance(&mut self) -> Result<Vec<Node<'_>>, Self::Error> {
+    fn inheritance(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
         self.nodes("inheritance")
     }
-    fn feature_clauses(&mut self) -> Result<Vec<Node<'_>>, Self::Error> {
+    fn feature_clauses(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
         self.nodes("feature_clause")
     }
 }
 
-impl<T> ClassTree for T where T: Nodes {}
+impl<'source, 'tree, T> ClassTree<'source, 'tree> for T where T: Nodes<'source, 'tree> {}
 
 #[cfg(test)]
 mod tests {
@@ -40,44 +40,47 @@ mod tests {
     use crate::lib::parser::tests::*;
     use crate::lib::parser::util::TreeTraversal;
 
-    impl<'tree> TreeTraversal<'_, 'tree> {
-        fn mock_class(tree: &'tree Tree) -> Self {
-            TreeTraversal::try_new(
-                DOUBLE_FEATURE_CLASS_SOURCE.as_bytes(),
-                tree.root_node(),
-                <TreeTraversal as ClassTree>::query(),
-            )
-            .unwrap_or_else(|e| panic!("{e}"))
-        }
-    }
-
     #[test]
     fn class_name_node() -> anyhow::Result<()> {
-        let mut tree = Parser::new().mock_tree();
-        let mut class_tree = TreeTraversal::mock_class(&tree);
-
+        let mut parser = Parser::new();
+        let parsed_file = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
         let name = class_tree.class_name()?;
-        assert_eq!(name, todo!());
+        let content = class_tree.node_content(name)?;
+        assert_eq!(content, "TEST");
         Ok(())
     }
 
     #[test]
     fn class_features_nodes() -> anyhow::Result<()> {
-        let mut tree = Parser::new().mock_tree();
-        let mut class_tree = TreeTraversal::mock_class(&tree);
+        let mut parser = Parser::new();
+        let parsed_file = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
 
-        let features_clause = class_tree.feature_clauses()?;
-        assert!(features_clause.contains(todo!()));
+        let mut features_clause = class_tree.feature_clauses()?;
+        assert_eq!(
+            features_clause.len(),
+            1,
+            "fails to parse the single feature clause, i.e. feature visibility block."
+        );
+        let feature_clause_content = class_tree.node_content(features_clause.pop().unwrap())?;
+        assert_eq!(
+            feature_clause_content.trim(),
+            r#"feature
+    x: INTEGER
+    y: INTEGER"#
+        );
         Ok(())
     }
 
     #[test]
     fn inheritance() -> anyhow::Result<()> {
-        let mut tree = Parser::new().mock_tree();
-        let mut class_tree = TreeTraversal::mock_class(&tree);
+        let mut parser = Parser::new();
+        let parsed_file = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
 
         let inheritance_tree = class_tree.inheritance()?;
-        assert!(inheritance_tree.contains(todo!()));
+        assert!(inheritance_tree.is_empty());
         Ok(())
     }
 }

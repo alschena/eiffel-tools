@@ -1,14 +1,17 @@
 use crate::lib::parser::*;
+use anyhow::anyhow;
 
 pub fn query(sexp: &str) -> Query {
     Query::new(&tree_sitter_eiffel::LANGUAGE.into(), sexp)
         .unwrap_or_else(|e| panic!("query:\t{sexp}\n\thas error: {e}"))
 }
 
-pub trait Nodes {
+pub trait Nodes<'source, 'tree> {
     type Error;
-    fn nodes(&mut self, capture_name: &str) -> Result<Vec<Node<'_>>, Self::Error>;
-    fn matches(&mut self) -> QueryMatches<'_, '_, &[u8], &[u8]>;
+    fn current_node(&self) -> Node<'tree>;
+    fn matches(&mut self) -> QueryMatches<'_, 'tree, &[u8], &[u8]>;
+    fn node_content(&self, node: Node<'tree>) -> Result<&str, Self::Error>;
+    fn nodes(&mut self, capture_name: &str) -> Result<Vec<Node<'tree>>, Self::Error>;
 }
 
 pub struct TreeTraversal<'source, 'tree> {
@@ -18,10 +21,34 @@ pub struct TreeTraversal<'source, 'tree> {
     cursor: QueryCursor,
 }
 
-impl<'source, 'tree> Nodes for TreeTraversal<'source, 'tree> {
+impl<'source, 'tree> TryFrom<&'tree ParsedSource<'source>> for TreeTraversal<'source, 'tree> {
     type Error = anyhow::Error;
 
-    fn nodes(&mut self, capture_name: &str) -> anyhow::Result<Vec<Node<'_>>> {
+    fn try_from(value: &'tree ParsedSource<'source>) -> anyhow::Result<Self> {
+        let source = value.source;
+        let node = value.tree.root_node();
+        let query = <TreeTraversal as ClassTree>::query();
+        Self::try_new(source, node, query)
+    }
+}
+
+impl<'source, 'tree> Nodes<'source, 'tree> for TreeTraversal<'source, 'tree> {
+    type Error = anyhow::Error;
+
+    fn current_node(&self) -> Node<'tree> {
+        self.node
+    }
+
+    fn matches(&mut self) -> QueryMatches<'_, 'tree, &[u8], &[u8]> {
+        self.cursor.matches(&self.query, self.node, self.source)
+    }
+
+    fn node_content(&self, node: Node<'tree>) -> Result<&str, Self::Error> {
+        node.utf8_text(self.source)
+            .map_err(|e| anyhow!("fails to extract content from node: {node} with error: {e}"))
+    }
+
+    fn nodes(&mut self, capture_name: &str) -> anyhow::Result<Vec<Node<'tree>>> {
         let index = self
             .query
             .capture_index_for_name(capture_name)
@@ -32,10 +59,6 @@ impl<'source, 'tree> Nodes for TreeTraversal<'source, 'tree> {
             acc
         });
         Ok(nodes)
-    }
-
-    fn matches(&mut self) -> QueryMatches<'_, '_, &[u8], &[u8]> {
-        self.cursor.matches(&self.query, self.node, self.source)
     }
 }
 

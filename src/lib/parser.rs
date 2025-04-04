@@ -17,34 +17,35 @@ use class_tree::ClassTree;
 
 mod util;
 
-struct Parser {}
+struct Parser(TreeSitterParser);
+
 impl Parser {
     fn new() -> Self {
-        todo!()
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+        Self(parser)
     }
-    fn tree<'source, T>(&mut self, source: &'source T) -> Tree
+    fn parse<'source, T>(&mut self, source: &'source T) -> anyhow::Result<ParsedSource<'source>>
     where
         T: AsRef<[u8]> + ?Sized,
     {
-        todo!()
-    }
-    fn parse<'source, T>(&mut self, source: &'source T) -> ParsedSource
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
-        todo!()
-    }
-    fn class_tree<'s, 'source, 'tree, T: ClassTree>(&'s self) -> T
-    where
-        's: 'source,
-        's: 'tree,
-    {
-        todo!()
+        let source = source.as_ref();
+        let tree = self
+            .0
+            .parse(source, None)
+            .with_context(|| "fails to parse source: {source:?}")?;
+        Ok(ParsedSource { source, tree })
     }
 }
 
-struct ParsedSource {}
-impl ParsedSource {
+struct ParsedSource<'source> {
+    source: &'source [u8],
+    tree: Tree,
+}
+
+impl<'source> ParsedSource<'source> {
     fn classes(&self) -> Vec<(Class, Location, Range)> {
         todo!()
     }
@@ -58,13 +59,13 @@ mod tests {
     use super::*;
 
     pub const DOUBLE_FEATURE_CLASS_SOURCE: &str = r#"
-        class
-            TEST
-        feature
-            x: INTEGER
-            y: INTEGER
-        end
-    "#;
+class
+    TEST
+feature
+    x: INTEGER
+    y: INTEGER
+end
+"#;
 
     pub const ANNOTATED_CLASS_SOURCE: &str = r#"
 note
@@ -96,7 +97,7 @@ end
     #[test]
     fn parse() -> anyhow::Result<()> {
         let mut parser = Parser::new();
-        let parsed_source = parser.parse(MODEL_CLASS_SOURCE);
+        let parsed_source = parser.parse(MODEL_CLASS_SOURCE)?;
         let class: Vec<(Class, Location, Range)> = parsed_source.classes();
         let features: Vec<(Feature, Location, Range)> = parsed_source.features();
         Ok(())
