@@ -11,7 +11,9 @@ pub trait Nodes<'source, 'tree> {
     fn current_node(&self) -> Node<'tree>;
     fn matches(&mut self) -> QueryMatches<'_, 'tree, &[u8], &[u8]>;
     fn node_content(&self, node: Node<'tree>) -> Result<&str, Self::Error>;
-    fn nodes(&mut self, capture_name: &str) -> Result<Vec<Node<'tree>>, Self::Error>;
+    fn nodes_captures(&mut self, capture_name: &str) -> Result<Vec<Node<'tree>>, Self::Error>;
+    fn goto_node(&mut self, node: Node<'tree>);
+    fn set_query(&mut self, query: Query);
 }
 
 pub struct TreeTraversal<'source, 'tree> {
@@ -48,7 +50,7 @@ impl<'source, 'tree> Nodes<'source, 'tree> for TreeTraversal<'source, 'tree> {
             .map_err(|e| anyhow!("fails to extract content from node: {node} with error: {e}"))
     }
 
-    fn nodes(&mut self, capture_name: &str) -> anyhow::Result<Vec<Node<'tree>>> {
+    fn nodes_captures(&mut self, capture_name: &str) -> anyhow::Result<Vec<Node<'tree>>> {
         let index = self
             .query
             .capture_index_for_name(capture_name)
@@ -59,6 +61,14 @@ impl<'source, 'tree> Nodes<'source, 'tree> for TreeTraversal<'source, 'tree> {
             acc
         });
         Ok(nodes)
+    }
+
+    fn goto_node(&mut self, node: Node<'tree>) {
+        self.node = node;
+    }
+
+    fn set_query(&mut self, query: Query) {
+        self.query = query;
     }
 }
 

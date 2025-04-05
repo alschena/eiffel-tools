@@ -19,16 +19,23 @@ pub trait ClassTree<'source, 'tree>: Nodes<'source, 'tree> {
             "#,
         )
     }
+
     fn class_name(&mut self) -> Result<Node<'tree>, Self::Error> {
-        let mut nodes = self.nodes("name")?;
+        let mut nodes = self.nodes_captures("name")?;
         assert_eq!(nodes.len(), 1);
         Ok(nodes.pop().unwrap())
     }
-    fn inheritance(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
-        self.nodes("inheritance")
+
+    fn class_nodes(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
+        self.nodes_captures("notes")
     }
+
+    fn inheritance(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
+        self.nodes_captures("inheritance")
+    }
+
     fn feature_clauses(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
-        self.nodes("feature_clause")
+        self.nodes_captures("feature_clause")
     }
 }
 

@@ -78,16 +78,6 @@ invariant
 end
     "#;
 
-    pub const MODEL_CLASS_SOURCE: &str = r#"
-note
-    model: seq
-class A
-feature
-    x: INTEGER
-    seq: MML_SEQUENCE [INTEGER]
-end
-"#;
-
     impl Parser {
         pub fn mock_tree(&self) -> Tree {
             todo!()
@@ -97,7 +87,7 @@ end
     #[test]
     fn parse() -> anyhow::Result<()> {
         let mut parser = Parser::new();
-        let parsed_source = parser.parse(MODEL_CLASS_SOURCE)?;
+        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
         let class: Vec<(Class, Location, Range)> = parsed_source.classes();
         let features: Vec<(Feature, Location, Range)> = parsed_source.features();
         Ok(())

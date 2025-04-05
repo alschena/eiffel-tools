@@ -15,95 +15,127 @@ trait FeatureTree<'source, 'tree>: Nodes<'source, 'tree> {
                         (assertion_clause (expression))* @assertion_clause)? @precondition
                     (postcondition
                         (assertion_clause (expression))* @assertion_clause)? @postcondition
-                )? @attribute_or_routine)* @feature)*
+                )? @attribute_or_routine)* @feature)
             "#,
         )
     }
+    fn features(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
+        self.nodes_captures("feature")
+    }
     fn names(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
-        self.nodes("feature_name")
+        self.nodes_captures("feature_name")
     }
-    fn arguments(&mut self) -> Result<Option<Node<'tree>>, Self::Error> {
-        let mut nodes = self.nodes("parameters")?;
-        assert!(nodes.len() < 2);
-        Ok(nodes.pop())
+    fn arguments(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
+        self.nodes_captures("parameters")
     }
-    fn return_type(&mut self) -> Result<Option<Node<'tree>>, Self::Error> {
-        let mut nodes = self.nodes("return_type")?;
-        assert!(nodes.len() < 2);
-        Ok(nodes.pop())
+    fn return_type(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
+        self.nodes_captures("return_type")
     }
-    fn notes(&mut self) -> Result<Option<Node<'tree>>, Self::Error> {
-        let mut nodes = self.nodes("notes")?;
-        assert!(nodes.len() < 2);
-        Ok(nodes.pop())
+    fn notes(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
+        self.nodes_captures("notes")
     }
-    fn is_routine_or_lazy_initialized(&mut self) -> Result<bool, Self::Error> {
-        Ok(self.nodes("attribute_or_routine")?.is_empty())
+    fn preconditions(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
+        self.nodes_captures("precondition")
     }
-    fn preconditions(&mut self) -> Result<Option<Node<'tree>>, Self::Error> {
-        let mut nodes = self.nodes("precondition")?;
-        assert!(nodes.len() < 2);
-        Ok(nodes.pop())
-    }
-    fn postcondition(&mut self) -> Result<Option<Node<'tree>>, Self::Error> {
-        let mut nodes = self.nodes("postcondition")?;
-        assert!(nodes.len() < 2);
-        Ok(nodes.pop())
+    fn postcondition(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
+        self.nodes_captures("postcondition")
     }
 }
 
 impl<'source, 'tree, T: Nodes<'source, 'tree>> FeatureTree<'source, 'tree> for T {}
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
-    use crate::lib::parser::util::TreeTraversal;
+    use crate::lib::parser::{tests::DOUBLE_FEATURE_CLASS_SOURCE, util::TreeTraversal};
 
-    impl TreeTraversal<'_, '_> {
-        fn mock_feature() -> Self {
-            todo!()
+    impl<'source, 'tree> TreeTraversal<'source, 'tree> {
+        pub fn mock_feature<'tmp_src: 'tree>(
+            parsed_file: &'tmp_src ParsedSource<'source>,
+        ) -> anyhow::Result<Self> {
+            let mut tree_traversal = TreeTraversal::try_from(parsed_file)?;
+            let mut features = tree_traversal.feature_clauses()?;
+            let first_feature = features.pop().with_context(|| {
+                "fails to get a feature to create the mock feature tree traversal."
+            })?;
+            tree_traversal.goto_node(first_feature);
+            tree_traversal.set_query(<TreeTraversal as FeatureTree>::query());
+            Ok(tree_traversal)
         }
     }
+
     #[test]
-    fn names() {
-        let mut feature_tree = TreeTraversal::mock_feature();
-        let valid = |val| -> bool { todo!() };
-        assert!(valid(feature_tree.names()));
+    fn features() -> anyhow::Result<()> {
+        let mut parser = Parser::new();
+        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
+        let features = feature_tree.features()?;
+        assert_eq!(features.len(), 2);
+        Ok(())
     }
+
     #[test]
-    fn arguments() {
-        let mut feature_tree = TreeTraversal::mock_feature();
-        let valid = |val| -> bool { todo!() };
-        assert!(valid(feature_tree.arguments()));
+    fn names() -> anyhow::Result<()> {
+        let mut parser = Parser::new();
+        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
+        let mut names = feature_tree.names()?;
+        assert_eq!(names.len(), 2, "names node: {names:#?}");
+        assert_eq!(feature_tree.node_content(names.pop().unwrap())?, "y");
+        assert_eq!(feature_tree.node_content(names.pop().unwrap())?, "x");
+        Ok(())
     }
+
     #[test]
-    fn return_type() {
-        let mut feature_tree = TreeTraversal::mock_feature();
-        let valid = |val| -> bool { todo!() };
-        assert!(valid(feature_tree.return_type()));
+    fn arguments() -> anyhow::Result<()> {
+        let mut parser = Parser::new();
+        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
+        assert!(feature_tree.arguments()?.is_empty());
+        Ok(())
     }
+
     #[test]
-    fn notes() {
-        let mut feature_tree = TreeTraversal::mock_feature();
-        let valid = |val| -> bool { todo!() };
-        assert!(valid(feature_tree.notes()));
+    fn return_type() -> anyhow::Result<()> {
+        let mut parser = Parser::new();
+        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
+        let mut ret_types = feature_tree.return_type()?;
+        assert_eq!(
+            feature_tree.node_content(ret_types.pop().unwrap())?,
+            "INTEGER"
+        );
+        assert_eq!(
+            feature_tree.node_content(ret_types.pop().unwrap())?,
+            "INTEGER"
+        );
+        Ok(())
     }
+
     #[test]
-    fn is_routine_or_lazy_initialized() {
-        let mut feature_tree = TreeTraversal::mock_feature();
-        let valid = |val| -> bool { todo!() };
-        assert!(valid(feature_tree.is_routine_or_lazy_initialized()));
+    fn notes() -> anyhow::Result<()> {
+        let mut parser = Parser::new();
+        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
+        assert!(feature_tree.notes()?.is_empty());
+        Ok(())
     }
+
     #[test]
-    fn preconditions() {
-        let mut feature_tree = TreeTraversal::mock_feature();
-        let valid = |val| -> bool { todo!() };
-        assert!(valid(feature_tree.preconditions()));
+    fn preconditions() -> anyhow::Result<()> {
+        let mut parser = Parser::new();
+        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
+        assert!(feature_tree.preconditions()?.is_empty());
+        Ok(())
     }
+
     #[test]
-    fn postcondition() {
-        let mut feature_tree = TreeTraversal::mock_feature();
-        let valid = |val| -> bool { todo!() };
-        assert!(valid(feature_tree.postcondition()));
+    fn postcondition() -> anyhow::Result<()> {
+        let mut parser = Parser::new();
+        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
+        assert!(feature_tree.postcondition()?.is_empty());
+        Ok(())
     }
 }
