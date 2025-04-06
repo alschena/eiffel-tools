@@ -13,7 +13,7 @@ use tracing::warn;
 use tree_sitter::{Node, QueryCursor};
 
 mod notes;
-use notes::Notes;
+pub use notes::Notes;
 
 mod eiffel_type;
 pub use eiffel_type::EiffelType;
@@ -30,15 +30,15 @@ pub enum FeatureVisibility {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Feature {
-    pub(super) name: String,
-    parameters: Parameters,
-    return_type: Option<EiffelType>,
-    notes: Option<Notes>,
-    pub(super) visibility: FeatureVisibility,
-    pub(super) range: Range,
+    pub name: String,
+    pub parameters: Parameters,
+    pub return_type: Option<EiffelType>,
+    pub notes: Option<Notes>,
+    pub visibility: FeatureVisibility,
+    pub range: Range,
     /// Is None only when a precondition cannot be added (for attributes without an attribute clause).
-    preconditions: Option<Block<Precondition>>,
-    postconditions: Option<Block<Postcondition>>,
+    pub preconditions: Option<Block<Precondition>>,
+    pub postconditions: Option<Block<Postcondition>>,
 }
 impl Feature {
     pub fn is_feature_around_point(&self, point: Point) -> bool {

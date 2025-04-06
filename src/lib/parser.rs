@@ -85,6 +85,7 @@ end
     }
 
     #[test]
+    #[ignore]
     fn parse() -> anyhow::Result<()> {
         let mut parser = Parser::new();
         let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;

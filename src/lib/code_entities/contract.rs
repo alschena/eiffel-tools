@@ -10,7 +10,7 @@ pub use blocks::Precondition;
 pub use blocks::RoutineSpecification;
 
 mod clause;
-use clause::Clause;
+pub use clause::Clause;
 use tracing::info;
 
 pub(crate) trait Fix: Debug {

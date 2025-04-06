@@ -9,8 +9,8 @@ use tree_sitter::{Node, QueryCursor};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct Parameters {
-    names: Vec<String>,
-    types: Vec<EiffelType>,
+    pub names: Vec<String>,
+    pub types: Vec<EiffelType>,
 }
 impl Parameters {
     pub fn names(&self) -> &Vec<String> {
@@ -58,8 +58,7 @@ impl Parse for Parameters {
             r#"(entity_declaration_group
                 (identifier) @name
                 ("," (identifier) @name)*
-                type: (_) @eiffeltype
-                )"#,
+                type: (_) @eiffeltype)"#,
         );
         let mut parameters_matches = cursor.matches(&parameter_query, node.clone(), src.as_bytes());
 

@@ -14,7 +14,7 @@ use super::*;
 #[schemars(
     description = "Preconditions are predicates on the prestate, the state before the execution, of a routine. They describe the properties that the fields of the model in the current object must satisfy in the prestate. Preconditions cannot contain a call to `old_` or the `old` keyword."
 )]
-pub struct Precondition(Vec<Clause>);
+pub struct Precondition(pub Vec<Clause>);
 
 impl Deref for Precondition {
     type Target = Vec<Clause>;

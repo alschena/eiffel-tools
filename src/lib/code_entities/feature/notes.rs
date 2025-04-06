@@ -6,7 +6,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node, QueryCursor};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Notes(Vec<(String, Vec<String>)>);
+pub struct Notes(pub Vec<(String, Vec<String>)>);
 impl Deref for Notes {
     type Target = Vec<(String, Vec<String>)>;
 

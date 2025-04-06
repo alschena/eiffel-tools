@@ -8,6 +8,8 @@ pub(crate) mod prelude {
     pub(crate) use super::contract;
     pub(crate) use super::feature::EiffelType;
     pub(crate) use super::feature::Feature;
+    pub(crate) use super::feature::FeatureVisibility;
+    pub(crate) use super::feature::Notes as FeatureNotes;
     pub(crate) use super::feature::Parameters as FeatureParameters;
     pub(crate) use super::shared::{Location, Point, Range};
     pub(crate) use super::Indent;

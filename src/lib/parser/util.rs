@@ -1,19 +1,31 @@
 use crate::lib::parser::*;
 use anyhow::anyhow;
+use std::fmt::Debug;
 
 pub fn query(sexp: &str) -> Query {
     Query::new(&tree_sitter_eiffel::LANGUAGE.into(), sexp)
         .unwrap_or_else(|e| panic!("query:\t{sexp}\n\thas error: {e}"))
 }
 
-pub trait Nodes<'source, 'tree> {
-    type Error;
+pub fn is_inside<'tree>(inner: Node<'tree>, outer: Node<'tree>) -> bool {
+    let outer_range = outer.range();
+    let outer_start = outer_range.start_byte;
+    let outer_end = outer_range.end_byte;
+
+    let inner_range = inner.range();
+    let inner_start = inner_range.start_byte;
+    let inner_end = inner_range.end_byte;
+
+    outer_start <= inner_start && inner_end <= outer_end
+}
+
+pub trait Traversal<'source, 'tree> {
+    type Error: Debug + From<anyhow::Error>;
     fn current_node(&self) -> Node<'tree>;
     fn matches(&mut self) -> QueryMatches<'_, 'tree, &[u8], &[u8]>;
     fn node_content(&self, node: Node<'tree>) -> Result<&str, Self::Error>;
     fn nodes_captures(&mut self, capture_name: &str) -> Result<Vec<Node<'tree>>, Self::Error>;
-    fn goto_node(&mut self, node: Node<'tree>);
-    fn set_query(&mut self, query: Query);
+    fn set_node_and_query(&mut self, node: Node<'tree>, query: Query);
 }
 
 pub struct TreeTraversal<'source, 'tree> {
@@ -34,7 +46,7 @@ impl<'source, 'tree> TryFrom<&'tree ParsedSource<'source>> for TreeTraversal<'so
     }
 }
 
-impl<'source, 'tree> Nodes<'source, 'tree> for TreeTraversal<'source, 'tree> {
+impl<'source, 'tree> Traversal<'source, 'tree> for TreeTraversal<'source, 'tree> {
     type Error = anyhow::Error;
 
     fn current_node(&self) -> Node<'tree> {
@@ -54,7 +66,7 @@ impl<'source, 'tree> Nodes<'source, 'tree> for TreeTraversal<'source, 'tree> {
         let index = self
             .query
             .capture_index_for_name(capture_name)
-            .with_context(|| "fails to find `notes` as a capture name.")?;
+            .with_context(|| format!("fails to find {capture_name} as a capture name."))?;
 
         let nodes = self.matches().fold(Vec::new(), |mut acc, mtc| {
             acc.extend(mtc.nodes_for_capture_index(index));
@@ -63,11 +75,8 @@ impl<'source, 'tree> Nodes<'source, 'tree> for TreeTraversal<'source, 'tree> {
         Ok(nodes)
     }
 
-    fn goto_node(&mut self, node: Node<'tree>) {
+    fn set_node_and_query(&mut self, node: Node<'tree>, query: Query) {
         self.node = node;
-    }
-
-    fn set_query(&mut self, query: Query) {
         self.query = query;
     }
 }

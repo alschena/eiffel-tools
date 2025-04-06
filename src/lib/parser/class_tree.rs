@@ -1,19 +1,22 @@
-use crate::lib::parser::util::Nodes;
+use crate::lib::parser::util::Traversal;
 use crate::lib::parser::*;
 
+mod contract_tree;
+mod eiffel_type;
 mod feature_tree;
 mod inheritance_tree;
 mod notes_tree;
 
-pub trait ClassTree<'source, 'tree>: Nodes<'source, 'tree> {
+pub trait ClassTree<'source, 'tree>: Traversal<'source, 'tree> {
     fn query() -> Query {
         util::query(
             r#"
             (class_declaration
-                (notes)* @notes
+                (notes)? @notes
                 (class_name) @name
                 (inheritance)* @inheritance
                 (feature_clause)* @feature_clause
+                (notes)? @notes
             )@class
                 
             "#,
@@ -39,7 +42,7 @@ pub trait ClassTree<'source, 'tree>: Nodes<'source, 'tree> {
     }
 }
 
-impl<'source, 'tree, T> ClassTree<'source, 'tree> for T where T: Nodes<'source, 'tree> {}
+impl<'source, 'tree, T> ClassTree<'source, 'tree> for T where T: Traversal<'source, 'tree> {}
 
 #[cfg(test)]
 mod tests {

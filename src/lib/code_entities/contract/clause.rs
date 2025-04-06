@@ -182,6 +182,12 @@ impl From<String> for Tag {
 #[schemars(description = "A valid boolean expression for the Eiffel programming language.")]
 pub struct Predicate(String);
 
+impl From<&str> for Predicate {
+    fn from(value: &str) -> Self {
+        Predicate(value.to_string())
+    }
+}
+
 impl Predicate {
     pub fn new<T: ToString>(text: T) -> Predicate {
         Predicate(text.to_string())
