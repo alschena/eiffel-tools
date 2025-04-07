@@ -1,6 +1,8 @@
 use crate::lib::parser::util::Traversal;
 use crate::lib::parser::*;
+use anyhow::anyhow;
 use anyhow::bail;
+use anyhow::ensure;
 
 mod contract_tree;
 mod eiffel_type;
@@ -30,7 +32,9 @@ pub trait ClassTree<'source, 'tree>:
     }
 
     fn class(&mut self) -> Result<Class, Self::Error> {
-        assert_eq!(self.current_node().kind(), "source_file");
+        if self.current_node().kind() != "source_file" {
+            return Err(anyhow!("class tree current node is root").into());
+        }
         let name_nodes = self.class_name()?;
         let notes_nodes = self.class_notes()?;
         let parents_nodes = self.nodes_captures("parent")?;
@@ -113,8 +117,7 @@ pub trait ClassTree<'source, 'tree>:
 
     fn class_name(&mut self) -> Result<Node<'tree>, Self::Error> {
         let mut nodes = self.nodes_captures("name")?;
-        assert_eq!(nodes.len(), 1, "class name nodes: {nodes:#?}");
-        Ok(nodes.pop().unwrap())
+        Ok(nodes.pop().with_context(|| "TOOO")?)
     }
 
     fn class_notes(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
@@ -135,10 +138,9 @@ impl<'source, 'tree, T> ClassTree<'source, 'tree> for T where T: Traversal<'sour
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lib::parser::tests::EMPTY_CLASS;
     use crate::lib::parser::util::TreeTraversal;
     use anyhow::anyhow;
-
-    pub const EMPTY_CLASS: &str = r#"class A end"#;
 
     pub const DOUBLE_ATTRIBUTE_CLASS: &str = r#"
 class

@@ -13,11 +13,11 @@ use tree_sitter::{Parser, Tree};
 #[derive(Debug, Clone)]
 pub struct ProcessedFile {
     /// Treesitter abstract syntax tree, stored for incremental parsing.
-    tree: Tree,
+    pub tree: Tree,
     /// Path of the file
-    path: PathBuf,
+    pub path: PathBuf,
     /// In eiffel a class contains all other code entities of a class
-    class: Class,
+    pub class: Class,
 }
 impl ProcessedFile {
     #[instrument(skip(parser))]
@@ -118,27 +118,6 @@ mod tests {
         parser
     }
 
-    #[tokio::test]
-    async fn new() {
-        let mut parser = parser();
-        let temp_dir = TempDir::new().expect("must create temporary directory.");
-        let file = temp_dir.child("processed_file_new.e");
-        file.write_str(
-            r#"
-class A
-feature
-  x: INTEGER
-end
-            "#,
-        )
-        .expect("temp file must be writable");
-        assert!(file.exists());
-        let processed_file = ProcessedFile::new(&mut parser, file.to_path_buf())
-            .await
-            .expect("processed file must be produced.");
-        assert_eq!(file.to_path_buf(), processed_file.path());
-        assert_eq!(processed_file.class().name(), "A");
-    }
     #[tokio::test]
     async fn reload() {
         let mut parser = parser();

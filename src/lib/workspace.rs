@@ -1,8 +1,10 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::config::System;
+use crate::lib::parser::Parser;
 use crate::lib::processed_file::ProcessedFile;
 use std::path::Path;
 use tokio::task::JoinSet;
+use tracing::warn;
 
 #[derive(Debug)]
 pub struct Workspace {
@@ -41,15 +43,20 @@ impl Workspace {
         let eiffel_files = system.eiffel_files();
         let mut set = JoinSet::new();
         eiffel_files.into_iter().for_each(|filepath| {
-            let mut parser = tree_sitter::Parser::new();
-            parser
-                .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-                .expect("load eiffel grammar.");
-            set.spawn(async move { ProcessedFile::new(&mut parser, filepath.to_owned()).await });
+            set.spawn(async move {
+                let mut parser = Parser::new();
+                parser.process_file(filepath).await
+            });
         });
         let files = (set.join_all().await)
             .into_iter()
-            .filter_map(|file| file)
+            .filter_map(|file| match file {
+                Ok(file) => Some(file),
+                Err(e) => {
+                    warn!("fails to parse file with error: {e}");
+                    None
+                }
+            })
             .collect();
         self.set_files(files);
     }
