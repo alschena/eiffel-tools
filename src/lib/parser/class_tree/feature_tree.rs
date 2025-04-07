@@ -1,6 +1,5 @@
 use super::*;
 use crate::lib::code_entities::contract::Block;
-use crate::lib::code_entities::prelude::EiffelType;
 use crate::lib::code_entities::prelude::Feature;
 use crate::lib::code_entities::prelude::FeatureParameters;
 use crate::lib::code_entities::prelude::FeatureVisibility;
@@ -11,7 +10,7 @@ use crate::lib::parser::contract::Postcondition;
 use crate::lib::parser::contract::Precondition;
 use crate::lib::parser::util::is_inside;
 
-trait FeatureTree<'source, 'tree>:
+pub trait FeatureTree<'source, 'tree>:
     NotesTree<'source, 'tree> + ContractTree<'source, 'tree> + EiffelTypeTree<'source, 'tree>
 {
     fn query() -> Query {
@@ -36,6 +35,11 @@ trait FeatureTree<'source, 'tree>:
                 )? @attribute_or_routine)* @feature)
             "#,
         )
+    }
+
+    fn goto_feature_tree(&mut self, feature_clause_node: Node<'tree>) {
+        assert_eq!(feature_clause_node.kind(), "feature_clause");
+        self.set_node_and_query(feature_clause_node, <Self as FeatureTree>::query());
     }
 
     fn features(&mut self) -> Result<Vec<Feature>, Self::Error> {
@@ -171,7 +175,8 @@ impl<'source, 'tree, T: Traversal<'source, 'tree>> FeatureTree<'source, 'tree> f
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::lib::parser::{tests::DOUBLE_FEATURE_CLASS_SOURCE, util::TreeTraversal};
+    use crate::lib::parser::class_tree::tests::DOUBLE_ATTRIBUTE_CLASS;
+    use crate::lib::parser::util::TreeTraversal;
 
     const CONTRACT_FEATURE_CLASS_SOURCE: &str = r#"
 class A feature
@@ -224,7 +229,7 @@ end"#;
     #[test]
     fn features_nodes() -> anyhow::Result<()> {
         let mut parser = Parser::new();
-        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let parsed_source = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
         let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
         let features = feature_tree.features_nodes()?;
         assert_eq!(features.len(), 2);
@@ -234,7 +239,7 @@ end"#;
     #[test]
     fn names_nodes() -> anyhow::Result<()> {
         let mut parser = Parser::new();
-        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let parsed_source = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
         let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
         let mut names = feature_tree.features_names()?;
         assert_eq!(names.len(), 2, "names node: {names:#?}");
@@ -246,7 +251,7 @@ end"#;
     #[test]
     fn arguments_nodes() -> anyhow::Result<()> {
         let mut parser = Parser::new();
-        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let parsed_source = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
         let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
         assert!(feature_tree.parameters()?.is_empty());
         Ok(())
@@ -255,7 +260,7 @@ end"#;
     #[test]
     fn return_type_nodes() -> anyhow::Result<()> {
         let mut parser = Parser::new();
-        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let parsed_source = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
         let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
         let mut ret_types = feature_tree.return_type()?;
         assert_eq!(
@@ -272,7 +277,7 @@ end"#;
     #[test]
     fn notes_nodes() -> anyhow::Result<()> {
         let mut parser = Parser::new();
-        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let parsed_source = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
         let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
         assert!(FeatureTree::notes(&mut feature_tree)?.is_empty());
         Ok(())
@@ -281,7 +286,7 @@ end"#;
     #[test]
     fn preconditions_nodes() -> anyhow::Result<()> {
         let mut parser = Parser::new();
-        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let parsed_source = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
         let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
         assert!(feature_tree.preconditions()?.is_empty());
         Ok(())
@@ -290,7 +295,7 @@ end"#;
     #[test]
     fn postcondition_nodes() -> anyhow::Result<()> {
         let mut parser = Parser::new();
-        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+        let parsed_source = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
         let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
         assert!(feature_tree.postconditions()?.is_empty());
         Ok(())

@@ -84,11 +84,11 @@ impl<T: AsRef<str>> PartialEq<T> for ClassName {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Class {
-    name: ClassName,
-    model: Model,
-    features: Vec<Feature>,
-    parents: Vec<Parent>,
-    range: Range,
+    pub name: ClassName,
+    pub model: Model,
+    pub features: Vec<Feature>,
+    pub parents: Vec<Parent>,
+    pub range: Range,
 }
 
 impl Class {
@@ -291,11 +291,11 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Parent {
-    name: String,
-    select: Vec<String>,
-    rename: Vec<(String, String)>,
-    redefine: Vec<String>,
-    undefine: Vec<String>,
+    pub name: String,
+    pub select: Vec<String>,
+    pub rename: Vec<(String, String)>,
+    pub redefine: Vec<String>,
+    pub undefine: Vec<String>,
 }
 impl Parent {
     fn name(&self) -> &str {
@@ -379,25 +379,6 @@ mod tests {
     use tree_sitter;
 
     #[test]
-    fn parse_base_class() -> anyhow::Result<()> {
-        let src = "
-    class A
-    note
-    end
-        ";
-        let class = Class::parse(src)?;
-
-        assert_eq!(
-            class.name(),
-            "A",
-            "Equality of {:?} and {}",
-            class.name(),
-            "A"
-        );
-        Ok(())
-    }
-
-    #[test]
     fn parse_annotated_class() -> anyhow::Result<()> {
         let src = "
 note
@@ -411,133 +392,6 @@ end
     ";
         let class = Class::parse(src)?;
         assert_eq!(class.name(), "DEMO_CLASS");
-        Ok(())
-    }
-    #[test]
-    fn parse_procedure() -> anyhow::Result<()> {
-        let src = "
-class A feature
-  f(x, y: INTEGER; z: BOOLEAN)
-    do
-    end
-end
-";
-        let class = Class::parse(src)?;
-        assert_eq!(class.name(), "A");
-        eprintln!("{class:?}");
-        assert_eq!(class.features().first().unwrap().name(), "f".to_string());
-        Ok(())
-    }
-
-    #[test]
-    fn parse_attribute() -> anyhow::Result<()> {
-        let src = "
-class A
-feature
-    x: INTEGER
-end
-";
-        let class = Class::parse(src)?;
-        assert_eq!(class.name(), "A");
-        eprintln!("{class:?}");
-        assert_eq!(class.features().first().unwrap().name(), "x".to_string());
-        Ok(())
-    }
-    #[test]
-    fn parse_model() -> anyhow::Result<()> {
-        let src = "
-note
-    model: seq
-class A
-feature
-    x: INTEGER
-    seq: MML_SEQUENCE [INTEGER]
-end
-";
-        let class = Class::parse(src)?;
-        assert_eq!(class.name(), "A");
-        assert_eq!(
-            class
-                .features()
-                .first()
-                .expect("Parsed first feature")
-                .name(),
-            "x".to_string()
-        );
-        assert_eq!(
-            (class.local_model().names().first().expect("Model name")),
-            "seq"
-        );
-        Ok(())
-    }
-    #[test]
-    fn parse_ancestors_names() -> anyhow::Result<()> {
-        let src = "
-class A
-inherit {NONE}
-  X Y Z
-
-inherit
-  W
-end
-";
-        let class = Class::parse(src)?;
-        let mut ancestors = class.parents().into_iter();
-
-        assert_eq!(class.name(), "A");
-
-        assert_eq!(
-            ancestors
-                .next()
-                .expect("fails to parse first ancestor")
-                .name(),
-            "X".to_string()
-        );
-        assert_eq!(
-            ancestors
-                .next()
-                .expect("fails to parse second ancestor")
-                .name(),
-            "Y".to_string()
-        );
-        assert_eq!(
-            ancestors
-                .next()
-                .expect("fails to parse third ancestor")
-                .name(),
-            "Z".to_string()
-        );
-        assert_eq!(
-            ancestors
-                .next()
-                .expect("fails to parse forth ancestor")
-                .name(),
-            "W".to_string()
-        );
-        Ok(())
-    }
-    #[test]
-    fn parse_ancestors_renames() -> anyhow::Result<()> {
-        let src = "
-class A
-inherit
-  W
-    rename e as f
-end
-";
-        let class = Class::parse(src)?;
-        let mut ancestors = class.parents().into_iter();
-
-        assert_eq!(
-            ancestors.next().expect("fails to parse first ancestor"),
-            &Parent {
-                name: "W".to_string(),
-                select: Vec::new(),
-                rename: vec![("e".to_string(), "f".to_string())],
-                redefine: Vec::new(),
-                undefine: Vec::new()
-            }
-        );
         Ok(())
     }
 

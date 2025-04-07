@@ -29,11 +29,11 @@ pub trait EiffelTypeTree<'source, 'tree>: Traversal<'source, 'tree> {
     fn eiffel_type(&mut self) -> Result<EiffelType, Self::Error> {
         match self.current_node().kind() {
             "class_type" => {
-                let mut captures = self.nodes_captures("class_name")?;
-                let outer_most_class_name_node = captures.pop().with_context(||"fails to get class_name of class_type.")?;
+                let captures = self.nodes_captures("class_name")?;
+                let outer_most_class_name_node = captures.first().with_context(||"fails to get class_name of class_type.")?;
                 Ok(EiffelType::ClassType(
                                 self.node_content(self.current_node())?.to_string(),
-                                self.node_content(outer_most_class_name_node)?.to_string(),
+                                self.node_content(*outer_most_class_name_node)?.to_string(),
                     
                 ))
             },

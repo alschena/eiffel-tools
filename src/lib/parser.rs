@@ -58,39 +58,18 @@ impl<'source> ParsedSource<'source> {
 mod tests {
     use super::*;
 
-    pub const DOUBLE_FEATURE_CLASS_SOURCE: &str = r#"
-class
-    TEST
-feature
-    x: INTEGER
-    y: INTEGER
-end
-"#;
-
-    pub const ANNOTATED_CLASS_SOURCE: &str = r#"
-note
-  demo_note: True
-  multi_note: True, False
-class DEMO_CLASS
-invariant
-  note
-    note_after_invariant: True
-end
-    "#;
-
     impl Parser {
         pub fn mock_tree(&self) -> Tree {
             todo!()
         }
     }
 
-    #[test]
-    #[ignore]
-    fn parse() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
-        let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
-        let class: Vec<(Class, Location, Range)> = parsed_source.classes();
-        let features: Vec<(Feature, Location, Range)> = parsed_source.features();
-        Ok(())
-    }
+    // #[test]
+    // fn parse() -> anyhow::Result<()> {
+    //     let mut parser = Parser::new();
+    //     let parsed_source = parser.parse(DOUBLE_FEATURE_CLASS_SOURCE)?;
+    //     let class: Vec<(Class, Location, Range)> = parsed_source.classes();
+    //     let features: Vec<(Feature, Location, Range)> = parsed_source.features();
+    //     Ok(())
+    // }
 }

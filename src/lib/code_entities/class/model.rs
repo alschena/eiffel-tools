@@ -9,6 +9,12 @@ use tree_sitter::{Node, QueryCursor};
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct ModelNames(Vec<String>);
 
+impl ModelNames {
+    pub fn new(names: Vec<String>) -> Self {
+        Self(names)
+    }
+}
+
 impl Extend<String> for ModelNames {
     fn extend<T: IntoIterator<Item = String>>(&mut self, iter: T) {
         iter.into_iter().for_each(|s| self.0.push(s))
@@ -87,7 +93,7 @@ impl DerefMut for ModelTypes {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
-pub struct Model(ModelNames, ModelTypes);
+pub struct Model(pub ModelNames, pub ModelTypes);
 
 impl Model {
     pub fn is_empty(&self) -> bool {

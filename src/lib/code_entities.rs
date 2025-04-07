@@ -3,8 +3,13 @@ pub(crate) mod contract;
 mod feature;
 mod shared;
 pub(crate) mod prelude {
+    pub(crate) use super::class::model::Model as ClassLocalModel;
     pub(crate) use super::class::model::ModelExtended as ClassModel;
-    pub(crate) use super::class::{Class, ClassName};
+    pub(crate) use super::class::model::ModelNames;
+    pub(crate) use super::class::model::ModelTypes;
+    pub(crate) use super::class::Class;
+    pub(crate) use super::class::ClassName;
+    pub(crate) use super::class::Parent as ClassParent;
     pub(crate) use super::contract;
     pub(crate) use super::feature::EiffelType;
     pub(crate) use super::feature::Feature;
