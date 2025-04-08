@@ -154,7 +154,6 @@ where
 mod tests {
     use super::*;
     use crate::lib::parser::tests::EMPTY_CLASS;
-    use crate::lib::parser::util::TreeTraversal;
     use anyhow::anyhow;
 
     pub const DOUBLE_ATTRIBUTE_CLASS: &str = r#"
@@ -233,7 +232,7 @@ end"#;
     fn class_name_node() -> anyhow::Result<()> {
         let mut parser = Parser::new();
         let parsed_file = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
-        let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
+        let mut class_tree = parsed_file.class_tree_traversal()?;
         let name = class_tree.class_name()?;
         let content = class_tree.node_content(name)?;
         assert_eq!(content, "TEST");
@@ -244,7 +243,7 @@ end"#;
     fn class_feature_nodes() -> anyhow::Result<()> {
         let mut parser = Parser::new();
         let parsed_file = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
-        let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
+        let mut class_tree = parsed_file.class_tree_traversal()?;
 
         let mut features_clause = class_tree.feature_clauses()?;
         assert_eq!(
@@ -266,7 +265,7 @@ end"#;
     fn inheritance_node() -> anyhow::Result<()> {
         let mut parser = Parser::new();
         let parsed_file = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
-        let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
+        let mut class_tree = parsed_file.class_tree_traversal()?;
 
         let parents = class_tree.parents()?;
         assert!(parents.is_empty());
@@ -277,7 +276,7 @@ end"#;
     fn empty_class() -> anyhow::Result<()> {
         let mut parser = Parser::new();
         let parsed_file = parser.parse(EMPTY_CLASS)?;
-        let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
+        let mut class_tree = parsed_file.class_tree_traversal()?;
         let class = class_tree.class()?;
         assert_eq!(
             class.name(),
@@ -291,7 +290,7 @@ end"#;
     fn procedure_class() -> anyhow::Result<()> {
         let mut parser = Parser::new();
         let parsed_file = parser.parse(PROCEDURE_CLASS)?;
-        let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
+        let mut class_tree = parsed_file.class_tree_traversal()?;
         let mut class = class_tree.class()?;
         let procedure = class
             .features
@@ -305,7 +304,7 @@ end"#;
     fn double_attribute_class() -> anyhow::Result<()> {
         let mut parser = Parser::new();
         let parsed_file = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
-        let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
+        let mut class_tree = parsed_file.class_tree_traversal()?;
         let mut class = class_tree.class()?;
         let second_feature = class
             .features
@@ -325,8 +324,8 @@ end"#;
         let mut parser = Parser::new();
         let parsed_file = parser.parse(MODEL_CLASS)?;
         let parsed_file2 = parser.parse(SEQ_MODEL_CLASS)?;
-        let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
-        let mut class_tree2 = TreeTraversal::try_from(&parsed_file2)?;
+        let mut class_tree = parsed_file.class_tree_traversal()?;
+        let mut class_tree2 = parsed_file2.class_tree_traversal()?;
         let class = class_tree.class()?;
         let class2 = class_tree2.class()?;
         let model = class.model;
@@ -364,7 +363,7 @@ end"#;
     fn parents_class() -> anyhow::Result<()> {
         let mut parser = Parser::new();
         let parsed_file = parser.parse(PARENT_CLASS)?;
-        let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
+        let mut class_tree = parsed_file.class_tree_traversal()?;
         let class = class_tree.class()?;
         let parents = class.parents;
         let parent_names: Vec<_> = parents.iter().map(|parent| parent.name.clone()).collect();
@@ -385,7 +384,7 @@ end"#;
     fn rename_parent_class() -> anyhow::Result<()> {
         let mut parser = Parser::new();
         let parsed_file = parser.parse(RENAME_PARENT_CLASS)?;
-        let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
+        let mut class_tree = parsed_file.class_tree_traversal()?;
         let class = class_tree.class()?;
         let rename = class
             .parents

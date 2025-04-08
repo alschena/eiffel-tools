@@ -34,17 +34,6 @@ pub struct TreeTraversal<'source, 'tree> {
     cursor: QueryCursor,
 }
 
-impl<'source, 'tree> TryFrom<&'tree ParsedSource<'source>> for TreeTraversal<'source, 'tree> {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &'tree ParsedSource<'source>) -> anyhow::Result<Self> {
-        let source = value.source;
-        let node = value.tree.root_node();
-        let query = <TreeTraversal as ClassTree>::query();
-        Self::try_new(source, node, query)
-    }
-}
-
 impl<'source, 'tree> Traversal<'source, 'tree> for TreeTraversal<'source, 'tree> {
     fn current_node(&self) -> Node<'tree> {
         self.node

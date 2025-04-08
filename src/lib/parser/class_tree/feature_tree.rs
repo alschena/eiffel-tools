@@ -253,10 +253,10 @@ class A feature
 end"#;
 
     impl<'source, 'tree> TreeTraversal<'source, 'tree> {
-        pub fn mock_feature<'tmp_src: 'tree>(
+        pub fn mock_feature<'tmp_src: 'source + 'tree>(
             parsed_file: &'tmp_src ParsedSource<'source>,
         ) -> anyhow::Result<Self> {
-            let mut tree_traversal = TreeTraversal::try_from(parsed_file)?;
+            let mut tree_traversal = parsed_file.class_tree_traversal()?;
             let mut features = tree_traversal.feature_clauses()?;
             let first_feature = features.pop().with_context(|| {
                 "fails to get a feature to create the mock feature tree traversal."

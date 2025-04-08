@@ -3,7 +3,7 @@ use crate::lib::parser::util::Traversal;
 use crate::lib::parser::*;
 use anyhow::Result;
 
-pub trait NotesTree<'source, 'tree>: Traversal<'source, 'tree> {
+pub trait NotesTree<'source, 'tree> {
     fn query() -> Query {
         util::query(
             r#"
@@ -101,9 +101,9 @@ feature
 end
 "#;
 
-    impl<'source, 'tree> TreeTraversal<'source, 'tree> {
+    impl<'source, 'tree: 'source> TreeTraversal<'source, 'tree> {
         fn mock_model(parsed_source: &'tree ParsedSource<'source>) -> anyhow::Result<Self> {
-            let mut tree_traversal = TreeTraversal::try_from(parsed_source)?;
+            let mut tree_traversal = parsed_source.class_tree_traversal()?;
             let node = tree_traversal
                 .class_notes()?
                 .pop()

@@ -9,7 +9,6 @@ use ::tree_sitter::Node;
 use ::tree_sitter::Parser as TreeSitterParser;
 use ::tree_sitter::Query;
 use ::tree_sitter::QueryCursor;
-use ::tree_sitter::QueryMatches;
 use ::tree_sitter::Tree;
 
 use super::code_entities::prelude::*;
@@ -43,6 +42,7 @@ impl Parser {
         Ok(ParsedSource { source, tree })
     }
 
+    #[cfg(test)]
     pub fn class_from_source<'source, T>(&mut self, source: &'source T) -> anyhow::Result<Class>
     where
         T: AsRef<[u8]> + ?Sized,
@@ -51,6 +51,7 @@ impl Parser {
             .map(|(_, class)| class)
     }
 
+    #[cfg(test)]
     pub fn class_and_tree_from_source<'source, T>(
         &mut self,
         source: &'source T,
@@ -59,7 +60,7 @@ impl Parser {
         T: AsRef<[u8]> + ?Sized,
     {
         let parsed_source = self.parse(source)?;
-        let mut traversal: TreeTraversal<'source, '_> = (&parsed_source).try_into()?;
+        let mut traversal = parsed_source.class_tree_traversal()?;
         traversal.class().map(|class| (parsed_source.tree, class))
     }
 
@@ -86,7 +87,8 @@ impl Parser {
         let parsed_source = self
             .parse(&src)
             .with_context(|| "fails processing file at path: {path:#?}")?;
-        let mut class_tree = TreeTraversal::try_from(&parsed_source)
+        let mut class_tree = parsed_source
+            .class_tree_traversal()
             .with_context(|| "fails processing file at path: {path:#?}")?;
         let class = class_tree
             .class()
@@ -122,8 +124,7 @@ impl ParsedSource<'_> {
     }
 
     fn class(&self) -> anyhow::Result<Class> {
-        let mut traversal = TreeTraversal::try_from(self)?;
-        traversal.class()
+        self.class_tree_traversal()?.class()
     }
 }
 
