@@ -4,8 +4,6 @@ use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
 use util::TreeTraversal;
-mod tree_sitter_extension;
-pub use tree_sitter_extension::*;
 
 use ::tree_sitter::Node;
 use ::tree_sitter::Parser as TreeSitterParser;
@@ -18,6 +16,7 @@ use super::code_entities::prelude::*;
 
 mod class_tree;
 use class_tree::ClassTree;
+use class_tree::FeatureTree;
 
 mod util;
 
@@ -42,6 +41,39 @@ impl Parser {
             .parse(source, None)
             .with_context(|| "fails to parse source: {source:?}")?;
         Ok(ParsedSource { source, tree })
+    }
+
+    pub fn class_from_source<'source, T>(&mut self, source: &'source T) -> anyhow::Result<Class>
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
+        self.class_and_tree_from_source(source)
+            .map(|(_, class)| class)
+    }
+
+    pub fn class_and_tree_from_source<'source, T>(
+        &mut self,
+        source: &'source T,
+    ) -> anyhow::Result<(Tree, Class)>
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
+        let parsed_source = self.parse(source)?;
+        let mut traversal: TreeTraversal<'source, '_> = (&parsed_source).try_into()?;
+        traversal.class().map(|class| (parsed_source.tree, class))
+    }
+
+    pub fn feature_from_source<'source, T>(&mut self, source: &'source T) -> anyhow::Result<Feature>
+    where
+        T: AsRef<[u8]> + ?Sized,
+    {
+        let parsed_source = self.parse(source)?;
+        let mut feature_tree_traversal = parsed_source.feature_tree_traversal()?;
+        let mut alias_features = feature_tree_traversal.feature()?;
+        let any_feature = alias_features.pop().with_context(|| {
+            "fails to get a feature from a vector of alias features parsing source: {source}"
+        })?;
+        Ok(any_feature)
     }
 
     #[instrument(skip(self))]
@@ -71,6 +103,29 @@ impl Parser {
 struct ParsedSource<'source> {
     source: &'source [u8],
     pub tree: Tree,
+}
+
+impl ParsedSource<'_> {
+    fn class_tree_traversal(&self) -> anyhow::Result<TreeTraversal<'_, '_>> {
+        TreeTraversal::try_new(
+            self.source,
+            self.tree.root_node(),
+            <TreeTraversal as ClassTree>::query(),
+        )
+    }
+
+    fn feature_tree_traversal(&self) -> anyhow::Result<TreeTraversal<'_, '_>> {
+        TreeTraversal::try_new(
+            self.source,
+            self.tree.root_node(),
+            <TreeTraversal as FeatureTree>::query(),
+        )
+    }
+
+    fn class(&self) -> anyhow::Result<Class> {
+        let mut traversal = TreeTraversal::try_from(self)?;
+        traversal.class()
+    }
 }
 
 #[cfg(test)]

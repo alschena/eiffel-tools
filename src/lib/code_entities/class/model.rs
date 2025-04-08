@@ -1,11 +1,10 @@
 use crate::lib::code_entities::prelude::*;
-use crate::lib::parser::{capture_name_to_nodes, node_to_text, Parse};
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use streaming_iterator::StreamingIterator;
 use tracing::warn;
-use tree_sitter::{Node, QueryCursor};
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct ModelNames(Vec<String>);
 
@@ -35,34 +34,6 @@ impl DerefMut for ModelNames {
     }
 }
 
-impl Parse for ModelNames {
-    type Error = anyhow::Error;
-
-    fn parse_through(
-        node: &Node,
-        query_cursor: &mut QueryCursor,
-        src: &str,
-    ) -> Result<Self, Self::Error> {
-        let name_query = Self::query(
-            r#"(class_declaration
-            (notes (note_entry
-                (tag) @tag
-                value: (_) @id
-                ("," value: (_) @id)*))
-            (#eq? @tag "model"))"#,
-        );
-
-        let mut matches = query_cursor.matches(&name_query, *node, src.as_bytes());
-
-        let mut names: Vec<String> = Vec::new();
-        while let Some(mat) = matches.next() {
-            capture_name_to_nodes("id", &name_query, mat)
-                .for_each(|node| names.push(node_to_text(&node, src).to_string()));
-        }
-
-        Ok(ModelNames(names))
-    }
-}
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct ModelTypes(Vec<EiffelType>);
 
@@ -244,10 +215,10 @@ impl Display for ModelExtended {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lib::parser::Parser;
 
-    #[test]
-    fn extended_model() -> anyhow::Result<()> {
-        let src_client = "
+    fn client_class() -> anyhow::Result<Class> {
+        let src = "
     note
         model: nested
     class NEW_CLIENT
@@ -256,7 +227,26 @@ mod tests {
         nested: NEW_INTEGER
     end
     ";
-        let src_supplier = "
+        let mut parser = Parser::new();
+        parser.class_from_source(src)
+    }
+
+    fn client_class_2() -> anyhow::Result<Class> {
+        let src = "
+    note
+        model: x
+    class NEW_CLIENT_2
+    feature
+        x: INTEGER
+        nested: NEW_INTEGER
+    end
+    ";
+        let mut parser = Parser::new();
+        parser.class_from_source(src)
+    }
+
+    fn supplier_class() -> anyhow::Result<Class> {
+        let src = "
     note
     	model: value
     class
@@ -271,7 +261,13 @@ mod tests {
     		end
     end
     ";
-        let system_classes = vec![Class::parse(src_client)?, Class::parse(src_supplier)?];
+        let mut parser = Parser::new();
+        parser.class_from_source(src)
+    }
+
+    #[test]
+    fn extended_model() -> anyhow::Result<()> {
+        let system_classes = vec![client_class()?, supplier_class()?];
         let client = &system_classes[0];
 
         let top_model = client.local_model().clone().extended(&system_classes);
@@ -311,46 +307,9 @@ mod tests {
 
     #[test]
     fn extended_model2() -> anyhow::Result<()> {
-        let src_client = "
-    note
-        model: x
-    class NEW_CLIENT
-    feature
-        x: INTEGER
-    end
-    ";
-        let src_client2 = "
-    note
-        model: nested
-    class NEW_CLIENT_2
-    feature
-        x: INTEGER
-        nested: NEW_INTEGER
-    end
-    ";
-        let src_supplier = "
-    note
-    	model: value
-    class
-    	NEW_INTEGER
-    feature
-    	value: INTEGER
-    	smaller (other: NEW_INTEGER): BOOLEAN
-    		do
-    			Result := value < other.value
-    		ensure
-    			Result = (value < other.value)
-    		end
-    end
-    ";
-        let system_classes = vec![
-            Class::parse(src_client)?,
-            Class::parse(src_client2)?,
-            Class::parse(src_supplier)?,
-        ];
+        let system_classes = vec![client_class_2()?, supplier_class()?];
 
         let client = &system_classes[0];
-        let client2 = &system_classes[1];
 
         let ModelExtended::Model {
             names,
@@ -361,7 +320,11 @@ mod tests {
             panic!("client must have a populated model.")
         };
 
-        assert_eq!(extension.len(), 1);
+        eprintln!(
+            "client extended model: {}",
+            client.local_model().clone().extended(&system_classes)
+        );
+        assert_eq!(extension.len(), 1,);
         assert_eq!(extension.first().unwrap(), &ModelExtended::Terminal);
         assert_eq!(names.len(), 1);
         assert_eq!(names.first().unwrap(), "x");
@@ -369,64 +332,12 @@ mod tests {
         assert_eq!(types.len(), 1);
         assert_eq!(types.first().unwrap().class_name().unwrap(), "INTEGER");
 
-        let ModelExtended::Model {
-            names,
-            types,
-            extension,
-        } = client2.local_model().clone().extended(&system_classes)
-        else {
-            panic!("client must have a populated model.")
-        };
-
-        assert_eq!(names.len(), 1);
-        assert_eq!(names.first().unwrap(), "nested");
-        assert_eq!(types.len(), 1);
-        assert_eq!(types.first().unwrap().class_name().unwrap(), "NEW_INTEGER");
-        assert_eq!(extension.len(), 1);
-
-        let Some(ModelExtended::Model {
-            names,
-            types,
-            extension: _,
-        }) = extension.first()
-        else {
-            panic!("client must have a populated model.")
-        };
-        assert_eq!((names).len(), 1);
-        assert_eq!((names).first().unwrap(), "value");
-        assert_eq!((types).len(), 1);
-        assert_eq!((types).first().unwrap().class_name().unwrap(), "INTEGER");
         Ok(())
     }
 
     #[test]
     fn display_extended_model() -> anyhow::Result<()> {
-        let src_client = "
-    note
-        model: nested
-    class NEW_CLIENT
-    feature
-        x: INTEGER
-        nested: NEW_INTEGER
-    end
-    ";
-        let src_supplier = "
-    note
-    	model: value
-    class
-    	NEW_INTEGER
-    feature
-    	value: INTEGER
-    	smaller (other: NEW_INTEGER): BOOLEAN
-    		do
-    			Result := value < other.value
-    		ensure
-    			Result = (value < other.value)
-    		end
-    end
-    ";
-        let system_classes = vec![Class::parse(src_client)?, Class::parse(src_supplier)?];
-
+        let system_classes = vec![client_class()?, supplier_class()?];
         let client = &system_classes[0];
 
         let model = client.model_extended(&system_classes);

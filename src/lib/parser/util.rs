@@ -20,7 +20,7 @@ pub fn is_inside<'tree>(inner: Node<'tree>, outer: Node<'tree>) -> bool {
 }
 
 pub trait Traversal<'source, 'tree> {
-    type Error: Debug + From<anyhow::Error>;
+    type Error: Debug + From<anyhow::Error> + Sync + Send;
     fn current_node(&self) -> Node<'tree>;
     fn matches(&mut self) -> QueryMatches<'_, 'tree, &[u8], &[u8]>;
     fn node_content(&self, node: Node<'tree>) -> Result<&str, Self::Error>;

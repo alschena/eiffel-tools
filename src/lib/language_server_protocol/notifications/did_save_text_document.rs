@@ -12,13 +12,9 @@ impl HandleNotification for DidSaveTextDocument {
             let mut ws = st.workspace.write().await;
             let path = Path::new(params.text_document.uri.path());
 
-            ws.find_file_mut(path).map(|file| {
-                let mut parser = tree_sitter::Parser::new();
-                parser
-                    .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-                    .expect("Error loading Eiffel grammar");
-                file.reload(&mut parser)
-            });
+            if let Some(file) = ws.find_file_mut(path) {
+                file.reload().await
+            };
         });
 
         ControlFlow::Continue(())

@@ -2,15 +2,18 @@ use crate::lib::parser::util::Traversal;
 use crate::lib::parser::*;
 use anyhow::anyhow;
 use anyhow::bail;
-use anyhow::ensure;
+use anyhow::Result;
 
 mod contract_tree;
 mod eiffel_type;
 mod feature_tree;
-use anyhow::Result;
+
 use feature_tree::FeatureClauseTree;
+pub use feature_tree::FeatureTree;
+
 mod inheritance_tree;
 use inheritance_tree::InheritanceTree;
+
 mod notes_tree;
 
 pub trait ClassTree<'source, 'tree>:
@@ -203,6 +206,13 @@ end
     pub const PROCEDURE_CLASS: &str = r#"
 class A feature
   f(x, y: INTEGER; z: BOOLEAN)
+    do
+    end
+end"#;
+
+    pub const FUNCTION_CLASS: &str = r#"
+class A feature
+  x (y, z: MML_SEQUENCE [INTEGER]): MML_SEQUENCE [INTEGER]
     do
     end
 end"#;
