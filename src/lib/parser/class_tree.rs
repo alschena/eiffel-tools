@@ -8,13 +8,13 @@ mod contract_tree;
 mod eiffel_type;
 mod feature_tree;
 use anyhow::Result;
-use feature_tree::FeatureTree;
+use feature_tree::FeatureClauseTree;
 mod inheritance_tree;
 use inheritance_tree::InheritanceTree;
 mod notes_tree;
 
 pub trait ClassTree<'source, 'tree>:
-    FeatureTree<'source, 'tree> + InheritanceTree<'source, 'tree>
+    FeatureClauseTree<'source, 'tree> + InheritanceTree<'source, 'tree>
 {
     fn query() -> Query {
         util::query(
@@ -49,7 +49,7 @@ pub trait ClassTree<'source, 'tree>:
         let features = features_clauses_nodes
             .iter()
             .map(|&feature_clause_node| -> Result<_, _> {
-                self.goto_feature_tree(feature_clause_node);
+                self.goto_feature_clause_tree(feature_clause_node);
                 self.features()
             })
             .fold(Ok(Vec::new()), |acc, features| {
