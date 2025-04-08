@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use anyhow::Context;
 
 use super::FeatureParameters;
@@ -82,7 +83,10 @@ pub trait EntityDeclarationGroupTree<'source, 'tree>: EiffelTypeTree<'source, 't
         let names_length = names.len();
 
         let type_nodes = self.nodes_captures("parameter_type")?;
-        assert_eq!(type_nodes.len(), 1, "fails to get exactly one node of type per entity declaration group. Type nodes: {type_nodes:#?}");
+
+        if type_nodes.len() == 1 {
+            return Err(anyhow!("fails to get exactly one node of type per entity declaration group. Type nodes: {type_nodes:#?}").into());
+        }
 
         let r#type = type_nodes
             .first()

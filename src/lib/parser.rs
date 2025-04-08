@@ -83,7 +83,6 @@ impl Parser {
                 .await
                 .with_context(|| format!("fails to read file at path: {path:#?}"))?,
         )?;
-        eprintln!("path: {path:#?}");
         let parsed_source = self
             .parse(&src)
             .with_context(|| "fails processing file at path: {path:#?}")?;
