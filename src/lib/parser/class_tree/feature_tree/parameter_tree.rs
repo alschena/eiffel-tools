@@ -84,7 +84,7 @@ pub trait EntityDeclarationGroupTree<'source, 'tree>: EiffelTypeTree<'source, 't
 
         let type_nodes = self.nodes_captures("parameter_type")?;
 
-        if type_nodes.len() == 1 {
+        if type_nodes.len() != 1 {
             return Err(anyhow!("fails to get exactly one node of type per entity declaration group. Type nodes: {type_nodes:#?}").into());
         }
 
