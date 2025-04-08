@@ -1,6 +1,6 @@
 use crate::lib::code_entities::prelude::*;
+use crate::lib::parser::Parser;
 use crate::lib::processed_file::ProcessedFile;
-use crate::lib::tree_sitter_extension::Parse;
 use contract::RoutineSpecification;
 use std::sync::Arc;
 use tracing::info;
@@ -66,9 +66,14 @@ impl Generators {
             .flat_map(|reply| {
                 reply.contents().filter_map(|candidate| {
                     info!("candidate:\t{candidate}");
-                    <RoutineSpecification as Parse>::parse(candidate)
-                        .map_err(|e| info!("fail to parse generated output with error: {e:#?}"))
-                        .ok()
+                    let mut parser = Parser::new();
+                    parser.feature_from_source(candidate).map_or_else(
+                        |e| {
+                            info!("fail to parse generated output with error: {e:#?}");
+                            None
+                        },
+                        |ft| Some(ft.routine_specification()),
+                    )
                 })
             })
             .collect();
@@ -84,7 +89,7 @@ mod tests {
     use crate::lib::generators::constructor_api::CompletionParameters;
     use crate::lib::generators::constructor_api::MessageOut;
     use crate::lib::generators::constructor_api::LLM;
-    use crate::lib::tree_sitter_extension::Parse;
+    use crate::lib::parser::Parser;
 
     #[ignore]
     #[tokio::test]
@@ -124,7 +129,10 @@ smaller (other: NEW_INTEGER): BOOLEAN
             .into_iter()
             .inspect(|code| eprintln!("{code}"))
             .map(|code| {
-                Feature::parse(&code).expect("parsing must succed (possibly with error nodes).")
+                let mut parser = Parser::new();
+                parser
+                    .feature_from_source(&code)
+                    .expect("parsing must succed (possibly with error nodes).")
             })
             .map(|ft| ft.routine_specification())
             .inspect(|spec| eprintln!("{spec:#?}"))

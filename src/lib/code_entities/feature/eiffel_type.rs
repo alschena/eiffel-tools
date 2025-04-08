@@ -1,8 +1,5 @@
 use crate::lib::code_entities::class::model::ModelExtended;
 use crate::lib::code_entities::prelude::*;
-use crate::lib::tree_sitter_extension::capture_name_to_nodes;
-use crate::lib::tree_sitter_extension::node_to_text;
-use crate::lib::tree_sitter_extension::Parse;
 use anyhow::anyhow;
 use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
@@ -63,33 +60,6 @@ impl EiffelType {
     }
 }
 
-impl Parse for EiffelType {
-    type Error = anyhow::Error;
-
-    fn parse_through(
-        node: &Node,
-        query_cursor: &mut QueryCursor,
-        src: &str,
-    ) -> Result<Self, Self::Error> {
-        let eiffeltype = match node.kind() {
-            "class_type" => {
-                let query = Self::query("(class_name) @classname");
-                let mut matches = query_cursor.matches(&query, *node, src.as_bytes());
-                let mat = matches.next().expect("match for classname in classtype.");
-                let classname_node = capture_name_to_nodes("classname", &query, mat)
-                    .next()
-                    .expect("capture for classname in classtype.");
-
-                let classname = node_to_text(&classname_node, src).to_string();
-                EiffelType::ClassType(node_to_text(&node, src).to_string(), classname)
-            }
-            "tuple_type" => EiffelType::TupleType(node_to_text(&node, src).to_string()),
-            "anchored" => EiffelType::Anchored(node_to_text(&node, src).to_string()),
-            _ => unreachable!(),
-        };
-        Ok(eiffeltype)
-    }
-}
 impl TryFrom<EiffelType> for ClassName {
     type Error = anyhow::Error;
 

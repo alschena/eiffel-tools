@@ -330,19 +330,9 @@ impl From<Prompt> for Vec<super::constructor_api::MessageOut> {
 mod tests {
     use super::super::constructor_api::MessageOut;
     use super::*;
-    use crate::lib::processed_file::ProcessedFile;
-    use crate::lib::tree_sitter_extension::Parse;
+    use crate::lib::parser::Parser;
     use assert_fs::prelude::*;
     use assert_fs::{fixture::FileWriteStr, TempDir};
-    use async_lsp::lsp_types;
-
-    fn parser() -> tree_sitter::Parser {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-        parser
-    }
 
     const SRC_CLIENT_NEW_INTEGER: &'static str = r#"
 class A feature
@@ -370,19 +360,20 @@ end
 		end
 "#;
 
+    fn class(source: &str) -> anyhow::Result<Class> {
+        let mut parser = Parser::new();
+        parser.class_from_source(source)
+    }
+
     #[tokio::test]
     async fn set_feature_src_from_file() -> anyhow::Result<()> {
-        let mut parser = parser();
+        let mut parser = Parser::new();
         let temp_dir = TempDir::new()?;
         let file = temp_dir.child("test_prompt.e");
         let src = SRC_NEW_INTEGER;
         file.write_str(src)?;
 
-        assert!(file.exists());
-
-        let processed_file = ProcessedFile::new(&mut parser, file.to_path_buf())
-            .await
-            .expect("processed file must be produced.");
+        let processed_file = parser.process_file(file.to_path_buf()).await?;
 
         let client = processed_file.class();
         let feature = client
@@ -402,7 +393,7 @@ end
 
     #[tokio::test]
     async fn prompt_boxed_integer_arg() -> anyhow::Result<()> {
-        let class = Class::parse(SRC_NEW_INTEGER)?;
+        let class = class(SRC_NEW_INTEGER)?;
 
         let system_classes = vec![class.clone()];
 
@@ -434,7 +425,7 @@ end
 
     #[test]
     fn prompt_lists_identifiers() -> anyhow::Result<()> {
-        let class = Class::parse(&SRC_NEW_INTEGER)?;
+        let class = class(SRC_NEW_INTEGER)?;
         let class_name = class.name().clone();
         let feature = class
             .features()

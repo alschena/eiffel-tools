@@ -1,6 +1,3 @@
-use crate::lib::tree_sitter_extension::capture_name_to_nodes;
-use crate::lib::tree_sitter_extension::node_to_text;
-use crate::lib::tree_sitter_extension::Parse;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -8,7 +5,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
 use tracing::info;
-use tree_sitter::Node;
 use tree_sitter::Query;
 use tree_sitter::QueryCursor;
 use tree_sitter::Tree;
@@ -75,35 +71,7 @@ impl Fix for Clause {
                 .fix_calls(system_classes, current_class, current_feature)
     }
 }
-impl Parse for Clause {
-    type Error = anyhow::Error;
-    fn parse_through(
-        assertion_clause: &Node,
-        cursor: &mut QueryCursor,
-        src: &str,
-    ) -> anyhow::Result<Self> {
-        debug_assert_eq!(assertion_clause.kind(), "assertion_clause");
-        debug_assert!(assertion_clause.child_count() > 0);
 
-        let clause_query = Self::query("((tag_mark (tag) @tag)? (expression) @expr)");
-
-        let mut matches = cursor.matches(&clause_query, assertion_clause.clone(), src.as_bytes());
-        let mat = matches.next().expect("match a clause.");
-
-        let tag: Tag = capture_name_to_nodes("tag", &clause_query, mat)
-            .next()
-            .map_or_else(
-                || Tag(String::new()),
-                |tag| Tag(node_to_text(&tag, src).to_string()),
-            );
-
-        let predicate: Predicate = capture_name_to_nodes("expr", &clause_query, mat)
-            .next()
-            .map(|predicate| Predicate::new(node_to_text(&predicate, src)))
-            .expect("clauses have predicates.");
-        Ok(Self { predicate, tag })
-    }
-}
 impl Display for Clause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match (&self.tag, &self.predicate) {
@@ -119,6 +87,7 @@ impl Display for Clause {
         }
     }
 }
+
 impl Clause {
     pub fn new(tag: Tag, predicate: Predicate) -> Clause {
         Clause { tag, predicate }
@@ -143,14 +112,14 @@ impl Tag {
     pub fn new<T: ToString>(text: T) -> Tag {
         Tag(text.to_string())
     }
-    fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
 impl Default for Tag {
     fn default() -> Self {
-        Self(String::from("default"))
+        Self(String::new())
     }
 }
 
@@ -181,6 +150,12 @@ impl From<String> for Tag {
 #[schemars(deny_unknown_fields)]
 #[schemars(description = "A valid boolean expression for the Eiffel programming language.")]
 pub struct Predicate(String);
+
+impl From<&str> for Predicate {
+    fn from(value: &str) -> Self {
+        Predicate(value.to_string())
+    }
+}
 
 impl Predicate {
     pub fn new<T: ToString>(text: T) -> Predicate {
@@ -354,40 +329,12 @@ impl Display for Predicate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lib::parser::Parser;
+    use anyhow::Result;
 
-    #[test]
-    fn parse_clause() {
-        let src = r#"
-class A feature
-  x
-    require
-      True
-    do
-    end
-
-  y
-    require else
-    do
-    end
-end"#;
-        let mut parser = ::tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-        let tree = parser.parse(src, None).unwrap();
-        let query = ::tree_sitter::Query::new(
-            &tree_sitter_eiffel::LANGUAGE.into(),
-            "(assertion_clause) @x",
-        )
-        .unwrap();
-
-        let mut binding = QueryCursor::new();
-        let mut captures = binding.captures(&query, tree.root_node(), src.as_bytes());
-
-        let node = captures.next().unwrap().0.captures[0].node;
-        let clause = Clause::parse_through(&node, &mut binding, &src).expect("Parse feature");
-        assert_eq!(clause.tag, Tag::from(String::new()));
-        assert_eq!(clause.predicate, Predicate::new("True".to_string()));
+    fn class(source: &str) -> Result<Class> {
+        let mut parser = Parser::new();
+        parser.class_from_source(source)
     }
 
     #[test]
@@ -406,7 +353,7 @@ end"#;
                     end
             end
         ";
-        let sc = vec![Class::parse(src)?];
+        let sc = vec![class(src)?];
         let c = &sc[0];
         let f = c.features().first().unwrap();
 
@@ -417,6 +364,7 @@ end"#;
         assert_eq!(valid_predicate, Predicate::new("min (x, y)"));
         Ok(())
     }
+
     #[test]
     fn fix_tag_syntax() -> anyhow::Result<()> {
         let src = "
@@ -433,7 +381,7 @@ end"#;
                     end
             end
         ";
-        let sc = vec![Class::parse(src)?];
+        let sc = vec![class(src)?];
         let c = &sc[0];
         let f = c.features().first().unwrap();
 
@@ -445,6 +393,7 @@ end"#;
         assert!(valid_tag == Tag::new("this_is_valid"));
         Ok(())
     }
+
     #[test]
     fn predicate_identifiers() {
         let p = Predicate("x < y.z.w".to_string());
@@ -453,6 +402,7 @@ end"#;
         assert!(ids.contains("y"));
         assert!(ids.len() == 2);
     }
+
     #[test]
     fn predicate_identifiers_unqualified_calls() {
         let p = Predicate("x (y) < y (l).z.w".to_string());
@@ -463,6 +413,7 @@ end"#;
         assert!(ids.contains("l"));
         assert!(ids.len() == 3);
     }
+
     #[test]
     fn fix_predicates_identifiers() -> anyhow::Result<()> {
         let src = "
@@ -476,7 +427,7 @@ end"#;
                     end
             end
         ";
-        let system_classes = vec![Class::parse(src)?];
+        let system_classes = vec![class(src)?];
         let class = &system_classes[0];
         let feature = class
             .features()
@@ -492,6 +443,7 @@ end"#;
         assert!(valid_predicate.fix_identifiers(&system_classes, &class, feature));
         Ok(())
     }
+
     #[test]
     fn fix_identifiers_predicate_ancestor() -> anyhow::Result<()> {
         let parent_src = "
@@ -514,7 +466,7 @@ end"#;
             end
         ";
 
-        let system_classes = vec![Class::parse(parent_src)?, Class::parse(child_src)?];
+        let system_classes = vec![class(parent_src)?, class(child_src)?];
         let child = &system_classes[1];
         let feature = child
             .features()
@@ -532,6 +484,7 @@ end"#;
         assert!(valid_predicate.fix_identifiers(&system_classes, &child, feature));
         Ok(())
     }
+
     #[test]
     fn fix_identifiers_in_predicate() -> anyhow::Result<()> {
         let src = "
@@ -544,7 +497,7 @@ end"#;
                     end
             end
         ";
-        let system_classes = vec![Class::parse(src)?];
+        let system_classes = vec![class(src)?];
         let c = &system_classes[0];
         let f = c.features().first().expect("first feature exists.");
         let mut vp = Predicate::new("f".to_string());
@@ -553,6 +506,7 @@ end"#;
         assert!(!ip.fix_identifiers(&system_classes, &c, f));
         Ok(())
     }
+
     #[test]
     fn fix_calls_in_predicate() -> anyhow::Result<()> {
         let src = "
@@ -570,7 +524,7 @@ end"#;
                     end
             end
         ";
-        let system_classes = vec![Class::parse(src)?];
+        let system_classes = vec![class(src)?];
         let c = &system_classes[0];
         let f = c
             .features()
@@ -587,6 +541,7 @@ end"#;
         assert!(!ip2.fix_calls(&system_classes, &c, f));
         Ok(())
     }
+
     #[test]
     fn fix_tag() -> anyhow::Result<()> {
         let src = "
@@ -603,7 +558,7 @@ end"#;
                     end
             end
         ";
-        let sc = vec![Class::parse(src)?];
+        let sc = vec![class(src)?];
         let c = &sc[0];
         let f = c.features().first().unwrap();
 

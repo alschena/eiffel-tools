@@ -1,16 +1,11 @@
 use crate::lib::code_entities::class::model::ModelExtended;
 use crate::lib::code_entities::prelude::*;
-use crate::lib::tree_sitter_extension::capture_name_to_nodes;
-use crate::lib::tree_sitter_extension::node_to_text;
-use crate::lib::tree_sitter_extension::Parse;
 use std::fmt::Display;
-use streaming_iterator::StreamingIterator;
-use tree_sitter::{Node, QueryCursor};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct Parameters {
-    names: Vec<String>,
-    types: Vec<EiffelType>,
+    pub names: Vec<String>,
+    pub types: Vec<EiffelType>,
 }
 impl Parameters {
     pub fn names(&self) -> &Vec<String> {
@@ -44,47 +39,7 @@ impl Parameters {
             .collect()
     }
 }
-impl Parse for Parameters {
-    type Error = anyhow::Error;
 
-    fn parse_through(
-        node: &Node,
-        cursor: &mut QueryCursor,
-        src: &str,
-    ) -> Result<Self, Self::Error> {
-        debug_assert!(node.kind() == "formal_arguments");
-
-        let parameter_query = Self::query(
-            r#"(entity_declaration_group
-                (identifier) @name
-                ("," (identifier) @name)*
-                type: (_) @eiffeltype
-                )"#,
-        );
-        let mut parameters_matches = cursor.matches(&parameter_query, node.clone(), src.as_bytes());
-
-        let mut parameters = Parameters::default();
-
-        while let Some(mat) = parameters_matches.next() {
-            let name_to_nodes = |name: &str| capture_name_to_nodes(name, &parameter_query, mat);
-            let node_to_text = |node: Node<'_>| node_to_text(&node, &src);
-
-            let names = name_to_nodes("name").map(|node| node_to_text(node).to_string());
-
-            let eiffeltype = EiffelType::parse_through(
-                &name_to_nodes("eiffeltype")
-                    .next()
-                    .expect("captured eiffel type."),
-                &mut QueryCursor::new(),
-                src,
-            )
-            .expect("parse parameters.");
-
-            names.for_each(|name| parameters.add_parameter(name, eiffeltype.clone()));
-        }
-        Ok(parameters)
-    }
-}
 impl Display for Parameters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let types = self.types();
@@ -108,6 +63,13 @@ impl Display for Parameters {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::lib::parser::Parser;
+    use anyhow::Result;
+
+    fn class(source: &str) -> Result<Class> {
+        let mut parser = Parser::new();
+        parser.class_from_source(source)
+    }
 
     pub fn integer_parameter(name: String) -> Parameters {
         Parameters {
@@ -130,38 +92,6 @@ pub mod tests {
     }
 
     #[test]
-    fn parse_parameters() -> anyhow::Result<()> {
-        // Example feature
-        let src = r#"
-class A feature
-  x (y, z: MML_SEQUENCE [INTEGER]): MML_SEQUENCE [INTEGER]
-    do
-    end
-end
-        "#;
-        let class = Class::parse(src)?;
-        let feature = class.features().first().expect("parsed feature.");
-
-        assert_eq!(
-            feature.parameters(),
-            &Parameters {
-                names: vec!["y".to_string(), "z".to_string()],
-                types: vec![
-                    EiffelType::ClassType(
-                        "MML_SEQUENCE [INTEGER]".to_string(),
-                        "MML_SEQUENCE".to_string()
-                    ),
-                    EiffelType::ClassType(
-                        "MML_SEQUENCE [INTEGER]".to_string(),
-                        "MML_SEQUENCE".to_string()
-                    )
-                ]
-            }
-        );
-        Ok(())
-    }
-
-    #[test]
     fn display_parameter() {
         let p = integer_parameter("test".to_string());
         assert_eq!(format!("{p}"), "test: INTEGER\n");
@@ -177,7 +107,7 @@ feature
 	value: INTEGER
 end
     "#;
-        let system_classes = [Class::parse(src)?];
+        let system_classes = [class(src)?];
         let p = new_integer_parameter("test".to_string());
         assert_eq!(
             format!("{}", p.fmt_model(&system_classes)),

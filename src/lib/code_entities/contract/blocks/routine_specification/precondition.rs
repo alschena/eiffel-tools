@@ -14,7 +14,7 @@ use super::*;
 #[schemars(
     description = "Preconditions are predicates on the prestate, the state before the execution, of a routine. They describe the properties that the fields of the model in the current object must satisfy in the prestate. Preconditions cannot contain a call to `old_` or the `old` keyword."
 )]
-pub struct Precondition(Vec<Clause>);
+pub struct Precondition(pub Vec<Clause>);
 
 impl Deref for Precondition {
     type Target = Vec<Clause>;
@@ -102,6 +102,13 @@ mod tests {
     use super::super::clause::Predicate;
     use super::super::clause::Tag;
     use super::*;
+    use crate::lib::parser::Parser;
+    use anyhow::Result;
+
+    fn class(source: &str) -> Result<Class> {
+        let mut parser = Parser::new();
+        parser.class_from_source(source)
+    }
 
     #[test]
     fn fix_repetition_in_preconditions() -> anyhow::Result<()> {
@@ -119,7 +126,7 @@ mod tests {
                     end
             end
         ";
-        let sc = vec![Class::parse(src)?];
+        let sc = vec![class(src)?];
         let c = &sc[0];
         let f = c.features().first().unwrap();
 
@@ -145,7 +152,7 @@ class A feature
     do
     end
 end"#;
-        let class = Class::parse(src)?;
+        let class = class(src)?;
         let feature = class
             .features()
             .first()

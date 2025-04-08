@@ -17,7 +17,7 @@ use super::*;
         They can refer to the prestate of the routine by calling the feature `old_` on any object which existed before the execution of the routine.
         Equivalently, you can use the keyword `old` before a feature to access its prestate."
 )]
-pub struct Postcondition(Vec<Clause>);
+pub struct Postcondition(pub Vec<Clause>);
 
 impl Deref for Postcondition {
     type Target = Vec<Clause>;

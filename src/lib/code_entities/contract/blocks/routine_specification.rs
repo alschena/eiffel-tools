@@ -129,6 +129,14 @@ mod tests {
     use super::super::clause::Predicate;
     use super::super::clause::Tag;
     use super::*;
+    use crate::lib::parser::Parser;
+    use anyhow::Result;
+
+    fn class(source: &str) -> Result<Class> {
+        let mut parser = Parser::new();
+        parser.class_from_source(source)
+    }
+
     #[test]
     fn fix_routine_specification_wrt_repetition() -> anyhow::Result<()> {
         let src = "
@@ -145,7 +153,7 @@ mod tests {
                     end
             end
         ";
-        let system_classes = vec![Class::parse(src)?];
+        let system_classes = vec![class(src)?];
         let c = &system_classes[0];
         let f = c.features().first().unwrap();
 

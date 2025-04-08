@@ -1,13 +1,8 @@
 use super::prelude::*;
-use crate::lib::tree_sitter_extension::{capture_name_to_nodes, node_to_text, Parse};
-use anyhow::Context;
 use async_lsp::lsp_types;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt::Display;
-use streaming_iterator::StreamingIterator;
-use tracing::instrument;
-use tree_sitter::{Node, QueryCursor};
 
 pub mod model;
 use model::*;
@@ -84,11 +79,11 @@ impl<T: AsRef<str>> PartialEq<T> for ClassName {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Class {
-    name: ClassName,
-    model: Model,
-    features: Vec<Feature>,
-    parents: Vec<Parent>,
-    range: Range,
+    pub name: ClassName,
+    pub model: Model,
+    pub features: Vec<Feature>,
+    pub parents: Vec<Parent>,
+    pub range: Range,
 }
 
 impl Class {
@@ -209,61 +204,6 @@ impl Indent for Class {
     const INDENTATION_LEVEL: usize = 1;
 }
 
-impl Parse for Class {
-    type Error = anyhow::Error;
-
-    #[instrument(skip_all)]
-    fn parse_through(node: &Node, cursor: &mut QueryCursor, src: &str) -> anyhow::Result<Self> {
-        let query = Self::query(
-            "(class_declaration
-            (class_name) @name
-            (inheritance (parent)* @parent)*
-            (feature_clause (feature_declaration)* @feature)*) @class",
-        );
-
-        let mut matches = cursor.matches(&query, *node, src.as_bytes());
-        let class_match = matches.next().with_context(|| {
-            format!("fails to parse a class out of the file whose content is:\n{src}")
-        })?;
-
-        let name = ClassName(
-            node_to_text(
-                &capture_name_to_nodes("name", &query, class_match)
-                    .next()
-                    .expect("Each class has a name."),
-                src,
-            )
-            .to_string(),
-        );
-
-        let range = capture_name_to_nodes("class", &query, class_match)
-            .next()
-            .expect("Class match has no class capture")
-            .range()
-            .into();
-
-        let parents: Vec<Parent> = capture_name_to_nodes("parent", &query, class_match)
-            .map(|ref node| {
-                Parent::parse_through(node, &mut QueryCursor::new(), src)
-                    .expect("error parsing parent.")
-            })
-            .collect();
-
-        let features: Vec<Feature> = capture_name_to_nodes("feature", &query, class_match)
-            .filter_map(|ref node| Feature::parse_through(node, &mut QueryCursor::new(), src).ok())
-            .collect();
-
-        let model =
-            Model::from_model_names(ModelNames::parse_through(node, cursor, src)?, &features);
-        Ok(Class {
-            name,
-            model,
-            features,
-            parents,
-            range,
-        })
-    }
-}
 impl TryFrom<&Class> for lsp_types::DocumentSymbol {
     type Error = anyhow::Error;
 
@@ -291,11 +231,11 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Parent {
-    name: String,
-    select: Vec<String>,
-    rename: Vec<(String, String)>,
-    redefine: Vec<String>,
-    undefine: Vec<String>,
+    pub name: String,
+    pub select: Vec<String>,
+    pub rename: Vec<(String, String)>,
+    pub redefine: Vec<String>,
+    pub undefine: Vec<String>,
 }
 impl Parent {
     fn name(&self) -> &str {
@@ -318,83 +258,18 @@ impl Parent {
     }
 }
 
-impl Parse for Parent {
-    type Error = anyhow::Error;
-
-    #[instrument(skip_all)]
-    fn parse_through(
-        node: &Node,
-        cursor: &mut QueryCursor,
-        src: &str,
-    ) -> Result<Self, Self::Error> {
-        debug_assert!(node.kind() == "parent");
-
-        let query = Self::query(
-            "
-                (parent (class_type (class_name) @name)
-                (feature_adaptation (rename (rename_pair (identifier) @rename_before
-                        (extended_feature_name) @rename_after)* )?)?)
-            ",
-        );
-
-        let mut matches = cursor.matches(&query, *node, src.as_bytes());
-        let parent_match = matches.next().expect("parent captures.");
-
-        let name = node_to_text(
-            &capture_name_to_nodes("name", &query, parent_match)
-                .next()
-                .expect("capture class name."),
-            src,
-        )
-        .to_string();
-
-        let rename: Vec<(String, String)> =
-            capture_name_to_nodes("rename_before", &query, parent_match)
-                .zip(capture_name_to_nodes("rename_after", &query, parent_match))
-                .map(|(before, after)| {
-                    (
-                        node_to_text(&before, src).to_string(),
-                        node_to_text(&after, src).to_string(),
-                    )
-                })
-                .collect();
-        Ok(Parent {
-            name,
-            select: Vec::new(),
-            rename,
-            redefine: Vec::new(),
-            undefine: Vec::new(),
-        })
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lib::processed_file;
-    use anyhow::anyhow;
+    use crate::lib::parser::Parser;
     use anyhow::Result;
     use std::fs::File;
     use std::io::prelude::*;
     use std::path::PathBuf;
-    use tree_sitter;
 
-    #[test]
-    fn parse_base_class() -> anyhow::Result<()> {
-        let src = "
-    class A
-    note
-    end
-        ";
-        let class = Class::parse(src)?;
-
-        assert_eq!(
-            class.name(),
-            "A",
-            "Equality of {:?} and {}",
-            class.name(),
-            "A"
-        );
-        Ok(())
+    fn class(source: &str) -> anyhow::Result<Class> {
+        let mut parser = Parser::new();
+        parser.class_from_source(source)
     }
 
     #[test]
@@ -409,135 +284,9 @@ invariant
     note_after_invariant: True
 end
     ";
-        let class = Class::parse(src)?;
+        let class = class(src)?;
+
         assert_eq!(class.name(), "DEMO_CLASS");
-        Ok(())
-    }
-    #[test]
-    fn parse_procedure() -> anyhow::Result<()> {
-        let src = "
-class A feature
-  f(x, y: INTEGER; z: BOOLEAN)
-    do
-    end
-end
-";
-        let class = Class::parse(src)?;
-        assert_eq!(class.name(), "A");
-        eprintln!("{class:?}");
-        assert_eq!(class.features().first().unwrap().name(), "f".to_string());
-        Ok(())
-    }
-
-    #[test]
-    fn parse_attribute() -> anyhow::Result<()> {
-        let src = "
-class A
-feature
-    x: INTEGER
-end
-";
-        let class = Class::parse(src)?;
-        assert_eq!(class.name(), "A");
-        eprintln!("{class:?}");
-        assert_eq!(class.features().first().unwrap().name(), "x".to_string());
-        Ok(())
-    }
-    #[test]
-    fn parse_model() -> anyhow::Result<()> {
-        let src = "
-note
-    model: seq
-class A
-feature
-    x: INTEGER
-    seq: MML_SEQUENCE [INTEGER]
-end
-";
-        let class = Class::parse(src)?;
-        assert_eq!(class.name(), "A");
-        assert_eq!(
-            class
-                .features()
-                .first()
-                .expect("Parsed first feature")
-                .name(),
-            "x".to_string()
-        );
-        assert_eq!(
-            (class.local_model().names().first().expect("Model name")),
-            "seq"
-        );
-        Ok(())
-    }
-    #[test]
-    fn parse_ancestors_names() -> anyhow::Result<()> {
-        let src = "
-class A
-inherit {NONE}
-  X Y Z
-
-inherit
-  W
-end
-";
-        let class = Class::parse(src)?;
-        let mut ancestors = class.parents().into_iter();
-
-        assert_eq!(class.name(), "A");
-
-        assert_eq!(
-            ancestors
-                .next()
-                .expect("fails to parse first ancestor")
-                .name(),
-            "X".to_string()
-        );
-        assert_eq!(
-            ancestors
-                .next()
-                .expect("fails to parse second ancestor")
-                .name(),
-            "Y".to_string()
-        );
-        assert_eq!(
-            ancestors
-                .next()
-                .expect("fails to parse third ancestor")
-                .name(),
-            "Z".to_string()
-        );
-        assert_eq!(
-            ancestors
-                .next()
-                .expect("fails to parse forth ancestor")
-                .name(),
-            "W".to_string()
-        );
-        Ok(())
-    }
-    #[test]
-    fn parse_ancestors_renames() -> anyhow::Result<()> {
-        let src = "
-class A
-inherit
-  W
-    rename e as f
-end
-";
-        let class = Class::parse(src)?;
-        let mut ancestors = class.parents().into_iter();
-
-        assert_eq!(
-            ancestors.next().expect("fails to parse first ancestor"),
-            &Parent {
-                name: "W".to_string(),
-                select: Vec::new(),
-                rename: vec![("e".to_string(), "f".to_string())],
-                redefine: Vec::new(),
-                undefine: Vec::new()
-            }
-        );
         Ok(())
     }
 
@@ -563,9 +312,10 @@ feature
     x: BOOLEAN
 end
 ";
-        let grandparent = Class::parse(grandparent_src)?;
-        let parent = Class::parse(parent_src)?;
-        let child = Class::parse(child_src)?;
+        let grandparent = class(&grandparent_src)?;
+        let parent = class(&parent_src)?;
+        let child = class(&child_src)?;
+
         let system_classes = vec![grandparent.clone(), parent.clone(), child.clone()];
         let child_features = child.inhereted_features(&system_classes);
         let parent_features = parent.inhereted_features(&system_classes);
@@ -599,13 +349,8 @@ end
         let mut file = File::create(path.clone()).expect("Failed to create file");
         file.write_all(src.as_bytes())
             .expect("Failed to write to file");
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-        let Some(file) = processed_file::ProcessedFile::new(&mut parser, path.clone()).await else {
-            return Err(anyhow!("fails to process file"));
-        };
+        let mut parser = Parser::new();
+        let file = parser.process_file(path.clone()).await?;
         let symbol: Result<lsp_types::WorkspaceSymbol, _> = (&file).try_into();
         assert!(symbol.is_ok());
         Ok(())
@@ -639,7 +384,7 @@ end
         seq: MML_SEQUENCE [INTEGER]
     end
     ";
-        let system_classes = vec![Class::parse(src_child)?, Class::parse(src_parent)?];
+        let system_classes = vec![class(src_child)?, class(src_parent)?];
         let child = &system_classes[0];
         let parent = &system_classes[1];
         let child_parents = child.parent_classes(&system_classes).collect::<Vec<_>>();
@@ -670,9 +415,9 @@ feature
 end
 ";
         let system_classes = vec![
-            Class::parse(child_src)?,
-            Class::parse(parent_src)?,
-            Class::parse(grandparent_src)?,
+            class(child_src)?,
+            class(parent_src)?,
+            class(grandparent_src)?,
         ];
         let child = &system_classes[0];
         let parent = &system_classes[1];
@@ -708,7 +453,7 @@ end
         seq_parent: MML_SEQUENCE [INTEGER]
     end
     ";
-        let system_classes = vec![Class::parse(src_child)?, Class::parse(src_parent)?];
+        let system_classes = vec![class(src_child)?, class(src_parent)?];
         let child = &system_classes[0];
         let parent = &system_classes[1];
 
