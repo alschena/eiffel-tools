@@ -13,12 +13,11 @@ pub use feature_tree::FeatureTree;
 
 mod inheritance_tree;
 use inheritance_tree::InheritanceTree;
+use notes_tree::NotesTree;
 
 mod notes_tree;
 
-pub trait ClassTree<'source, 'tree>:
-    FeatureClauseTree<'source, 'tree> + InheritanceTree<'source, 'tree>
-{
+pub trait ClassTree<'source, 'tree> {
     fn query() -> Query {
         util::query(
             r#"
@@ -34,13 +33,28 @@ pub trait ClassTree<'source, 'tree>:
         )
     }
 
-    fn class(&mut self) -> Result<Class, Self::Error> {
+    fn class(&mut self) -> Result<Class>;
+
+    fn class_name(&mut self) -> Result<Node<'tree>>;
+    fn class_notes(&mut self) -> Result<Vec<Node<'tree>>>;
+    fn parents(&mut self) -> Result<Vec<Node<'tree>>>;
+    fn feature_clauses(&mut self) -> Result<Vec<Node<'tree>>>;
+}
+
+impl<'source, 'tree, T> ClassTree<'source, 'tree> for T
+where
+    T: FeatureClauseTree<'source, 'tree>
+        + NotesTree<'source, 'tree>
+        + InheritanceTree<'source, 'tree>
+        + Traversal<'source, 'tree>,
+{
+    fn class(&mut self) -> Result<Class> {
         if self.current_node().kind() != "source_file" {
             return Err(anyhow!("class tree current node is root").into());
         }
         let name_nodes = self.class_name()?;
         let notes_nodes = self.class_notes()?;
-        let parents_nodes = self.nodes_captures("parent")?;
+        let parents_nodes = self.parents()?;
         let features_clauses_nodes = self.feature_clauses()?;
         let range = self
             .nodes_captures("class")?
@@ -84,11 +98,12 @@ pub trait ClassTree<'source, 'tree>:
                 }
             })?
             .into_iter()
-            .map(|model_name| -> Result<_, _> {
+            .map(|model_name| -> Result<_> {
                 let ft = features
                     .iter()
                     .find(|ft| ft.name() == model_name)
                     .with_context(|| "model feature not found {model_name:#?}")?;
+
                 let model_type = ft
                     .return_type()
                     .with_context(|| "model feature {ft:#?} must have a return type.")?
@@ -107,7 +122,7 @@ pub trait ClassTree<'source, 'tree>:
                 self.goto_inheritance_tree(parent_node);
                 self.parent()
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(Class {
             name: ClassName(String::from(self.node_content(name_nodes)?)),
@@ -117,26 +132,23 @@ pub trait ClassTree<'source, 'tree>:
             range,
         })
     }
-
-    fn class_name(&mut self) -> Result<Node<'tree>, Self::Error> {
+    fn class_name(&mut self) -> Result<Node<'tree>> {
         let mut nodes = self.nodes_captures("name")?;
         Ok(nodes.pop().with_context(|| "TOOO")?)
     }
 
-    fn class_notes(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
+    fn class_notes(&mut self) -> Result<Vec<Node<'tree>>> {
         self.nodes_captures("notes")
     }
 
-    fn inheritance(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
-        self.nodes_captures("inheritance")
+    fn parents(&mut self) -> Result<Vec<Node<'tree>>> {
+        self.nodes_captures("parent")
     }
 
-    fn feature_clauses(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
+    fn feature_clauses(&mut self) -> Result<Vec<Node<'tree>>> {
         self.nodes_captures("feature_clause")
     }
 }
-
-impl<'source, 'tree, T> ClassTree<'source, 'tree> for T where T: Traversal<'source, 'tree> {}
 
 #[cfg(test)]
 mod tests {
@@ -256,8 +268,8 @@ end"#;
         let parsed_file = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
         let mut class_tree = TreeTraversal::try_from(&parsed_file)?;
 
-        let inheritance_tree = class_tree.inheritance()?;
-        assert!(inheritance_tree.is_empty());
+        let parents = class_tree.parents()?;
+        assert!(parents.is_empty());
         Ok(())
     }
 

@@ -1,6 +1,7 @@
 use crate::lib::parser::util::is_inside;
 use crate::lib::parser::util::Traversal;
 use crate::lib::parser::*;
+use anyhow::Result;
 
 pub trait NotesTree<'source, 'tree>: Traversal<'source, 'tree> {
     fn query() -> Query {
@@ -19,29 +20,41 @@ pub trait NotesTree<'source, 'tree>: Traversal<'source, 'tree> {
         )
     }
 
+    fn goto_notes_tree(&mut self, node: Node<'tree>);
+
+    fn notes(&mut self) -> Result<FeatureNotes>;
+
+    fn notes_nodes(&mut self) -> Result<Vec<(Node<'tree>, Vec<Node<'tree>>)>>;
+
+    fn model_nodes(&mut self) -> Result<Vec<Node<'tree>>>;
+
+    fn model_names(&mut self) -> Result<Vec<&str>>;
+}
+
+impl<'source, 'tree, T: Traversal<'source, 'tree>> NotesTree<'source, 'tree> for T {
     fn goto_notes_tree(&mut self, node: Node<'tree>) {
         assert_eq!(node.kind(), "notes");
         self.set_node_and_query(node, <Self as NotesTree>::query());
     }
 
-    fn notes(&mut self) -> Result<FeatureNotes, Self::Error> {
+    fn notes(&mut self) -> Result<FeatureNotes> {
         assert_eq!(self.current_node().kind(), "notes");
         let nodes = self.notes_nodes()?;
         let note_entries = nodes
             .iter()
-            .map(|&(name, ref values)| -> Result<_, Self::Error> {
+            .map(|&(name, ref values)| -> Result<_> {
                 let name = self.node_content(name)?.to_string();
                 let values: Vec<String> = values
                     .iter()
                     .map(|&val| self.node_content(val).map(|content| content.to_string()))
-                    .collect::<Result<Vec<_>, Self::Error>>()?;
+                    .collect::<Result<Vec<_>>>()?;
                 Ok((name, values))
             })
-            .collect::<Result<Vec<_>, Self::Error>>()?;
+            .collect::<Result<Vec<_>>>()?;
         Ok(FeatureNotes(note_entries))
     }
 
-    fn notes_nodes(&mut self) -> Result<Vec<(Node<'tree>, Vec<Node<'tree>>)>, Self::Error> {
+    fn notes_nodes(&mut self) -> Result<Vec<(Node<'tree>, Vec<Node<'tree>>)>> {
         let tags = self.nodes_captures("note_tag")?;
         let values = self.nodes_captures("note_value")?;
 
@@ -62,19 +75,17 @@ pub trait NotesTree<'source, 'tree>: Traversal<'source, 'tree> {
             .collect())
     }
 
-    fn model_nodes(&mut self) -> Result<Vec<Node<'tree>>, Self::Error> {
+    fn model_nodes(&mut self) -> Result<Vec<Node<'tree>>> {
         self.nodes_captures("model_value")
     }
 
-    fn model_names(&mut self) -> Result<Vec<&str>, Self::Error> {
+    fn model_names(&mut self) -> Result<Vec<&str>> {
         self.model_nodes()?
             .into_iter()
             .map(|node| self.node_content(node))
-            .collect::<Result<Vec<_>, Self::Error>>()
+            .collect::<Result<Vec<_>>>()
     }
 }
-
-impl<'source, 'tree, T: Traversal<'source, 'tree>> NotesTree<'source, 'tree> for T {}
 
 #[cfg(test)]
 mod tests {

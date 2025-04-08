@@ -13,7 +13,9 @@ use tracing::warn;
 mod parameter_tree;
 use parameter_tree::ParameterTree;
 
-pub trait FeatureClauseTree<'source, 'tree>: FeatureTree<'source, 'tree> {
+pub trait FeatureClauseTree<'source, 'tree> {
+    type Error;
+
     fn query() -> Query {
         util::query(
             r#"
@@ -22,6 +24,13 @@ pub trait FeatureClauseTree<'source, 'tree>: FeatureTree<'source, 'tree> {
         )
     }
 
+    fn goto_feature_clause_tree(&mut self, feature_clause_node: Node<'tree>);
+
+    fn features(&mut self) -> Result<Vec<Feature>>;
+}
+
+impl<'source, 'tree, T: FeatureTree<'source, 'tree>> FeatureClauseTree<'source, 'tree> for T {
+    type Error = anyhow::Error;
     fn goto_feature_clause_tree(&mut self, feature_clause_node: Node<'tree>) {
         assert_eq!(feature_clause_node.kind(), "feature_clause");
         self.set_node_and_query(feature_clause_node, <Self as FeatureClauseTree>::query());
@@ -45,14 +54,7 @@ pub trait FeatureClauseTree<'source, 'tree>: FeatureTree<'source, 'tree> {
     }
 }
 
-impl<'source, 'tree, T: FeatureTree<'source, 'tree>> FeatureClauseTree<'source, 'tree> for T {}
-
-pub trait FeatureTree<'source, 'tree>:
-    NotesTree<'source, 'tree>
-    + ContractTree<'source, 'tree>
-    + EiffelTypeTree<'source, 'tree>
-    + ParameterTree<'source, 'tree>
-{
+pub trait FeatureTree<'source, 'tree>: Traversal<'source, 'tree> {
     fn query() -> Query {
         util::query(
             r#"(feature_declaration
@@ -68,6 +70,19 @@ pub trait FeatureTree<'source, 'tree>:
         )
     }
 
+    fn goto_feature_tree(&mut self, feature_declaration_node: Node<'tree>);
+
+    fn feature(&mut self) -> Result<Vec<Feature>>;
+}
+
+impl<'source, 'tree, T> FeatureTree<'source, 'tree> for T
+where
+    T: NotesTree<'source, 'tree>
+        + ContractTree<'source, 'tree>
+        + EiffelTypeTree<'source, 'tree>
+        + ParameterTree<'source, 'tree>
+        + Traversal<'source, 'tree>,
+{
     fn goto_feature_tree(&mut self, feature_declaration_node: Node<'tree>) {
         assert!(
             feature_declaration_node.kind() == "feature_declaration"
@@ -76,7 +91,7 @@ pub trait FeatureTree<'source, 'tree>:
         self.set_node_and_query(feature_declaration_node, <Self as FeatureTree>::query());
     }
 
-    fn feature(&mut self) -> Result<Vec<Feature>, Self::Error> {
+    fn feature(&mut self) -> Result<Vec<Feature>> {
         let outer_node = self.nodes_captures("feature_declaration")?;
         let names_nodes = self.nodes_captures("feature_name")?;
 
@@ -106,7 +121,7 @@ pub trait FeatureTree<'source, 'tree>:
             .collect::<Result<Vec<_>, _>>()?;
 
         let parameters = parameters_node
-            .map(|parameters_node| -> Result<_, Self::Error> {
+            .map(|parameters_node| -> Result<_> {
                 self.goto_parameter_tree(*parameters_node);
                 self.parameters()
             })
@@ -121,7 +136,7 @@ pub trait FeatureTree<'source, 'tree>:
             .transpose()?;
 
         let notes = notes_node
-            .map(|&note_node| -> Result<_, Self::Error> {
+            .map(|&note_node| -> Result<_> {
                 self.goto_notes_tree(note_node);
                 self.notes()
             })
@@ -134,7 +149,7 @@ pub trait FeatureTree<'source, 'tree>:
             .into();
 
         let preconditions: Option<Block<Precondition>> = preconditions_node.map_or_else(
-            || -> Result<Option<Block<Precondition>>, Self::Error> {
+            || -> Result<Option<Block<Precondition>>> {
                 Ok(
                     some_attribute_or_routine_range_if_contracts_supported.map(|range| {
                         let point_for_collapsed_block = match notes_node {
@@ -145,7 +160,7 @@ pub trait FeatureTree<'source, 'tree>:
                     }),
                 )
             },
-            |&precondition_node| -> Result<Option<Block<Precondition>>, Self::Error> {
+            |&precondition_node| -> Result<Option<Block<Precondition>>> {
                 self.goto_contract_tree(precondition_node);
                 let clauses = self.clauses()?;
                 let precondition = Precondition(clauses);
@@ -157,7 +172,7 @@ pub trait FeatureTree<'source, 'tree>:
         )?;
 
         let postconditions: Option<Block<Postcondition>> = postconditions_node.map_or_else(
-            || -> Result<Option<Block<_>>, Self::Error> {
+            || -> Result<Option<Block<_>>> {
                 Ok(
                     some_attribute_or_routine_range_if_contracts_supported.map(|range| {
                         let mut point_of_collapsed_block: Point = range.end_point.into();
@@ -168,7 +183,7 @@ pub trait FeatureTree<'source, 'tree>:
                     }),
                 )
             },
-            |&postcondition_node| -> Result<Option<Block<_>>, Self::Error> {
+            |&postcondition_node| -> Result<Option<Block<_>>> {
                 self.goto_contract_tree(postcondition_node);
                 let clauses = self.clauses()?;
                 let postcondition = Postcondition(clauses);
@@ -194,14 +209,6 @@ pub trait FeatureTree<'source, 'tree>:
             .collect();
         Ok(features)
     }
-}
-
-impl<'source, 'tree, T> FeatureTree<'source, 'tree> for T where
-    T: NotesTree<'source, 'tree>
-        + ContractTree<'source, 'tree>
-        + EiffelTypeTree<'source, 'tree>
-        + ParameterTree<'source, 'tree>
-{
 }
 
 #[cfg(test)]

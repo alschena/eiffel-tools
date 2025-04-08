@@ -1,13 +1,15 @@
 use anyhow::anyhow;
 use anyhow::Context;
+use anyhow::Result;
 
 use super::FeatureParameters;
+use super::Traversal;
 use crate::lib::parser::class_tree::eiffel_type::EiffelTypeTree;
 use crate::lib::parser::util;
 use crate::lib::parser::Node;
 use crate::lib::parser::Query;
 
-pub trait ParameterTree<'source, 'tree>: EntityDeclarationGroupTree<'source, 'tree> {
+pub trait ParameterTree<'source, 'tree> {
     fn query() -> Query {
         util::query(
             r#"
@@ -18,33 +20,8 @@ pub trait ParameterTree<'source, 'tree>: EntityDeclarationGroupTree<'source, 'tr
         )
     }
 
-    fn goto_parameter_tree(&mut self, formal_arguments: Node<'tree>) {
-        assert_eq!(formal_arguments.kind(), "formal_arguments");
-        self.set_node_and_query(formal_arguments, <Self as ParameterTree>::query());
-    }
-
-    fn parameters(&mut self) -> Result<FeatureParameters, Self::Error> {
-        self.nodes_captures("entity_declaration_group")?
-            .iter()
-            .map(|group_node| {
-                self.goto_entity_declaration_group_tree(*group_node);
-                self.entity_declaration_group_parameters()
-            })
-            .fold(Ok(FeatureParameters::default()), |acc, parameters| {
-                let FeatureParameters {
-                    mut names,
-                    mut types,
-                } = acc?;
-                let FeatureParameters {
-                    names: mut new_names,
-                    types: mut new_types,
-                } = parameters?;
-                names.append(&mut new_names);
-                types.append(&mut new_types);
-
-                Ok(FeatureParameters { names, types })
-            })
-    }
+    fn goto_parameter_tree(&mut self, formal_arguments: Node<'tree>);
+    fn parameters(&mut self) -> Result<FeatureParameters>;
 }
 
 pub trait EntityDeclarationGroupTree<'source, 'tree>: EiffelTypeTree<'source, 'tree> {
@@ -59,6 +36,14 @@ pub trait EntityDeclarationGroupTree<'source, 'tree>: EiffelTypeTree<'source, 't
         )
     }
 
+    fn goto_entity_declaration_group_tree(&mut self, entity_declaration_group: Node<'tree>);
+    fn entity_declaration_group_parameters(&mut self) -> Result<FeatureParameters>;
+}
+
+impl<'source, 'tree, T> EntityDeclarationGroupTree<'source, 'tree> for T
+where
+    T: EiffelTypeTree<'source, 'tree> + Traversal<'source, 'tree>,
+{
     fn goto_entity_declaration_group_tree(&mut self, entity_declaration_group: Node<'tree>) {
         assert_eq!(entity_declaration_group.kind(), "entity_declaration_group");
 
@@ -68,7 +53,7 @@ pub trait EntityDeclarationGroupTree<'source, 'tree>: EiffelTypeTree<'source, 't
         );
     }
 
-    fn entity_declaration_group_parameters(&mut self) -> Result<FeatureParameters, Self::Error> {
+    fn entity_declaration_group_parameters(&mut self) -> Result<FeatureParameters> {
         assert_eq!(self.current_node().kind(), "entity_declaration_group");
 
         let names = self.nodes_captures("parameter_name")?;
@@ -103,13 +88,37 @@ pub trait EntityDeclarationGroupTree<'source, 'tree>: EiffelTypeTree<'source, 't
     }
 }
 
-impl<'source, 'tree, T: EiffelTypeTree<'source, 'tree>> EntityDeclarationGroupTree<'source, 'tree>
-    for T
+impl<'source, 'tree, T> ParameterTree<'source, 'tree> for T
+where
+    T: EntityDeclarationGroupTree<'source, 'tree> + Traversal<'source, 'tree>,
 {
-}
-impl<'source, 'tree, T: EntityDeclarationGroupTree<'source, 'tree>> ParameterTree<'source, 'tree>
-    for T
-{
+    fn goto_parameter_tree(&mut self, formal_arguments: Node<'tree>) {
+        assert_eq!(formal_arguments.kind(), "formal_arguments");
+        self.set_node_and_query(formal_arguments, <Self as ParameterTree>::query());
+    }
+
+    fn parameters(&mut self) -> Result<FeatureParameters> {
+        self.nodes_captures("entity_declaration_group")?
+            .iter()
+            .map(|group_node| {
+                self.goto_entity_declaration_group_tree(*group_node);
+                self.entity_declaration_group_parameters()
+            })
+            .fold(Ok(FeatureParameters::default()), |acc, parameters| {
+                let FeatureParameters {
+                    mut names,
+                    mut types,
+                } = acc?;
+                let FeatureParameters {
+                    names: mut new_names,
+                    types: mut new_types,
+                } = parameters?;
+                names.append(&mut new_names);
+                types.append(&mut new_types);
+
+                Ok(FeatureParameters { names, types })
+            })
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 use crate::lib::parser::Node;
 use anyhow::Context;
+use anyhow::Result;
 
 use crate::lib::parser::util;
 use crate::lib::parser::util::is_inside;
@@ -15,6 +16,12 @@ pub trait ContractTree<'source, 'tree>: Traversal<'source, 'tree> {
         )
     }
 
+    fn goto_contract_tree(&mut self, contract_node: Node<'tree>);
+
+    fn clauses(&mut self) -> Result<Vec<Clause>>;
+}
+
+impl<'source, 'tree, T: Traversal<'source, 'tree>> ContractTree<'source, 'tree> for T {
     fn goto_contract_tree(&mut self, contract_node: Node<'tree>) {
         assert!(
             contract_node.kind() == "precondition"
@@ -24,14 +31,14 @@ pub trait ContractTree<'source, 'tree>: Traversal<'source, 'tree> {
         self.set_node_and_query(contract_node, <Self as ContractTree>::query());
     }
 
-    fn clauses(&mut self) -> Result<Vec<Clause>, Self::Error> {
+    fn clauses(&mut self) -> Result<Vec<Clause>> {
         let clauses = self.nodes_captures("clause")?;
         let tag = self.nodes_captures("tag")?;
         let expression = self.nodes_captures("expression")?;
 
         let clauses = clauses
             .into_iter()
-            .map(|clause_node| -> Result<_, Self::Error> {
+            .map(|clause_node| -> Result<_> {
                 let tag_node = tag
                     .iter()
                     .find(|&&tag_node| is_inside(tag_node, clause_node));
@@ -43,7 +50,7 @@ pub trait ContractTree<'source, 'tree>: Traversal<'source, 'tree> {
                     })?;
 
                 let tag = tag_node
-                    .map(|&tag_node| -> Result<_, Self::Error> {
+                    .map(|&tag_node| -> Result<_> {
                         let content = self.node_content(tag_node)?;
                         let owned_content = content.to_string();
                         Ok(owned_content.into())
@@ -54,9 +61,7 @@ pub trait ContractTree<'source, 'tree>: Traversal<'source, 'tree> {
                 let predicate = self.node_content(*predicate_node)?.into();
                 Ok(Clause { tag, predicate })
             })
-            .collect::<Result<Vec<_>, Self::Error>>()?;
+            .collect::<Result<Vec<_>>>()?;
         Ok(clauses)
     }
 }
-
-impl<'source, 'tree, T: Traversal<'source, 'tree>> ContractTree<'source, 'tree> for T {}

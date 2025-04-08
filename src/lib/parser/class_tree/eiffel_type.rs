@@ -1,4 +1,5 @@
 use anyhow::Context;
+use anyhow::Result;
 
 use crate::lib::parser::util;
 use crate::lib::parser::util::Traversal;
@@ -6,7 +7,7 @@ use crate::lib::parser::EiffelType;
 use crate::lib::parser::Node;
 use crate::lib::parser::Query;
 
-pub trait EiffelTypeTree<'source, 'tree>: Traversal<'source, 'tree> {
+pub trait EiffelTypeTree<'source, 'tree> {
     fn query() -> Query {
         util::query(
             r#"
@@ -19,6 +20,13 @@ pub trait EiffelTypeTree<'source, 'tree>: Traversal<'source, 'tree> {
         )
     }
 
+    fn goto_eiffel_type_tree(&mut self, node: Node<'tree>);
+
+    fn eiffel_type(&mut self) -> Result<EiffelType>;
+}
+
+impl<'source, 'tree, T: Traversal<'source, 'tree>> EiffelTypeTree<'source, 'tree> for T {
+
     fn goto_eiffel_type_tree(&mut self, node: Node<'tree>) {
         assert!(
             node.kind() == "class_type" || node.kind() == "tuple_type" || node.kind() == "anchored"
@@ -26,7 +34,7 @@ pub trait EiffelTypeTree<'source, 'tree>: Traversal<'source, 'tree> {
         self.set_node_and_query(node, <Self as EiffelTypeTree>::query());
     }
 
-    fn eiffel_type(&mut self) -> Result<EiffelType, Self::Error> {
+    fn eiffel_type(&mut self) -> Result<EiffelType> {
         match self.current_node().kind() {
             "class_type" => {
                 let captures = self.nodes_captures("class_name")?;
@@ -42,6 +50,5 @@ pub trait EiffelTypeTree<'source, 'tree>: Traversal<'source, 'tree> {
             _ => unreachable!("`EiffelTypeTree::eiffel_type` must be called from either `class_type`, `tuple_type` or `anchored` ")
         }
     }
+    
 }
-
-impl<'source, 'tree, T: Traversal<'source, 'tree>> EiffelTypeTree<'source, 'tree> for T {}
