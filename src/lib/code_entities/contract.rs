@@ -2,6 +2,7 @@ use super::prelude::*;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::ops::DerefMut;
+use tracing::info;
 
 mod blocks;
 pub use blocks::Block;
@@ -11,7 +12,8 @@ pub use blocks::RoutineSpecification;
 
 mod clause;
 pub use clause::Clause;
-use tracing::info;
+pub use clause::Predicate as ClausePredicate;
+pub use clause::Tag as ClauseTag;
 
 pub(crate) trait Fix: Debug {
     fn fix(

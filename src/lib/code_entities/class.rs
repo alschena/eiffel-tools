@@ -90,9 +90,11 @@ impl Class {
     pub fn name(&self) -> &ClassName {
         &self.name
     }
+
     fn local_model(&self) -> &Model {
         &self.model
     }
+
     fn model_with_inheritance<'a>(&'a self, system_classes: &'a [Class]) -> Model {
         let mut model = self.local_model().clone();
         for mut ancestor_model in self
@@ -105,6 +107,7 @@ impl Class {
         }
         model
     }
+
     fn model_extended<'class, 'system: 'class>(
         &'class self,
         system_classes: &'system [Class],
@@ -112,15 +115,19 @@ impl Class {
         self.model_with_inheritance(system_classes)
             .extended(system_classes)
     }
+
     pub fn features(&self) -> &Vec<Feature> {
         &self.features
     }
+
     pub fn into_features(self) -> Vec<Feature> {
         self.features
     }
+
     fn parents(&self) -> &Vec<Parent> {
         &self.parents
     }
+
     fn parent_classes<'a>(
         &'a self,
         system_classes: &'a [Class],
@@ -129,6 +136,7 @@ impl Class {
             .into_iter()
             .filter_map(|parent| parent.class(system_classes))
     }
+
     pub fn ancestors<'a>(&'a self, system_classes: &'a [Class]) -> HashSet<&'a Parent> {
         let mut ancestors = HashSet::new();
         for parent in self.parents() {
@@ -140,6 +148,7 @@ impl Class {
         }
         ancestors
     }
+
     pub fn ancestor_classes<'a>(&'a self, system_classes: &'a [Class]) -> HashSet<&'a Class> {
         let mut ancestors_classes = HashSet::new();
         self.parent_classes(system_classes)
@@ -149,7 +158,8 @@ impl Class {
             });
         ancestors_classes
     }
-    pub fn inhereted_features<'a>(&'a self, system_classes: &'a [Class]) -> Vec<Cow<'a, Feature>> {
+
+    fn inhereted_features<'a>(&'a self, system_classes: &'a [Class]) -> Vec<Cow<'a, Feature>> {
         self.parent_classes(system_classes)
             .into_iter()
             .zip(self.parents())
@@ -173,6 +183,18 @@ impl Class {
             })
             .collect()
     }
+
+    pub fn immediate_and_inherited_features<'slf>(
+        &'slf self,
+        system_classes: &'slf [Class],
+    ) -> Vec<Cow<'slf, Feature>> {
+        self.features()
+            .into_iter()
+            .map(|feature| Cow::Borrowed(feature))
+            .chain(self.inhereted_features(system_classes))
+            .collect::<Vec<_>>()
+    }
+
     pub fn range(&self) -> &Range {
         &self.range
     }

@@ -7,6 +7,8 @@ use crate::lib::parser::EiffelType;
 use crate::lib::parser::Node;
 use crate::lib::parser::Query;
 
+use super::TreeTraversal;
+
 pub trait EiffelTypeTree<'source, 'tree> {
     fn query() -> Query {
         util::query(
@@ -25,7 +27,7 @@ pub trait EiffelTypeTree<'source, 'tree> {
     fn eiffel_type(&mut self) -> Result<EiffelType>;
 }
 
-impl<'source, 'tree, T: Traversal<'source, 'tree>> EiffelTypeTree<'source, 'tree> for T {
+impl<'source, 'tree> EiffelTypeTree<'source, 'tree> for TreeTraversal<'source,'tree> {
 
     fn goto_eiffel_type_tree(&mut self, node: Node<'tree>) {
         assert!(

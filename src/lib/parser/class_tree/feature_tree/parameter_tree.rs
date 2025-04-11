@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use super::FeatureParameters;
 use super::Traversal;
+use super::TreeTraversal;
 use crate::lib::parser::class_tree::eiffel_type::EiffelTypeTree;
 use crate::lib::parser::util;
 use crate::lib::parser::Node;
@@ -40,9 +41,7 @@ pub trait EntityDeclarationGroupTree<'source, 'tree>: EiffelTypeTree<'source, 't
     fn entity_declaration_group_parameters(&mut self) -> Result<FeatureParameters>;
 }
 
-impl<'source, 'tree, T> EntityDeclarationGroupTree<'source, 'tree> for T
-where
-    T: EiffelTypeTree<'source, 'tree> + Traversal<'source, 'tree>,
+impl<'source, 'tree> EntityDeclarationGroupTree<'source, 'tree> for TreeTraversal<'source,'tree>
 {
     fn goto_entity_declaration_group_tree(&mut self, entity_declaration_group: Node<'tree>) {
         assert_eq!(entity_declaration_group.kind(), "entity_declaration_group");

@@ -115,6 +115,12 @@ impl Tag {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+    pub fn trim_and_replace_space_with_underscore(&mut self) {
+        self.0 = self.0.trim().replace(" ", "_");
+    }
+    pub fn update_to_lowercase(&mut self) {
+        self.0 = self.0.to_lowercase();
+    }
 }
 
 impl Default for Tag {
@@ -284,10 +290,8 @@ impl Fix for Predicate {
     ) -> bool {
         self.top_level_identifiers().iter().all(|&identifier| {
             current_class
-                .features()
+                .immediate_and_inherited_features(system_classes)
                 .iter()
-                .map(|feature| std::borrow::Cow::Borrowed(feature))
-                .chain(current_class.inhereted_features(system_classes))
                 .any(|feature| {
                     current_feature
                         .parameters()
@@ -310,10 +314,8 @@ impl Fix for Predicate {
             .iter()
             .all(|&(id, ref args)| {
                 current_class
-                    .features()
+                    .immediate_and_inherited_features(system_classes)
                     .iter()
-                    .map(|feature| std::borrow::Cow::Borrowed(feature))
-                    .chain(current_class.inhereted_features(system_classes))
                     .find(|feature| feature.name() == id)
                     .is_some_and(|feature| feature.number_parameters() == args.len())
             })

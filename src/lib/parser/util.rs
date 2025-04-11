@@ -1,7 +1,6 @@
 use crate::lib::parser::*;
 use anyhow::anyhow;
 use anyhow::Result;
-use std::fmt::Debug;
 
 pub fn query(sexp: &str) -> Query {
     Query::new(&tree_sitter_eiffel::LANGUAGE.into(), sexp)
@@ -61,7 +60,7 @@ impl<'source, 'tree> Traversal<'source, 'tree> for TreeTraversal<'source, 'tree>
     }
 
     fn set_node_and_query(&mut self, node: Node<'tree>, query: Query) {
-        self.node = node;
+        self.set_node(node);
         self.query = query;
     }
 }
@@ -76,5 +75,9 @@ impl<'source, 'tree> TreeTraversal<'source, 'tree> {
             query,
             cursor,
         })
+    }
+
+    pub(super) fn set_node(&mut self, node: Node<'tree>) {
+        self.node = node
     }
 }
