@@ -209,10 +209,14 @@ impl<'system> Fix<'system, ClausePredicate> for Parser {
 
 macro_rules! clause_defaul_impl {
     ($name:ident) => {
-        fn $name(&mut self, value: Clause, context: &Self::Context) -> Result<Clause> {
+        fn $name(
+            &mut self,
+            value: Clause,
+            position_in_system: &Self::PositionInSystem,
+        ) -> Result<Clause> {
             let Clause { tag, predicate } = value;
-            let tag = self.$name(tag, context)?;
-            let predicate = self.$name(predicate, context)?;
+            let tag = self.$name(tag, position_in_system)?;
+            let predicate = self.$name(predicate, position_in_system)?;
             Ok(Clause { tag, predicate })
         }
     };
@@ -229,11 +233,15 @@ impl<'system> Fix<'system, Clause> for Parser {
 
 macro_rules! precondition_default_impl {
     ($name:ident) => {
-        fn $name(&mut self, value: Precondition, context: &Self::Context) -> Result<Precondition> {
+        fn $name(
+            &mut self,
+            value: Precondition,
+            position_in_system: &Self::PositionInSystem,
+        ) -> Result<Precondition> {
             let Precondition(clauses) = value;
             let new_clauses = clauses
                 .into_iter()
-                .filter_map(|clause| self.$name(clause, context).ok())
+                .filter_map(|clause| self.$name(clause, position_in_system).ok())
                 .collect();
             Ok(Precondition(new_clauses))
         }
@@ -266,7 +274,7 @@ macro_rules! postcondition_default_impl {
         fn $name(
             &mut self,
             value: Postcondition,
-            context: &Self::Context,
+            context: &Self::PositionInSystem,
         ) -> Result<Postcondition> {
             let Postcondition(clauses) = value;
             let new_clauses = clauses
@@ -288,10 +296,10 @@ impl<'system> Fix<'system, Postcondition> for Parser {
     fn fix_redundancy_of(
         &mut self,
         value: Postcondition,
-        context: &Self::PositionInSystem,
+        position_in_system: &Self::PositionInSystem,
     ) -> Result<Postcondition> {
         let mut value = value;
-        match context.current_feature.postconditions() {
+        match position_in_system.current_feature.postconditions() {
             Some(pr) => value.remove_redundant_clauses(pr),
             None => value.remove_self_redundant_clauses(),
         }
@@ -304,14 +312,14 @@ macro_rules! routine_specification_default_impl {
         fn $name(
             &mut self,
             value: RoutineSpecification,
-            context: &Self::Context,
+            position_in_system: &Self::PositionInSystem,
         ) -> Result<RoutineSpecification> {
             let RoutineSpecification {
                 precondition,
                 postcondition,
             } = value;
-            let precondition = self.$name(precondition, context)?;
-            let postcondition = self.$name(postcondition, context)?;
+            let precondition = self.$name(precondition, position_in_system)?;
+            let postcondition = self.$name(postcondition, position_in_system)?;
             Ok(RoutineSpecification {
                 precondition,
                 postcondition,
