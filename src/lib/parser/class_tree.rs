@@ -41,13 +41,7 @@ pub trait ClassTree<'source, 'tree> {
     fn feature_clauses(&mut self) -> Result<Vec<Node<'tree>>>;
 }
 
-impl<'source, 'tree, T> ClassTree<'source, 'tree> for T
-where
-    T: FeatureClauseTree<'source, 'tree>
-        + NotesTree<'source, 'tree>
-        + InheritanceTree<'source, 'tree>
-        + Traversal<'source, 'tree>,
-{
+impl<'source, 'tree> ClassTree<'source, 'tree> for TreeTraversal<'source, 'tree> {
     fn class(&mut self) -> Result<Class> {
         if self.current_node().kind() != "source_file" {
             return Err(anyhow!("class tree current node is root").into());

@@ -1,6 +1,8 @@
-use crate::lib::code_entities::contract::Fix;
 use crate::lib::code_entities::prelude::*;
+use crate::lib::fix::FeaturePositionInSystem;
+use crate::lib::fix::Fix;
 use crate::lib::generators::Generators;
+use crate::lib::parser::Parser;
 use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
@@ -210,6 +212,10 @@ impl<'ws> RoutineSpecificationGenerator<'ws> {
     ) -> Option<RoutineSpecification> {
         let system_classes = self.system_classes();
         let class = self.class();
+        let feature = self.feature;
+
+        let mut parser = Parser::new();
+        let fixing_context = FeaturePositionInSystem::new(&system_classes, class, feature);
 
         let specs = routine_specifications
             .into_iter()
@@ -220,7 +226,12 @@ impl<'ws> RoutineSpecificationGenerator<'ws> {
             });
 
         specs
-            .map(|mut spec| (spec.fix(&system_classes, class, self.feature)).then_some(spec))
+            .map(|spec| {
+                parser
+                    .fix(spec, &fixing_context)
+                    .inspect_err(|e| info!("fix refuses routine specification with error: {e:#?}"))
+                    .ok()
+            })
             .flatten()
     }
 }

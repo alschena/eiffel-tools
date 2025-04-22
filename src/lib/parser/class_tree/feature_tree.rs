@@ -75,14 +75,7 @@ pub trait FeatureTree<'source, 'tree>: Traversal<'source, 'tree> {
     fn feature(&mut self) -> Result<Vec<Feature>>;
 }
 
-impl<'source, 'tree, T> FeatureTree<'source, 'tree> for T
-where
-    T: NotesTree<'source, 'tree>
-        + ContractTree<'source, 'tree>
-        + EiffelTypeTree<'source, 'tree>
-        + ParameterTree<'source, 'tree>
-        + Traversal<'source, 'tree>,
-{
+impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tree> {
     fn goto_feature_tree(&mut self, feature_declaration_node: Node<'tree>) {
         assert!(
             feature_declaration_node.kind() == "feature_declaration"

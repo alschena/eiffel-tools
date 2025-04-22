@@ -31,7 +31,7 @@ pub trait NotesTree<'source, 'tree> {
     fn model_names(&mut self) -> Result<Vec<&str>>;
 }
 
-impl<'source, 'tree, T: Traversal<'source, 'tree>> NotesTree<'source, 'tree> for T {
+impl<'source, 'tree> NotesTree<'source, 'tree> for TreeTraversal<'source, 'tree> {
     fn goto_notes_tree(&mut self, node: Node<'tree>) {
         assert_eq!(node.kind(), "notes");
         self.set_node_and_query(node, <Self as NotesTree>::query());

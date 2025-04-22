@@ -1,15 +1,15 @@
 use crate::lib::processed_file::ProcessedFile;
 use anyhow::Context;
+use anyhow::Result;
 use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
 use tracing::instrument;
-use util::TreeTraversal;
 
 use ::tree_sitter::Node;
 use ::tree_sitter::Parser as TreeSitterParser;
 use ::tree_sitter::Query;
 use ::tree_sitter::QueryCursor;
-use ::tree_sitter::Tree;
+pub use ::tree_sitter::Tree;
 
 use super::code_entities::prelude::*;
 
@@ -17,7 +17,11 @@ mod class_tree;
 use class_tree::ClassTree;
 use class_tree::FeatureTree;
 
+mod expression_tree;
+pub use expression_tree::ExpressionTree;
+
 mod util;
+pub use util::TreeTraversal;
 
 pub struct Parser(TreeSitterParser);
 
@@ -30,7 +34,7 @@ impl Parser {
         Self(parser)
     }
 
-    fn parse<'source, T>(&mut self, source: &'source T) -> anyhow::Result<ParsedSource<'source>>
+    pub fn parse<'source, T>(&mut self, source: &'source T) -> Result<ParsedSource<'source>>
     where
         T: AsRef<[u8]> + ?Sized,
     {
@@ -43,7 +47,7 @@ impl Parser {
     }
 
     #[cfg(test)]
-    pub fn class_from_source<'source, T>(&mut self, source: &'source T) -> anyhow::Result<Class>
+    pub fn class_from_source<'source, T>(&mut self, source: &'source T) -> Result<Class>
     where
         T: AsRef<[u8]> + ?Sized,
     {
@@ -64,7 +68,7 @@ impl Parser {
         traversal.class().map(|class| (parsed_source.tree, class))
     }
 
-    pub fn feature_from_source<'source, T>(&mut self, source: &'source T) -> anyhow::Result<Feature>
+    pub fn feature_from_source<'source, T>(&mut self, source: &'source T) -> Result<Feature>
     where
         T: AsRef<[u8]> + ?Sized,
     {
@@ -78,7 +82,7 @@ impl Parser {
     }
 
     #[instrument(skip(self))]
-    pub async fn process_file(&mut self, path: PathBuf) -> anyhow::Result<ProcessedFile> {
+    pub async fn process_file(&mut self, path: PathBuf) -> Result<ProcessedFile> {
         let src = String::from_utf8(
             tokio::fs::read(&path)
                 .await
@@ -101,13 +105,13 @@ impl Parser {
     }
 }
 
-struct ParsedSource<'source> {
+pub struct ParsedSource<'source> {
     source: &'source [u8],
     pub tree: Tree,
 }
 
 impl ParsedSource<'_> {
-    fn class_tree_traversal(&self) -> anyhow::Result<TreeTraversal<'_, '_>> {
+    fn class_tree_traversal(&self) -> Result<TreeTraversal<'_, '_>> {
         TreeTraversal::try_new(
             self.source,
             self.tree.root_node(),
@@ -115,7 +119,7 @@ impl ParsedSource<'_> {
         )
     }
 
-    fn feature_tree_traversal(&self) -> anyhow::Result<TreeTraversal<'_, '_>> {
+    fn feature_tree_traversal(&self) -> Result<TreeTraversal<'_, '_>> {
         TreeTraversal::try_new(
             self.source,
             self.tree.root_node(),
@@ -123,8 +127,12 @@ impl ParsedSource<'_> {
         )
     }
 
-    fn class(&self) -> anyhow::Result<Class> {
-        self.class_tree_traversal()?.class()
+    pub fn expression_tree_traversal(&self) -> Result<TreeTraversal<'_, '_>> {
+        TreeTraversal::try_new(
+            self.source,
+            self.tree.root_node(),
+            <TreeTraversal as ExpressionTree>::query_top_level_identifiers(),
+        )
     }
 }
 

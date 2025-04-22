@@ -27,50 +27,6 @@ impl Default for Clause {
         }
     }
 }
-impl Fix for Clause {
-    fn fix_syntax(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        info!(target: "llm", "clause before fix:\t{self}");
-        let val = self
-            .tag
-            .fix_syntax(system_classes, current_class, current_feature)
-            && self
-                .predicate
-                .fix_syntax(system_classes, current_class, current_feature);
-        info!(target: "llm", "clause fixed:\t{val}\tclause after fix:\t{self}");
-        val
-    }
-
-    fn fix_identifiers(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.tag
-            .fix_identifiers(system_classes, current_class, current_feature)
-            && self
-                .predicate
-                .fix_identifiers(system_classes, current_class, current_feature)
-    }
-
-    fn fix_calls(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.tag
-            .fix_calls(system_classes, current_class, current_feature)
-            && self
-                .predicate
-                .fix_calls(system_classes, current_class, current_feature)
-    }
-}
 
 impl Display for Clause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -115,6 +71,12 @@ impl Tag {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+    pub fn trim_and_replace_space_with_underscore(&mut self) {
+        self.0 = self.0.trim().replace(" ", "_");
+    }
+    pub fn update_to_lowercase(&mut self) {
+        self.0 = self.0.to_lowercase();
+    }
 }
 
 impl Default for Tag {
@@ -123,17 +85,6 @@ impl Default for Tag {
     }
 }
 
-impl Fix for Tag {
-    fn fix_syntax(
-        &mut self,
-        _system_classes: &[Class],
-        _current_class: &Class,
-        _current_feature: &Feature,
-    ) -> bool {
-        self.0 = self.0.to_lowercase().replace(" ", "_");
-        true
-    }
-}
 impl Display for Tag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
@@ -175,7 +126,7 @@ impl Predicate {
         parser.parse(text, None)
     }
 
-    fn top_level_identifiers(&self) -> HashSet<&str> {
+    pub fn top_level_identifiers(&self) -> HashSet<&str> {
         let tree = self.parse().expect("fails to parse predicate.");
         let lang = tree_sitter_eiffel::LANGUAGE.into();
         let text = self.as_str();
@@ -260,66 +211,6 @@ impl Default for Predicate {
     }
 }
 
-impl Fix for Predicate {
-    fn fix_syntax(
-        &mut self,
-        _system_classes: &[Class],
-        _current_class: &Class,
-        _current_feature: &Feature,
-    ) -> bool {
-        match self.parse() {
-            Some(tree) => !tree.root_node().has_error(),
-            None => {
-                info!("fails to parse predicate: {}", self.as_str());
-                false
-            }
-        }
-    }
-
-    fn fix_identifiers(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.top_level_identifiers().iter().all(|&identifier| {
-            current_class
-                .features()
-                .iter()
-                .map(|feature| std::borrow::Cow::Borrowed(feature))
-                .chain(current_class.inhereted_features(system_classes))
-                .any(|feature| {
-                    current_feature
-                        .parameters()
-                        .names()
-                        .iter()
-                        .any(|name| name == identifier)
-                        || (identifier == feature.name())
-                })
-        })
-    }
-
-    /// NOTE: For now only checks the number of arguments of each unqualified call is correct.
-    fn fix_calls(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        self.top_level_calls_with_arguments()
-            .iter()
-            .all(|&(id, ref args)| {
-                current_class
-                    .features()
-                    .iter()
-                    .map(|feature| std::borrow::Cow::Borrowed(feature))
-                    .chain(current_class.inhereted_features(system_classes))
-                    .find(|feature| feature.name() == id)
-                    .is_some_and(|feature| feature.number_parameters() == args.len())
-            })
-    }
-}
-
 impl Display for Predicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
@@ -335,63 +226,6 @@ mod tests {
     fn class(source: &str) -> Result<Class> {
         let mut parser = Parser::new();
         parser.class_from_source(source)
-    }
-
-    #[test]
-    fn fix_predicate_syntax() -> anyhow::Result<()> {
-        let src = "
-            class
-                A
-            feature
-                x (f: BOOLEAN, r: BOOLEAN): BOOLEAN
-                    require
-                        t: f = True
-                    do
-                        Result := f
-                    ensure
-                        res: Result = True
-                    end
-            end
-        ";
-        let sc = vec![class(src)?];
-        let c = &sc[0];
-        let f = c.features().first().unwrap();
-
-        let mut invalid_predicate = Predicate::new("min min");
-        let mut valid_predicate = Predicate::new("min (x, y)");
-        assert!(!invalid_predicate.fix_syntax(&sc, &c, f));
-        assert!(valid_predicate.fix_syntax(&sc, &c, f));
-        assert_eq!(valid_predicate, Predicate::new("min (x, y)"));
-        Ok(())
-    }
-
-    #[test]
-    fn fix_tag_syntax() -> anyhow::Result<()> {
-        let src = "
-            class
-                A
-            feature
-                x (f: BOOLEAN, r: BOOLEAN): BOOLEAN
-                    require
-                        t: f = True
-                    do
-                        Result := f
-                    ensure
-                        res: Result = True
-                    end
-            end
-        ";
-        let sc = vec![class(src)?];
-        let c = &sc[0];
-        let f = c.features().first().unwrap();
-
-        let mut invalid_tag: Tag = String::from("this was not valid").into();
-        let mut valid_tag: Tag = String::from("this_is_valid").into();
-        assert!(invalid_tag.fix_syntax(&sc, &c, f));
-        assert!(invalid_tag == Tag::new("this_was_not_valid"));
-        assert!(valid_tag.fix_syntax(&sc, &c, f));
-        assert!(valid_tag == Tag::new("this_is_valid"));
-        Ok(())
     }
 
     #[test]
@@ -412,164 +246,5 @@ mod tests {
         assert!(ids.contains("y"));
         assert!(ids.contains("l"));
         assert!(ids.len() == 3);
-    }
-
-    #[test]
-    fn fix_predicates_identifiers() -> anyhow::Result<()> {
-        let src = "
-            class
-                A
-            feature
-                x: BOOLEAN
-                y: BOOLEAN
-                    do
-                        Result := True
-                    end
-            end
-        ";
-        let system_classes = vec![class(src)?];
-        let class = &system_classes[0];
-        let feature = class
-            .features()
-            .iter()
-            .find(|f| f.name() == "y".to_string())
-            .expect("parse feature y");
-
-        // Create an invalid and a valid predicates.
-        let mut invalid_predicate = Predicate(String::from("z"));
-        let mut valid_predicate = Predicate(String::from("x"));
-
-        assert!(!invalid_predicate.fix_identifiers(&system_classes, &class, feature));
-        assert!(valid_predicate.fix_identifiers(&system_classes, &class, feature));
-        Ok(())
-    }
-
-    #[test]
-    fn fix_identifiers_predicate_ancestor() -> anyhow::Result<()> {
-        let parent_src = "
-            class
-                B
-            feature
-                x: BOOLEAN
-            end
-        ";
-        let child_src = "
-            class
-                A
-            inherit
-                B
-            feature
-                y: BOOLEAN
-                    do
-                        Result := True
-                    end
-            end
-        ";
-
-        let system_classes = vec![class(parent_src)?, class(child_src)?];
-        let child = &system_classes[1];
-        let feature = child
-            .features()
-            .iter()
-            .find(|f| f.name() == "y")
-            .expect("parse feature y");
-
-        assert!(child
-            .features()
-            .into_iter()
-            .find(|f| f.name() == "x")
-            .is_none());
-
-        let mut valid_predicate = Predicate(String::from("x"));
-        assert!(valid_predicate.fix_identifiers(&system_classes, &child, feature));
-        Ok(())
-    }
-
-    #[test]
-    fn fix_identifiers_in_predicate() -> anyhow::Result<()> {
-        let src = "
-            class
-                A
-            feature
-                x (f: BOOLEAN): BOOLEAN
-                    do
-                        Result := f
-                    end
-            end
-        ";
-        let system_classes = vec![class(src)?];
-        let c = &system_classes[0];
-        let f = c.features().first().expect("first feature exists.");
-        let mut vp = Predicate::new("f".to_string());
-        let mut ip = Predicate::new("r".to_string());
-        assert!(vp.fix_identifiers(&system_classes, &c, f));
-        assert!(!ip.fix_identifiers(&system_classes, &c, f));
-        Ok(())
-    }
-
-    #[test]
-    fn fix_calls_in_predicate() -> anyhow::Result<()> {
-        let src = "
-            class
-                A
-            feature
-                z: BOOLEAN
-                x (f: BOOLEAN): BOOLEAN
-                    do
-                        Result := f
-                    end
-                y: BOOLEAN
-                    do
-                        Result := x
-                    end
-            end
-        ";
-        let system_classes = vec![class(src)?];
-        let c = &system_classes[0];
-        let f = c
-            .features()
-            .iter()
-            .find(|f| f.name() == "y")
-            .expect("first feature exists.");
-
-        let mut vp = Predicate::new("x (z)".to_string());
-        let mut ip = Predicate::new("x (z, z)".to_string());
-        let mut ip2 = Predicate::new("x ()".to_string());
-
-        assert!(vp.fix_calls(&system_classes, &c, f));
-        assert!(!ip.fix_calls(&system_classes, &c, f));
-        assert!(!ip2.fix_calls(&system_classes, &c, f));
-        Ok(())
-    }
-
-    #[test]
-    fn fix_tag() -> anyhow::Result<()> {
-        let src = "
-            class
-                A
-            feature
-                x (f: BOOLEAN, r: BOOLEAN): BOOLEAN
-                    require
-                        t: f = True
-                    do
-                        Result := f
-                    ensure
-                        res: Result = True
-                    end
-            end
-        ";
-        let sc = vec![class(src)?];
-        let c = &sc[0];
-        let f = c.features().first().unwrap();
-
-        let mut tag = Tag("Not good enough".to_string());
-        assert!(tag.fix(&sc, &c, &f));
-
-        assert_eq!(
-            tag,
-            Tag("not_good_enough".to_string()),
-            "tag is:\t{tag}\nBut it must be:\t`not_good_enough`"
-        );
-        Ok(())
     }
 }
