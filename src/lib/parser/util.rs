@@ -61,7 +61,7 @@ impl<'source, 'tree> Traversal<'source, 'tree> for TreeTraversal<'source, 'tree>
 
     fn set_node_and_query(&mut self, node: Node<'tree>, query: Query) {
         self.set_node(node);
-        self.query = query;
+        self.set_query(query);
     }
 }
 
@@ -79,5 +79,9 @@ impl<'source, 'tree> TreeTraversal<'source, 'tree> {
 
     pub(super) fn set_node(&mut self, node: Node<'tree>) {
         self.node = node
+    }
+
+    pub(super) fn set_query(&mut self, query: Query) {
+        self.query = query
     }
 }

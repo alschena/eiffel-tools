@@ -15,68 +15,6 @@ pub use clause::Clause;
 pub use clause::Predicate as ClausePredicate;
 pub use clause::Tag as ClauseTag;
 
-pub(crate) trait Fix: Debug {
-    fn fix(
-        &mut self,
-        system_classes: &[Class],
-        current_class: &Class,
-        current_feature: &Feature,
-    ) -> bool {
-        if !self.fix_syntax(system_classes, current_class, current_feature) {
-            info!(target:"llm", "fail fix syntax {self:?}");
-            return false;
-        }
-
-        if !self.fix_identifiers(system_classes, current_class, current_feature) {
-            info!(target:"llm", "fail fix identifiers");
-            return false;
-        }
-
-        if !self.fix_calls(system_classes, current_class, current_feature) {
-            info!(target:"llm", "fail fix calls");
-            return false;
-        }
-
-        if !self.fix_repetition(system_classes, current_class, current_feature) {
-            info!(target:"llm", "fail fix repetition");
-            return false;
-        }
-        true
-    }
-    fn fix_syntax(
-        &mut self,
-        _system_classes: &[Class],
-        _current_class: &Class,
-        _current_feature: &Feature,
-    ) -> bool {
-        true
-    }
-    fn fix_identifiers(
-        &mut self,
-        _system_classes: &[Class],
-        _current_class: &Class,
-        _current_feature: &Feature,
-    ) -> bool {
-        true
-    }
-    fn fix_calls(
-        &mut self,
-        _system_classes: &[Class],
-        _current_class: &Class,
-        _current_feature: &Feature,
-    ) -> bool {
-        true
-    }
-    fn fix_repetition(
-        &mut self,
-        _system_classes: &[Class],
-        _current_class: &Class,
-        _current_feature: &Feature,
-    ) -> bool {
-        true
-    }
-}
-
 pub trait Contract: DerefMut<Target = Vec<Clause>> {
     fn keyword() -> Keyword;
     fn remove_self_redundant_clauses(&mut self) {

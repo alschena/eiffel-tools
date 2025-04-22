@@ -22,59 +22,60 @@ pub trait ExpressionTree<'tree> {
         )
     }
 
-    fn goto_call_node(&mut self, call_node: Node<'tree>);
-
     fn top_level_calls_with_arguments(&mut self) -> Result<Vec<(String, Vec<String>)>>;
 }
 
 impl<'source, 'tree> ExpressionTree<'tree> for TreeTraversal<'source, 'tree> {
     fn top_level_identifiers(&mut self) -> Result<HashSet<&str>> {
+        self.set_query(<Self as ExpressionTree>::query_top_level_identifiers());
+
         self.nodes_captures("id")?
             .into_iter()
             .map(|id_node| self.node_content(id_node))
             .collect::<Result<HashSet<_>>>()
     }
 
-    fn goto_call_node(&mut self, call_node: Node<'tree>) {
-        assert_eq!(call_node.kind(), "call");
-        self.set_node_and_query(
-            call_node,
-            <Self as ExpressionTree>::query_top_level_call_with_arguments(),
-        );
-    }
-
     fn top_level_calls_with_arguments(&mut self) -> Result<Vec<(String, Vec<String>)>> {
         let initial_node = self.current_node();
 
-        let result = self
-            .nodes_captures("call")?
-            .into_iter()
-            .map(|call_node| {
-                self.goto_call_node(call_node);
-                assert_eq!(self.current_node().kind(), "call");
+        self.set_query(<Self as ExpressionTree>::query_top_level_call_with_arguments());
 
-                let id = self
-                    .nodes_captures("id")?
-                    .first()
-                    .map(|id_node| {
-                        self.node_content(*id_node)
-                            .map(|content| content.to_string())
-                    })
-                    .with_context(|| "fails to find id node.")??;
+        let mut top_level_calls = Vec::new();
+        for call_node in self.nodes_captures("call")? {
+            self.set_node(call_node);
+            assert_eq!(self.current_node().kind(), "call");
 
-                let arguments = self
-                    .nodes_captures("argument")?
-                    .into_iter()
-                    .map(|argument_node| {
-                        self.node_content(argument_node).map(|arg| arg.to_string())
-                    })
-                    .collect::<Result<Vec<_>>>()?;
+            let id = self
+                .nodes_captures("id")?
+                .first()
+                .map(|id_node| {
+                    self.node_content(*id_node)
+                        .map(|content| content.to_string())
+                })
+                .with_context(|| "fails to find id node.")??;
 
-                Ok((id, arguments))
-            })
-            .collect::<Result<Vec<_>>>();
+            let arguments = self
+                .nodes_captures("argument")?
+                .into_iter()
+                .filter_map(|argument_node| {
+                    self.node_content(argument_node)
+                        .inspect(|val| eprintln!("xxx: {val:#?}"))
+                        .map(|arg| {
+                            if arg.is_empty() {
+                                None
+                            } else {
+                                Some(arg.to_string())
+                            }
+                        })
+                        .inspect(|val| eprintln!("vvv: {val:#?}"))
+                        .transpose()
+                })
+                .collect::<Result<Vec<_>>>()?;
 
+            top_level_calls.push((id, arguments));
+        }
         self.set_node(initial_node);
-        result
+
+        Ok(top_level_calls)
     }
 }
