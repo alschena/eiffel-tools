@@ -1,8 +1,9 @@
 use crate::lib::code_entities::prelude::*;
+use anyhow::ensure;
+use anyhow::Result;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use streaming_iterator::StreamingIterator;
 use tracing::warn;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
@@ -43,6 +44,12 @@ impl ModelTypes {
     }
 }
 
+impl FromIterator<EiffelType> for ModelTypes {
+    fn from_iter<T: IntoIterator<Item = EiffelType>>(iter: T) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
 impl Extend<EiffelType> for ModelTypes {
     fn extend<T: IntoIterator<Item = EiffelType>>(&mut self, iter: T) {
         iter.into_iter().for_each(|t| self.0.push(t));
@@ -64,7 +71,7 @@ impl DerefMut for ModelTypes {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
-pub struct Model(pub ModelNames, pub ModelTypes);
+pub struct Model(ModelNames, ModelTypes);
 
 impl Model {
     pub fn is_empty(&self) -> bool {
@@ -77,34 +84,29 @@ impl Model {
     pub fn types(&self) -> &ModelTypes {
         &self.1
     }
-    pub fn from_model_names<'feature>(
-        names: ModelNames,
-        features: impl IntoIterator<Item = &'feature Feature> + Copy,
-    ) -> Model {
-        let (names, types) = names
-            .iter()
-            .map(|name| {
-                let f = features.into_iter().find(|feature| feature.name() == name);
-                if f.is_none() {
-                    warn!("Model feature not found {name:?}")
-                }
-                f
-            })
-            .zip(names.iter())
-            .filter_map(|(feature, name)| feature.map(|feature| (feature, name)))
-            .map(|(feature, name)| (feature.return_type(), name))
-            .inspect(|(feature, _)| {
-                if feature.is_none() {
-                    warn!("Model feature {feature:?} cannot be a procedure")
-                }
-            })
-            .filter_map(|(feature, name)| feature.map(|f| (name.clone(), f.clone())))
-            .collect::<(ModelNames, ModelTypes)>();
-        Model(names, types)
-    }
     pub fn append(&mut self, other: &mut Model) {
         self.0.append(&mut other.0);
         self.1.append(&mut other.1);
+    }
+    pub fn try_from_names_and_features<'ft>(
+        names: Vec<String>,
+        features: impl IntoIterator<Item = &'ft Feature>,
+    ) -> Result<Self> {
+        let types: ModelTypes = features
+            .into_iter()
+            .filter(|ft| {
+                names
+                    .iter()
+                    .find(|&model_name| model_name == ft.name())
+                    .is_some()
+            })
+            .filter_map(|ft| ft.return_type())
+            .cloned()
+            .collect();
+
+        ensure!(names.len() == types.len(),"fails to find a type for each model feature.\n\tnames received: {names:#?}\n\ttypes found: {types:#?}");
+
+        Ok(Model(ModelNames::new(names), types))
     }
 }
 impl Indent for Model {

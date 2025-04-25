@@ -72,43 +72,28 @@ impl<'source, 'tree> ClassTree<'source, 'tree> for TreeTraversal<'source, 'tree>
                 }
             })?;
 
-        let model = notes_nodes
-            .iter()
-            .map(|&note_node| {
-                self.goto_notes_tree(note_node);
-                self.model_names().map(|names| {
-                    names
-                        .iter()
-                        .map(|name| name.to_string())
-                        .collect::<Vec<String>>()
+        let model = ClassLocalModel::try_from_names_and_features(
+            notes_nodes
+                .iter()
+                .map(|&note_node| {
+                    self.goto_notes_tree(note_node);
+                    self.model_names().map(|names| {
+                        names
+                            .iter()
+                            .map(|name| name.to_string())
+                            .collect::<Vec<String>>()
+                    })
                 })
-            })
-            .fold(Ok(Vec::new()), |acc, model_names| {
-                if let (Ok(mut acc), Ok(ref mut model_names)) = (acc, model_names) {
-                    acc.append(model_names);
-                    Ok(acc)
-                } else {
-                    bail!("fails to get model names.");
-                }
-            })?
-            .into_iter()
-            .map(|model_name| -> Result<_> {
-                let ft = features
-                    .iter()
-                    .find(|ft| ft.name() == model_name)
-                    .with_context(|| "model feature not found {model_name:#?}")?;
-
-                let model_type = ft
-                    .return_type()
-                    .with_context(|| "model feature {ft:#?} must have a return type.")?
-                    .clone();
-
-                Ok((model_name, model_type))
-            })
-            .collect::<Result<(Vec<String>, Vec<EiffelType>), _>>()
-            .map(|(names, types)| {
-                ClassLocalModel(ModelNames::new(names), ModelTypes::new(types))
-            })?;
+                .fold(Ok(Vec::new()), |acc, model_names| {
+                    if let (Ok(mut acc), Ok(ref mut model_names)) = (acc, model_names) {
+                        acc.append(model_names);
+                        Ok(acc)
+                    } else {
+                        bail!("fails to get model names.");
+                    }
+                })?,
+            &features,
+        )?;
 
         let parents = parents_nodes
             .iter()
