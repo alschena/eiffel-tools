@@ -45,7 +45,7 @@ impl Workspace {
         eiffel_files.into_iter().for_each(|filepath| {
             set.spawn(async move {
                 let mut parser = Parser::new();
-                parser.process_file(filepath).await
+                parser.processed_file(filepath).await
             });
         });
         let files = (set.join_all().await)

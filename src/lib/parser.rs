@@ -82,7 +82,7 @@ impl Parser {
     }
 
     #[instrument(skip(self))]
-    pub async fn process_file(&mut self, path: PathBuf) -> Result<ProcessedFile> {
+    pub async fn processed_file(&mut self, path: PathBuf) -> Result<ProcessedFile> {
         let src = String::from_utf8(
             tokio::fs::read(&path)
                 .await
@@ -153,7 +153,7 @@ mod tests {
         tmp_file.write_str(EMPTY_CLASS)?;
         assert!(tmp_file.exists(), "tmp file exists");
 
-        let processed_file = parser.process_file(tmp_file.to_path_buf()).await?;
+        let processed_file = parser.processed_file(tmp_file.to_path_buf()).await?;
 
         assert_eq!(processed_file.class.name, ClassName("A".to_string()));
         Ok(())

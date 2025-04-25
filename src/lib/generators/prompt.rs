@@ -373,7 +373,7 @@ end
         let src = SRC_NEW_INTEGER;
         file.write_str(src)?;
 
-        let processed_file = parser.process_file(file.to_path_buf()).await?;
+        let processed_file = parser.processed_file(file.to_path_buf()).await?;
 
         let client = processed_file.class();
         let feature = client

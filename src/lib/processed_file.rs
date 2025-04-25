@@ -24,7 +24,7 @@ impl ProcessedFile {
     }
     pub async fn reload(&mut self) {
         let mut parser = Parser::new();
-        match parser.process_file(self.path.clone()).await {
+        match parser.processed_file(self.path.clone()).await {
             Ok(ProcessedFile {
                 tree,
                 path: _,
@@ -111,7 +111,7 @@ end
         .expect("write to file");
         assert!(file.exists());
 
-        let mut processed_file = parser.process_file(file.to_path_buf()).await?;
+        let mut processed_file = parser.processed_file(file.to_path_buf()).await?;
 
         assert_eq!(file.to_path_buf(), processed_file.path());
 

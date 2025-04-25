@@ -372,7 +372,7 @@ end
         file.write_all(src.as_bytes())
             .expect("Failed to write to file");
         let mut parser = Parser::new();
-        let file = parser.process_file(path.clone()).await?;
+        let file = parser.processed_file(path.clone()).await?;
         let symbol: Result<lsp_types::WorkspaceSymbol, _> = (&file).try_into();
         assert!(symbol.is_ok());
         Ok(())
