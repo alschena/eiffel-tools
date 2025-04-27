@@ -1,7 +1,5 @@
 use crate::lib::parser::util::Traversal;
 use crate::lib::parser::*;
-use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Result;
 
 mod contract_tree;
@@ -17,10 +15,9 @@ use notes_tree::NotesTree;
 
 mod notes_tree;
 
-pub trait ClassTree<'source, 'tree> {
-    fn query() -> Query {
-        util::query(
-            r#"
+pub(super) fn query() -> Query {
+    util::query(
+        r#"
             (class_declaration
                 (notes)? @notes
                 (class_name) @name
@@ -30,102 +27,115 @@ pub trait ClassTree<'source, 'tree> {
             )@class
                 
             "#,
-        )
-    }
-
-    fn class(&mut self) -> Result<Class>;
-
-    fn class_name(&mut self) -> Result<Node<'tree>>;
-    fn class_notes(&mut self) -> Result<Vec<Node<'tree>>>;
-    fn parents(&mut self) -> Result<Vec<Node<'tree>>>;
-    fn feature_clauses(&mut self) -> Result<Vec<Node<'tree>>>;
+    )
 }
 
-impl<'source, 'tree> ClassTree<'source, 'tree> for TreeTraversal<'source, 'tree> {
-    fn class(&mut self) -> Result<Class> {
-        if self.current_node().kind() != "source_file" {
-            return Err(anyhow!("class tree current node is root").into());
+struct ClassDeclarationNodes<'tree> {
+    notes_nodes: Vec<Node<'tree>>,
+    name_node: Node<'tree>,
+    // TODO: change to inheritance nodes and capture non-confomance
+    parents_nodes: Vec<Node<'tree>>,
+    feature_clause_nodes: Vec<Node<'tree>>,
+    class_node: Node<'tree>,
+}
+
+impl<'source, 'tree> ClassDeclarationNodes<'tree> {
+    fn range(&self) -> Range {
+        self.class_node.range().into()
+    }
+}
+
+impl<'source, 'tree> TreeTraversal<'source, 'tree> {
+    fn class_name(&self, nodes: &ClassDeclarationNodes) -> Result<ClassName> {
+        self.node_content(nodes.name_node)
+            .map(|name| ClassName(name.into()))
+    }
+
+    // TODO: iterate on inheritance nodes instead of parents nodes to capture non-conformance.
+    fn class_parents(&mut self, nodes: &ClassDeclarationNodes<'tree>) -> Result<Vec<ClassParent>> {
+        let mut parents = Vec::new();
+        for node in &nodes.parents_nodes {
+            self.goto_inheritance_tree(*node);
+            parents.push(self.parent()?);
         }
-        let name_nodes = self.class_name()?;
-        let notes_nodes = self.class_notes()?;
-        let parents_nodes = self.parents()?;
-        let features_clauses_nodes = self.feature_clauses()?;
-        let range = self
-            .nodes_captures("class")?
-            .first()
-            .map(|class_node| class_node.range())
-            .with_context(|| "fails to get class declaration node.")?
-            .into();
+        Ok(parents)
+    }
 
-        let features = features_clauses_nodes
-            .iter()
-            .map(|&feature_clause_node| -> Result<_, _> {
-                self.goto_feature_clause_tree(feature_clause_node);
-                self.features()
+    fn class_feature_by_clauses(
+        &mut self,
+        nodes: &ClassDeclarationNodes<'tree>,
+    ) -> Result<Vec<Vec<Feature>>> {
+        let mut features_by_clause = Vec::new();
+        for node in &nodes.feature_clause_nodes {
+            self.goto_feature_clause_tree(*node);
+            features_by_clause.push(self.features()?);
+        }
+        Ok(features_by_clause)
+    }
+
+    fn class_model_names(&mut self, nodes: &ClassDeclarationNodes<'tree>) -> Result<ModelNames> {
+        let mut model_names = ModelNames::new(Vec::new());
+        for node in &nodes.notes_nodes {
+            self.goto_notes_tree(*node);
+            model_names.extend(self.model_names()?.iter().map(|name| name.to_string()));
+        }
+        Ok(model_names)
+    }
+
+    pub(super) fn class(&mut self) -> Result<Class> {
+        let nodes: ClassDeclarationNodes<'tree> = self.try_into()?;
+        let name = self.class_name(&nodes)?;
+        let features = self.class_feature_by_clauses(&nodes)?;
+        let features = features
+            .into_iter()
+            .reduce(|mut acc, mut features_in_clause| {
+                acc.append(&mut features_in_clause);
+                acc
             })
-            .fold(Ok(Vec::new()), |acc, features| {
-                if let (Ok(mut acc), Ok(ref mut features)) = (acc, features) {
-                    acc.append(features);
-                    Ok(acc)
-                } else {
-                    bail!("fails to get features");
-                }
-            })?;
-
+            .unwrap_or_default();
         let model = ClassLocalModel::try_from_names_and_features(
-            notes_nodes
-                .iter()
-                .map(|&note_node| {
-                    self.goto_notes_tree(note_node);
-                    self.model_names().map(|names| {
-                        names
-                            .iter()
-                            .map(|name| name.to_string())
-                            .collect::<Vec<String>>()
-                    })
-                })
-                .fold(Ok(Vec::new()), |acc, model_names| {
-                    if let (Ok(mut acc), Ok(ref mut model_names)) = (acc, model_names) {
-                        acc.append(model_names);
-                        Ok(acc)
-                    } else {
-                        bail!("fails to get model names.");
-                    }
-                })?,
+            self.class_model_names(&nodes)?,
             &features,
         )?;
-
-        let parents = parents_nodes
-            .iter()
-            .map(|&parent_node| -> Result<_, _> {
-                self.goto_inheritance_tree(parent_node);
-                self.parent()
-            })
-            .collect::<Result<Vec<_>>>()?;
-
+        let parents = self.class_parents(&nodes)?;
+        let range = nodes.range();
         Ok(Class {
-            name: ClassName(String::from(self.node_content(name_nodes)?)),
+            name,
             model,
             features,
             parents,
             range,
         })
     }
-    fn class_name(&mut self) -> Result<Node<'tree>> {
-        let mut nodes = self.nodes_captures("name")?;
-        Ok(nodes.pop().with_context(|| "TOOO")?)
-    }
+}
 
-    fn class_notes(&mut self) -> Result<Vec<Node<'tree>>> {
-        self.nodes_captures("notes")
-    }
+impl<'source, 'tree> TryFrom<&mut TreeTraversal<'source, 'tree>> for ClassDeclarationNodes<'tree> {
+    type Error = anyhow::Error;
 
-    fn parents(&mut self) -> Result<Vec<Node<'tree>>> {
-        self.nodes_captures("parent")
-    }
+    fn try_from(
+        value: &mut TreeTraversal<'source, 'tree>,
+    ) -> std::result::Result<Self, Self::Error> {
+        assert_eq!(value.current_node().kind(), "source_file");
 
-    fn feature_clauses(&mut self) -> Result<Vec<Node<'tree>>> {
-        self.nodes_captures("feature_clause")
+        let notes_nodes = value.nodes_captures("notes")?;
+        let name_node = *value
+            .nodes_captures("name")?
+            .first()
+            .with_context(|| "fails to get class name node")?;
+        let parents_nodes = value.nodes_captures("parent")?;
+        let feature_clause_nodes = value.nodes_captures("feature_clause")?;
+        let class_node = *value
+            .nodes_captures("class")?
+            .first()
+            .with_context(|| "fails to get class name node")?;
+
+        Ok(Self {
+            notes_nodes,
+            name_node,
+            parents_nodes,
+            feature_clause_nodes,
+            class_node,
+        })
     }
 }
 
@@ -208,46 +218,32 @@ class A feature
 end"#;
 
     #[test]
-    fn class_name_node() -> anyhow::Result<()> {
+    fn class_declaration_nodes() -> anyhow::Result<()> {
         let mut parser = Parser::new();
-        let parsed_file = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
-        let mut class_tree = parsed_file.class_tree_traversal()?;
-        let name = class_tree.class_name()?;
-        let content = class_tree.node_content(name)?;
-        assert_eq!(content, "TEST");
-        Ok(())
-    }
-
-    #[test]
-    fn class_feature_nodes() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
-        let parsed_file = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
-        let mut class_tree = parsed_file.class_tree_traversal()?;
-
-        let mut features_clause = class_tree.feature_clauses()?;
+        let parsed_source = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
+        let mut class_tree = parsed_source.class_tree_traversal()?;
+        let ClassDeclarationNodes {
+            notes_nodes,
+            name_node,
+            parents_nodes,
+            feature_clause_nodes,
+            class_node,
+        } = (&mut class_tree).try_into()?;
+        assert_eq!(class_tree.node_content(name_node)?, "TEST");
         assert_eq!(
-            features_clause.len(),
+            feature_clause_nodes.len(),
             1,
             "fails to parse the single feature clause, i.e. feature visibility block."
         );
-        let feature_clause_content = class_tree.node_content(features_clause.pop().unwrap())?;
         assert_eq!(
-            feature_clause_content.trim(),
+            class_tree.node_content(*feature_clause_nodes.first().unwrap())?,
             r#"feature
     x: INTEGER
-    y: INTEGER"#
+    y: INTEGER
+"#,
+            "fails to parse the single feature clause, i.e. feature visibility block."
         );
-        Ok(())
-    }
-
-    #[test]
-    fn inheritance_node() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
-        let parsed_file = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
-        let mut class_tree = parsed_file.class_tree_traversal()?;
-
-        let parents = class_tree.parents()?;
-        assert!(parents.is_empty());
+        assert!(parents_nodes.is_empty());
         Ok(())
     }
 

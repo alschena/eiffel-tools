@@ -9,6 +9,13 @@ use tracing::warn;
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct ModelNames(Vec<String>);
 
+impl<T: ToString> From<Vec<T>> for ModelNames {
+    fn from(value: Vec<T>) -> Self {
+        let content = value.iter().map(|name| name.to_string()).collect();
+        Self(content)
+    }
+}
+
 impl ModelNames {
     pub fn new(names: Vec<String>) -> Self {
         Self(names)
@@ -89,7 +96,7 @@ impl Model {
         self.1.append(&mut other.1);
     }
     pub fn try_from_names_and_features<'ft>(
-        names: Vec<String>,
+        names: ModelNames,
         features: impl IntoIterator<Item = &'ft Feature>,
     ) -> Result<Self> {
         let types: ModelTypes = features
@@ -106,7 +113,7 @@ impl Model {
 
         ensure!(names.len() == types.len(),"fails to find a type for each model feature.\n\tnames received: {names:#?}\n\ttypes found: {types:#?}");
 
-        Ok(Model(ModelNames::new(names), types))
+        Ok(Model(names, types))
     }
 }
 impl Indent for Model {

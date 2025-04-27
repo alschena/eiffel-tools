@@ -14,7 +14,6 @@ pub use ::tree_sitter::Tree;
 use super::code_entities::prelude::*;
 
 mod class_tree;
-use class_tree::ClassTree;
 use class_tree::FeatureTree;
 
 mod expression_tree;
@@ -112,11 +111,7 @@ pub struct ParsedSource<'source> {
 
 impl ParsedSource<'_> {
     fn class_tree_traversal(&self) -> Result<TreeTraversal<'_, '_>> {
-        TreeTraversal::try_new(
-            self.source,
-            self.tree.root_node(),
-            <TreeTraversal as ClassTree>::query(),
-        )
+        TreeTraversal::try_new(self.source, self.tree.root_node(), class_tree::query())
     }
 
     fn feature_tree_traversal(&self) -> Result<TreeTraversal<'_, '_>> {

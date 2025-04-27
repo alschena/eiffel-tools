@@ -250,7 +250,8 @@ end"#;
             parsed_file: &'tmp_src ParsedSource<'source>,
         ) -> anyhow::Result<Self> {
             let mut tree_traversal = parsed_file.class_tree_traversal()?;
-            let mut features = tree_traversal.feature_clauses()?;
+            let nodes: ClassDeclarationNodes<'tree> = (&mut tree_traversal).try_into()?;
+            let mut features = nodes.feature_clause_nodes;
             let first_feature = features.pop().with_context(|| {
                 "fails to get a feature to create the mock feature tree traversal."
             })?;

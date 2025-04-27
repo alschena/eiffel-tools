@@ -89,6 +89,8 @@ impl<'source, 'tree> NotesTree<'source, 'tree> for TreeTraversal<'source, 'tree>
 
 #[cfg(test)]
 mod tests {
+    use class_tree::*;
+
     use super::*;
     use crate::lib::parser::util::TreeTraversal;
     pub const MODEL_CLASS_SOURCE: &str = r#"
@@ -104,8 +106,9 @@ end
     impl<'source, 'tree: 'source> TreeTraversal<'source, 'tree> {
         fn mock_model(parsed_source: &'tree ParsedSource<'source>) -> anyhow::Result<Self> {
             let mut tree_traversal = parsed_source.class_tree_traversal()?;
-            let node = tree_traversal
-                .class_notes()?
+            let mut nodes: ClassDeclarationNodes<'tree> = (&mut tree_traversal).try_into()?;
+            let node = nodes
+                .notes_nodes
                 .pop()
                 .with_context(|| "fails to get the class notes node.")?;
             tree_traversal.set_node_and_query(node, <TreeTraversal as NotesTree>::query());
