@@ -14,6 +14,9 @@ use add_class_specification::ClassSpecificationGenerator;
 mod add_routine_specification;
 use add_routine_specification::RoutineSpecificationGenerator;
 
+mod add_daikon_instrumentation;
+use add_daikon_instrumentation::DaikonInstrumenter;
+
 trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
     const NAME: &'static str;
     const TITLE: &'static str;
@@ -117,7 +120,7 @@ macro_rules! commands {
 
 commands!(
     name: Commands;
-    variants: [ClassSpecificationGenerator, RoutineSpecificationGenerator];
+    variants: [ClassSpecificationGenerator, RoutineSpecificationGenerator, DaikonInstrumenter];
     functions: command() -> lsp_types::Command;
     async_functions: generate_edits(g: &Generators) -> anyhow::Result<lsp_types::WorkspaceEdit>
 );
