@@ -24,54 +24,98 @@ pub enum FeatureVisibility {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Feature {
-    pub name: String,
-    pub parameters: Parameters,
-    pub return_type: Option<EiffelType>,
-    pub notes: Option<Notes>,
-    pub visibility: FeatureVisibility,
-    pub range: Range,
+    name: String,
+    parameters: Parameters,
+    return_type: Option<EiffelType>,
+    notes: Option<Notes>,
+    visibility: FeatureVisibility,
+    range: Range,
+    body_range: Option<Range>,
     /// Is None only when a precondition cannot be added (for attributes without an attribute clause).
-    pub preconditions: Option<Block<Precondition>>,
-    pub postconditions: Option<Block<Postcondition>>,
+    preconditions: Option<Block<Precondition>>,
+    postconditions: Option<Block<Postcondition>>,
 }
+
 impl Feature {
+    pub fn new(
+        name: String,
+        parameters: Parameters,
+        return_type: Option<EiffelType>,
+        notes: Option<Notes>,
+        visibility: FeatureVisibility,
+        range: Range,
+        body_range: Option<Range>,
+        preconditions: Option<Block<Precondition>>,
+        postconditions: Option<Block<Postcondition>>,
+    ) -> Self {
+        Self {
+            name,
+            parameters,
+            return_type,
+            notes,
+            visibility,
+            range,
+            body_range,
+            preconditions,
+            postconditions,
+        }
+    }
+
     pub fn is_feature_around_point(&self, point: Point) -> bool {
         point >= self.range().start && point <= self.range().end
     }
+
     pub fn feature_around_point<'feature>(
         mut features: impl Iterator<Item = &'feature Feature>,
         point: Point,
     ) -> Option<&'feature Feature> {
         features.find(|f| f.is_feature_around_point(point))
     }
+
     pub fn clone_rename(&self, name: String) -> Feature {
         let mut f = self.clone();
         f.name = name;
         f
     }
+
     pub fn name(&self) -> &str {
         &self.name
     }
+
     pub fn parameters(&self) -> &Parameters {
         &self.parameters
     }
+
     pub fn number_parameters(&self) -> usize {
         let parameters = self.parameters();
         debug_assert_eq!(parameters.names().len(), parameters.types().len());
         parameters.names().len()
     }
+
     pub fn return_type(&self) -> Option<&EiffelType> {
         self.return_type.as_ref()
     }
+
     pub fn range(&self) -> &Range {
         &self.range
     }
+
+    pub fn body_range(&self) -> Option<&Range> {
+        self.body_range.as_ref()
+    }
+
+    pub fn notes(&self) -> Option<&Notes> {
+        self.notes.as_ref()
+    }
+
     pub fn preconditions(&self) -> Option<&Precondition> {
         self.preconditions.as_ref().map(|b| b.item())
     }
+
     pub fn postconditions(&self) -> Option<&Postcondition> {
         self.postconditions.as_ref().map(|b| b.item())
     }
+
     pub fn routine_specification(&self) -> RoutineSpecification {
         let postcondition = self.postconditions().cloned().unwrap_or_default();
         let precondition = self.preconditions().cloned().unwrap_or_default();
@@ -80,42 +124,51 @@ impl Feature {
             postcondition,
         }
     }
+
     pub fn has_precondition(&self) -> bool {
         self.preconditions().is_some_and(|p| !p.is_empty())
     }
+
     pub fn has_postcondition(&self) -> bool {
         self.postconditions().is_some_and(|p| !p.is_empty())
     }
+
     pub fn point_end_preconditions(&self) -> Option<Point> {
         match &self.preconditions {
             Some(pre) => Some(pre.range().end),
             None => return None,
         }
     }
+
     pub fn point_start_preconditions(&self) -> Option<Point> {
         match &self.preconditions {
             Some(pre) => Some(pre.range().start),
             None => return None,
         }
     }
+
     pub fn point_end_postconditions(&self) -> Option<Point> {
         match &self.postconditions {
             Some(post) => Some(post.range().end),
             None => None,
         }
     }
+
     pub fn point_start_postconditions(&self) -> Option<Point> {
         match &self.postconditions {
             Some(post) => Some(post.range().start),
             None => None,
         }
     }
+
     pub fn supports_precondition_block(&self) -> bool {
         self.preconditions.is_some()
     }
+
     pub fn supports_postcondition_block(&self) -> bool {
         self.postconditions.is_some()
     }
+
     pub async fn src_unchecked<'src>(&self, path: &Path) -> anyhow::Result<String> {
         let range = self.range();
         let start_column = range.start.column;
@@ -142,6 +195,7 @@ impl Feature {
         Ok(feature)
     }
 }
+
 impl Display for Feature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = self.name();
