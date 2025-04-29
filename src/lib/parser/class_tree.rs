@@ -140,7 +140,7 @@ impl<'source, 'tree> TryFrom<&mut TreeTraversal<'source, 'tree>> for ClassDeclar
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::lib::parser::tests::EMPTY_CLASS;
     use anyhow::anyhow;

@@ -14,6 +14,11 @@ impl Point {
         assert!(shift <= self.column);
         self.column = self.column - shift;
     }
+
+    pub fn shift_right(&mut self, shift: usize) {
+        self.column = self.column + shift;
+    }
+
     pub fn reset_column(&mut self) {
         self.column = 0;
     }
@@ -56,18 +61,22 @@ pub struct Range {
     pub start: Point,
     pub end: Point,
 }
+
 impl Range {
     pub fn new(start: Point, end: Point) -> Range {
         Range { start, end }
     }
+
     pub fn new_collapsed(point: Point) -> Range {
         Range::new(point.clone(), point)
     }
+
     pub fn collapse_to_line_start(&mut self) {
         self.start.reset_column();
         self.end.reset_column();
     }
 }
+
 impl PartialOrd for Range {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
