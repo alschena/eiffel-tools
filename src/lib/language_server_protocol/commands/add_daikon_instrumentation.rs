@@ -6,21 +6,22 @@ use crate::lib::code_entities::prelude::FeatureParameters;
 use crate::lib::code_entities::prelude::Range;
 use crate::lib::code_entities::Indent;
 use crate::lib::language_server_protocol::commands::lsp_types;
-use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::path::Path;
 use std::path::PathBuf;
+use tokio::io::AsyncWriteExt;
 
 #[derive(Debug, Clone)]
 pub struct DaikonInstrumenter<'ws> {
     workspace: &'ws Workspace,
-    file: &'ws ProcessedFile,
+    filepath: &'ws Path,
     class: &'ws Class,
     feature: &'ws Feature,
 }
@@ -153,7 +154,11 @@ impl Display for DaikonRepType {
 }
 
 impl<'ws> DaikonInstrumenter<'ws> {
-    pub fn try_new(workspace: &'ws Workspace, filepath: &Path, feature_name: &str) -> Result<Self> {
+    pub fn try_new(
+        workspace: &'ws Workspace,
+        filepath: &'ws Path,
+        feature_name: &str,
+    ) -> Result<Self> {
         let file = workspace
             .find_file(filepath)
             .with_context(|| format!("Fails to find file of path: {filepath:#?}"))?;
@@ -168,21 +173,38 @@ impl<'ws> DaikonInstrumenter<'ws> {
         Ok(Self {
             class,
             workspace,
-            file,
+            filepath,
             feature,
         })
     }
 
+    async fn write_declaration(&self) -> Result<()> {
+        let mut declaration_file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(self.declaration_file()?)
+            .await?;
+
+        let version = format!("decl-version 2.0\n");
+        let declarations = self.feature_declaration()?;
+
+        declaration_file
+            .write(format!("{version}\n{declarations}").as_bytes())
+            .await?;
+        declaration_file.flush().await?;
+
+        Ok(())
+    }
+
     fn declaration_file(&self) -> Result<PathBuf> {
-        let mut pathbuf = self.file.path().to_path_buf();
+        let mut pathbuf = self.filepath.to_owned().to_path_buf();
         pathbuf.set_extension("decls");
         Ok(pathbuf)
     }
 
-    fn feature_declaration(&self) -> Result<String> {
-        let class_name = self.class.name();
+    fn feature_parameters_declarations(&self) -> Result<String> {
         let feature = self.feature;
-        let feature_name = feature.name();
         let feature_parameters = feature.parameters();
         let feature_parameters_types = feature.parameters().types();
         let parameters_names = feature_parameters.names();
@@ -193,7 +215,8 @@ impl<'ws> DaikonInstrumenter<'ws> {
         let parameters_daikon_rep_types = feature_parameters_types
             .iter()
             .map(|ty| DaikonRepType::try_from(ty));
-        let parameters_declaration = parameters_names
+
+        parameters_names
             .iter()
             .zip(parameters_daikon_var_kinds)
             .zip(parameters_daikon_dec_types)
@@ -209,43 +232,32 @@ impl<'ws> DaikonInstrumenter<'ws> {
 variable {name}
 {var_kind}
 {dec_type}
-{rep_type}
-"#
+{rep_type}"#
                     ))
                 },
-            )?;
-        let return_declaration = match feature.return_type() {
+            )
+    }
+
+    fn feature_return_declaration(&self) -> Result<String> {
+        match self.feature.return_type() {
             Some(ret_type) => {
                 let dec_type: DaikonDecType = ret_type.try_into()?;
                 let rep_type: DaikonRepType = ret_type.try_into()?;
-                let var_kind = DaikonVarKind::from_feature_return_type(feature);
-                format!(
+                let var_kind = DaikonVarKind::from_feature_return_type(self.feature);
+                Ok(format!(
                     r#"
 variable return
 {var_kind}
 {dec_type}
-{rep_type}
-"#
-                )
+{rep_type}"#
+                ))
             }
-            None => String::new(),
-        };
-
-        let full_declaration = format!(
-            r#"DECLARE
-ppt {class_name}.{feature_name}::ENTER
-ppt-type enter
-{parameters_declaration}
-
-ppt {class_name}.{feature_name}::EXIT
-ppt-type exit
-{parameters_declaration}{return_declaration}
-"#
-        );
-        Ok(full_declaration)
+            None => Ok(String::new()),
+        }
     }
 
-    pub fn instrument_body_start_and_end(&self) -> Result<[lsp_types::TextEdit; 2]> {
+    // TODO: use `var-kind field` with the required `enclosing-var Current` (if it works with unqualified calls),i.e. implement constructor for fields in `DaikonVarKind`.
+    fn class_fields_declaration(&self) -> Result<String> {
         let system_classes = self.workspace.system_classes();
         let class_fields: Vec<_> = self
             .class
@@ -255,8 +267,97 @@ ppt-type exit
                 (ft.parameters().is_empty() && ft.return_type().is_some()).then_some(ft)
             })
             .collect();
-        let parameters = self.feature.parameters();
 
+        class_fields.into_iter().fold(Ok(String::new()), |acc, ft| {
+            let acc = acc?;
+            let Some(ft_type) = ft.return_type() else {
+                unreachable!("fails to get type of attribute")
+            };
+            let name = ft.name();
+            let dec_type: DaikonDecType = ft_type.try_into()?;
+            let rep_type: DaikonRepType = ft_type.try_into()?;
+            Ok(format!(
+                r#"{acc}
+variable {name}
+	var-kind variable
+{dec_type} 
+{rep_type}"#
+            ))
+        })
+    }
+
+    // TODO: Add `Current` to declared variables.
+    fn feature_declaration(&self) -> Result<String> {
+        let class_name = self.class.name();
+        let feature = self.feature;
+        let feature_name = feature.name();
+        let class_fields_declaration = self.class_fields_declaration()?;
+        let parameters_declaration = self.feature_parameters_declarations()?;
+        let return_declaration = self.feature_return_declaration()?;
+
+        let full_declaration = format!(
+            r#"ppt {class_name}.{feature_name}::ENTER
+ppt-type enter{class_fields_declaration}{parameters_declaration}
+
+ppt {class_name}.{feature_name}::EXIT
+ppt-type exit{class_fields_declaration}{parameters_declaration}{return_declaration}"#
+        );
+        Ok(full_declaration)
+    }
+
+    fn class_fields_instrumentation(&self) -> String {
+        let system_classes = self.workspace.system_classes();
+        let class_fields: Vec<_> = self
+            .class
+            .immediate_and_inherited_features(&system_classes)
+            .into_iter()
+            .filter_map(|ft| {
+                (ft.parameters().is_empty() && ft.return_type().is_some()).then_some(ft)
+            })
+            .collect();
+        let indentation_string = Self::eiffel_statement_indentation_string();
+
+        class_fields.iter().fold(String::new(), |acc, ft| {
+            format!(
+                r#"{acc}
+{indentation_string}io.put_string("{}")
+{indentation_string}io.new_line
+{indentation_string}io.put_string({}.out)
+{indentation_string}io.new_line
+{indentation_string}io.put_string("1")
+{indentation_string}io.new_line"#,
+                ft.name(),
+                ft.name()
+            )
+        })
+    }
+
+    fn feature_parameter_instrumentation(&self) -> String {
+        let indentation_string = Self::eiffel_statement_indentation_string();
+
+        self.feature
+            .parameters()
+            .names()
+            .iter()
+            .fold(String::new(), |acc, param_name| {
+                format!(
+                    r#"{acc}
+{indentation_string}io.put_string("{}")
+{indentation_string}io.new_line
+{indentation_string}io.put_string({}.out)
+{indentation_string}io.new_line
+{indentation_string}io.put_string("1")
+{indentation_string}io.new_line"#,
+                    param_name, param_name
+                )
+            })
+    }
+
+    fn eiffel_statement_indentation_string() -> String {
+        (0..=Feature::INDENTATION_LEVEL + 1).fold(String::new(), |acc, _| format!("{acc}\t"))
+    }
+
+    pub fn instrument_body_start_and_end(&self) -> Result<[lsp_types::TextEdit; 2]> {
         let Some(Range { mut start, end }) = self.feature.body_range().cloned() else {
             bail!(
                 "fails find the range of the body of the feature to instrument: {:#?}",
@@ -264,49 +365,41 @@ ppt-type exit
             )
         };
 
-        let indentation_string =
-            (0..=Feature::INDENTATION_LEVEL + 1).fold(String::new(), |acc, _| format!("{acc}\t"));
+        let indentation_string = Self::eiffel_statement_indentation_string();
 
-        let print_class_fields_instructions = class_fields.iter().fold(String::new(), |acc, ft| {
-            format!(
-                r#"{acc}
-{indentation_string}io.put_string({}.out)
+        let program_point_routine_entry_in_trace = format!(
+            r#"
+{indentation_string}io.put_string("{}.{}::ENTER")
 {indentation_string}io.new_line"#,
-                ft.name()
-            )
-        });
+            self.class.name(),
+            self.feature.name()
+        );
 
-        let print_class_fields_and_parameters_instructions =
-            parameters
-                .names()
-                .iter()
-                .fold(print_class_fields_instructions, |acc, param_name| {
-                    format!(
-                        r#"{acc}
-{indentation_string}io.put_string({}.out)
+        let program_point_routine_exit_in_trace = format!(
+            r#"
+{indentation_string}io.put_string("{}.{}::EXIT")
 {indentation_string}io.new_line"#,
-                        param_name
-                    )
-                });
+            self.class.name(),
+            self.feature.name()
+        );
+
+        let class_fields_print_instructions = self.class_fields_instrumentation();
+        let parameters_print_instructions = self.feature_parameter_instrumentation();
 
         start.shift_right(2); // Move start point after word `do`
         let collapsed_start_range = Range::new_collapsed(start);
         let text_edit_start = lsp_types::TextEdit {
             range: collapsed_start_range.try_into()?,
-            new_text: print_class_fields_and_parameters_instructions.clone(),
+            new_text: format!("{program_point_routine_entry_in_trace}{class_fields_print_instructions}{parameters_print_instructions}"),
         };
 
         let collapsed_end_range = Range::new_collapsed(end);
         let text_edit_end = lsp_types::TextEdit {
             range: collapsed_end_range.try_into()?,
-            new_text: print_class_fields_and_parameters_instructions,
+            new_text: format!("{program_point_routine_exit_in_trace}{class_fields_print_instructions}{parameters_print_instructions}"),
         };
 
         Ok([text_edit_start, text_edit_end])
-    }
-
-    pub fn add_declarations(&self) -> Result<()> {
-        Ok(())
     }
 }
 
@@ -324,7 +417,13 @@ impl<'ws> TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> for DaikonInstrument
             "Fails to retrieve the first argument (file path) to add routine specification."
         })?;
         let filepath: PathBuf = serde_json::from_value(filepath)?;
-        Self::try_new(workspace, &filepath, &feature_name)
+        let filepath_validated = workspace
+            .find_file(&filepath)
+            .map(|file| file.path())
+            .with_context(|| {
+                format!("fails to find file at path: {:#?} in workspace. ", filepath)
+            })?;
+        Self::try_new(workspace, &filepath_validated, &feature_name)
     }
 }
 
@@ -334,9 +433,8 @@ impl<'ws> Command<'ws> for DaikonInstrumenter<'ws> {
     const TITLE: &'static str = "Instrument feature for Daikon";
 
     fn arguments(&self) -> Vec<serde_json::Value> {
-        let path = self.file.path();
-        let Ok(serialized_filepath) = serde_json::to_value(path) else {
-            unreachable!("fails to serialize path: {path:#?}")
+        let Ok(serialized_filepath) = serde_json::to_value(self.filepath) else {
+            unreachable!("fails to serialize path: {:#?}", self.filepath)
         };
         let feature = self.feature;
         let Ok(serialized_feature_name) = serde_json::to_value(feature.name()) else {
@@ -345,11 +443,15 @@ impl<'ws> Command<'ws> for DaikonInstrumenter<'ws> {
         vec![serialized_filepath, serialized_feature_name]
     }
 
+    async fn side_effect(&self) -> anyhow::Result<()> {
+        self.write_declaration().await
+    }
+
     async fn generate_edits(
         &self,
         _generators: &crate::lib::generators::Generators,
     ) -> Result<lsp_types::WorkspaceEdit> {
-        let url = lsp_types::Url::from_file_path(self.file.path()).map_err(|_| {
+        let url = lsp_types::Url::from_file_path(self.filepath).map_err(|_| {
             anyhow!("if on unix path must be absolute. if on windows path must have disk prefix")
         })?;
 
@@ -363,7 +465,6 @@ impl<'ws> Command<'ws> for DaikonInstrumenter<'ws> {
 #[cfg(test)]
 mod tests {
     use crate::lib::code_entities::prelude::*;
-    use crate::lib::language_server_protocol::commands::lsp_types;
     use crate::lib::parser::Parser;
     use crate::lib::processed_file::ProcessedFile;
     use crate::lib::workspace::Workspace;
@@ -397,90 +498,147 @@ end
             .expect("fails to create processed file")
     }
 
+    impl<'ws> DaikonInstrumenter<'ws> {
+        async fn mock(mock_workspace: &'ws mut Workspace) -> Result<Self> {
+            let processed_file = processed_file().await;
+            let filepath = processed_file.path();
+            mock_workspace.set_files(vec![processed_file.clone()]);
+            let file = mock_workspace.find_file(filepath).with_context(|| {
+                format!("fails to find file of path {:#?} in workspace.", filepath)
+            })?;
+            let filepath = file.path();
+            let class = file.class();
+            let feature = class
+                .features()
+                .first()
+                .with_context(|| format!("fails to find feature in class: {:#?}", class))?;
+
+            Ok(DaikonInstrumenter {
+                workspace: mock_workspace,
+                filepath,
+                class,
+                feature,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn declaration_file() -> Result<()> {
+        let ws = &mut Workspace::mock();
+        let daikon_instrumenter = DaikonInstrumenter::mock(ws).await?;
+
+        assert_eq!(
+            daikon_instrumenter.declaration_file()?.parent(),
+            daikon_instrumenter.filepath.parent()
+        );
+        assert_eq!(
+            daikon_instrumenter.declaration_file()?.file_stem(),
+            daikon_instrumenter.filepath.file_stem()
+        );
+        assert!(daikon_instrumenter
+            .declaration_file()?
+            .extension()
+            .is_some_and(|ext| ext == "decls"));
+        Ok(())
+    }
+
     #[tokio::test]
     async fn instrument_body_start_and_end() -> Result<()> {
-        let mut workspace = Workspace::mock();
+        let workspace = &mut Workspace::mock();
         let processed_file = processed_file().await;
-        let class = processed_file.class().clone();
-        let Some(feature) = class.features().first() else {
+        let filepath = processed_file.path();
+        let class = &processed_file.class().clone();
+        let Some(ref feature) = class.features().first() else {
             bail!("fails to find feature")
         };
         workspace.set_files(vec![processed_file.clone()]);
 
         let daikon_instrumenter = DaikonInstrumenter {
-            workspace: &workspace,
-            file: &processed_file,
-            class: &class,
-            feature: &feature,
+            workspace,
+            filepath,
+            class,
+            feature,
         };
 
         let [start_edit, end_edit] = daikon_instrumenter.instrument_body_start_and_end()?;
         assert_eq!(
-            start_edit,
-            lsp_types::TextEdit {
-                range: Range::new_collapsed(Point { row: 4, column: 10 }).try_into()?,
-                new_text: format!("\n\t\t\tio.put_string(x.out)\n\t\t\tio.new_line\n\t\t\tio.put_string(y.out)\n\t\t\tio.new_line")
-            }
+            start_edit.range,
+            Range::new_collapsed(Point { row: 4, column: 10 }).try_into()?
         );
         assert_eq!(
-            end_edit,
-            lsp_types::TextEdit {
-                range: Range::new_collapsed(Point { row: 5, column: 27 }).try_into()?,
-                new_text: format!("\n\t\t\tio.put_string(x.out)\n\t\t\tio.new_line\n\t\t\tio.put_string(y.out)\n\t\t\tio.new_line")
-            }
+            start_edit.new_text,
+            r#"
+			io.put_string("TEST.sum::ENTER")
+			io.new_line
+			io.put_string("x")
+			io.new_line
+			io.put_string(x.out)
+			io.new_line
+			io.put_string("1")
+			io.new_line
+			io.put_string("y")
+			io.new_line
+			io.put_string(y.out)
+			io.new_line
+			io.put_string("1")
+			io.new_line"#
+        );
+
+        assert_eq!(
+            end_edit.range,
+            Range::new_collapsed(Point { row: 5, column: 27 }).try_into()?
+        );
+        assert_eq!(
+            end_edit.new_text,
+            r#"
+			io.put_string("TEST.sum::EXIT")
+			io.new_line
+			io.put_string("x")
+			io.new_line
+			io.put_string(x.out)
+			io.new_line
+			io.put_string("1")
+			io.new_line
+			io.put_string("y")
+			io.new_line
+			io.put_string(y.out)
+			io.new_line
+			io.put_string("1")
+			io.new_line"#
         );
         Ok(())
     }
 
     #[tokio::test]
     async fn daikon_declarations() -> Result<()> {
-        let mut workspace = Workspace::mock();
-        let processed_file = processed_file().await;
-        let class = processed_file.class().clone();
-        let Some(feature) = class.features().first() else {
-            bail!("fails to find feature")
-        };
-        workspace.set_files(vec![processed_file.clone()]);
-
-        let daikon_instrumenter = DaikonInstrumenter {
-            workspace: &workspace,
-            file: &processed_file,
-            class: &class,
-            feature: &feature,
-        };
+        let mut ws = Workspace::mock();
+        let daikon_instrumenter = DaikonInstrumenter::mock(&mut ws).await?;
 
         let declarations = daikon_instrumenter.feature_declaration()?;
         eprintln!("{declarations}");
         assert_eq!(
             declarations.trim(),
-            r#"DECLARE
-ppt TEST.sum::ENTER
+            r#"ppt TEST.sum::ENTER
 ppt-type enter
-
 variable x
 	var-kind variable
 	dec-type int
 	rep-type int
-
 variable y
 	var-kind variable
 	dec-type int
 	rep-type int
-
 
 ppt TEST.sum::EXIT
 ppt-type exit
-
 variable x
 	var-kind variable
 	dec-type int
 	rep-type int
-
 variable y
 	var-kind variable
 	dec-type int
 	rep-type int
-
 variable return
 	var-kind return
 	dec-type int

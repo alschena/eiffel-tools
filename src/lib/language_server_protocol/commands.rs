@@ -1,6 +1,7 @@
 use crate::lib::code_entities::prelude::Point;
 use crate::lib::generators::Generators;
 use crate::lib::workspace::Workspace;
+use anyhow::Context;
 use async_lsp::lsp_types;
 use async_lsp::lsp_types::request;
 use async_lsp::ResponseError;
@@ -31,6 +32,7 @@ trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
     fn is_called(name: &str) -> bool {
         name == Self::NAME
     }
+
     fn command(&self) -> lsp_types::Command {
         let title = Self::TITLE.to_string();
         let command = Self::NAME.to_string();
@@ -43,6 +45,40 @@ trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
             title,
             command,
             arguments,
+        }
+    }
+
+    async fn side_effect(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn request_edits(
+        &self,
+        client: &async_lsp::ClientSocket,
+        edit: lsp_types::WorkspaceEdit,
+    ) -> Result<(), async_lsp::ResponseError> {
+        let response = client
+            .request::<request::ApplyWorkspaceEdit>(lsp_types::ApplyWorkspaceEditParams {
+                label: Some(format!("Edits requested by {:#?}", self.command())),
+                edit,
+            })
+            .await
+            .map_err(|e| {
+                async_lsp::ResponseError::new(
+                    async_lsp::ErrorCode::REQUEST_FAILED,
+                    format!("fails with error: {e}"),
+                )
+            })?;
+        if response.applied {
+            Ok(())
+        } else {
+            let error = ResponseError::new(
+                async_lsp::ErrorCode::REQUEST_FAILED,
+                response.failure_reason.unwrap_or_else(|| {
+                    "The client does not apply the workspace edits.".to_string()
+                }),
+            );
+            Err(error)
         }
     }
 }
@@ -121,8 +157,15 @@ macro_rules! commands {
 commands!(
     name: Commands;
     variants: [ClassSpecificationGenerator, RoutineSpecificationGenerator, DaikonInstrumenter];
-    functions: command() -> lsp_types::Command;
-    async_functions: generate_edits(g: &Generators) -> anyhow::Result<lsp_types::WorkspaceEdit>
+    functions:
+        command() -> lsp_types::Command;
+    async_functions:
+        generate_edits(g: &Generators) -> anyhow::Result<lsp_types::WorkspaceEdit>,
+        request_edits(
+            client: &async_lsp::ClientSocket,
+            edit: lsp_types::WorkspaceEdit
+        ) -> Result<(), async_lsp::ResponseError>,
+        side_effect() -> anyhow::Result<()>
 );
 
 impl<'ws> Commands<'ws> {
@@ -134,46 +177,42 @@ impl<'ws> Commands<'ws> {
         let command = RoutineSpecificationGenerator::try_new_at_cursor(ws, filepath, cursor)?;
         Ok(Commands::RoutineSpecificationGenerator(command))
     }
-    async fn request_edits(
-        &self,
-        client: &async_lsp::ClientSocket,
-        edit: lsp_types::WorkspaceEdit,
-    ) -> Result<(), async_lsp::ResponseError> {
-        let response = client
-            .request::<request::ApplyWorkspaceEdit>(lsp_types::ApplyWorkspaceEditParams {
-                label: Some(format!("Edits requested by {:#?}", self.command())),
-                edit,
-            })
-            .await
-            .map_err(|e| {
-                async_lsp::ResponseError::new(
-                    async_lsp::ErrorCode::REQUEST_FAILED,
-                    format!("fails with error: {e}"),
-                )
-            })?;
-        if response.applied {
-            Ok(())
-        } else {
-            let error = ResponseError::new(
-                async_lsp::ErrorCode::REQUEST_FAILED,
-                response.failure_reason.unwrap_or_else(|| {
-                    "The client does not apply the workspace edits.".to_string()
-                }),
-            );
-            Err(error)
-        }
+
+    pub fn try_new_instrument_routine_at_cursor_for_daikon(
+        ws: &'ws Workspace,
+        filepath: &'ws Path,
+        cursor: Point,
+    ) -> anyhow::Result<Self> {
+        let file = ws
+            .find_file(filepath)
+            .with_context(|| "fails to find file: {filepath} in workspace.")?;
+        let feature = file
+            .feature_around_point(cursor)
+            .with_context(|| "cursor is not around feature.")?;
+
+        let command = DaikonInstrumenter::try_new(ws, filepath, feature.name())?;
+        Ok(Commands::DaikonInstrumenter(command))
     }
+
     pub async fn run<'st>(
         &self,
         client: &'st async_lsp::ClientSocket,
         generators: &'st Generators,
     ) -> Result<(), async_lsp::ResponseError> {
+        self.side_effect().await.map_err(|e| {
+            async_lsp::ResponseError::new(
+                async_lsp::ErrorCode::REQUEST_FAILED,
+                format!("Fails to execute commands side effects with error: {e}"),
+            )
+        })?;
+
         let edit = self.generate_edits(generators).await.map_err(|e| {
             async_lsp::ResponseError::new(
                 async_lsp::ErrorCode::REQUEST_FAILED,
                 format!("Fails to generate text edits with error: {e}"),
             )
         })?;
+
         self.request_edits(client, edit).await
     }
 }
