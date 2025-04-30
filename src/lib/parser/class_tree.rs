@@ -1,5 +1,6 @@
 use crate::lib::parser::util::Traversal;
 use crate::lib::parser::*;
+use anyhow::ensure;
 use anyhow::Result;
 
 mod contract_tree;
@@ -115,7 +116,7 @@ impl<'source, 'tree> TryFrom<&mut TreeTraversal<'source, 'tree>> for ClassDeclar
     fn try_from(
         value: &mut TreeTraversal<'source, 'tree>,
     ) -> std::result::Result<Self, Self::Error> {
-        assert_eq!(value.current_node().kind(), "source_file");
+        ensure!(value.current_node().kind() == "source_file");
 
         let notes_nodes = value.nodes_captures("notes")?;
         let name_node = *value
