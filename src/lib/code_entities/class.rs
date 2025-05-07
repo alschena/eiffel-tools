@@ -7,7 +7,10 @@ use std::fmt::Display;
 pub mod model;
 use model::*;
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub mod parent;
+pub use parent::Parent;
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct ClassName(pub String);
 
 impl Display for ClassName {
@@ -77,7 +80,10 @@ impl<T: AsRef<str>> PartialEq<T> for ClassName {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
+pub struct ClassID(ClassName, Location);
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct Class {
     pub name: ClassName,
     pub model: Model,
@@ -222,9 +228,6 @@ impl Class {
         self.parents.push(parent)
     }
 }
-impl Indent for Class {
-    const INDENTATION_LEVEL: usize = 1;
-}
 
 impl TryFrom<&Class> for lsp_types::DocumentSymbol {
     type Error = anyhow::Error;
@@ -249,34 +252,6 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
             selection_range: range,
             children,
         })
-    }
-}
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Parent {
-    pub name: String,
-    pub select: Vec<String>,
-    pub rename: Vec<(String, String)>,
-    pub redefine: Vec<String>,
-    pub undefine: Vec<String>,
-}
-impl Parent {
-    fn name(&self) -> &str {
-        &self.name
-    }
-    pub fn class<'a>(&self, system_classes: &'a [Class]) -> Option<&'a Class> {
-        system_classes
-            .into_iter()
-            .find(|class| class.name() == self.name())
-    }
-    #[cfg(test)]
-    pub fn from_name(name: String) -> Parent {
-        Parent {
-            name,
-            select: Vec::new(),
-            rename: Vec::new(),
-            redefine: Vec::new(),
-            undefine: Vec::new(),
-        }
     }
 }
 
@@ -359,24 +334,6 @@ end
         Ok(())
     }
 
-    #[tokio::test]
-    async fn processed_file_class_to_workspacesymbol() -> Result<()> {
-        let path = "/tmp/eiffel_tool_test_class_to_workspacesymbol.e";
-        let path = PathBuf::from(path);
-        let src = "
-    class A
-    note
-    end
-        ";
-        let mut file = File::create(path.clone()).expect("Failed to create file");
-        file.write_all(src.as_bytes())
-            .expect("Failed to write to file");
-        let mut parser = Parser::new();
-        let file = parser.processed_file(path.clone()).await?;
-        let symbol: Result<lsp_types::WorkspaceSymbol, _> = (&file).try_into();
-        assert!(symbol.is_ok());
-        Ok(())
-    }
     #[test]
     fn parse_parent_classes() -> anyhow::Result<()> {
         let src_child = "

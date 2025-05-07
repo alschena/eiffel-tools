@@ -4,7 +4,6 @@ use contract::RoutineSpecification;
 use contract::{Block, Postcondition, Precondition};
 use std::fmt::Display;
 use std::path::Path;
-use streaming_iterator::StreamingIterator;
 
 mod notes;
 pub use notes::Notes;
@@ -18,7 +17,7 @@ pub use parameters::Parameters;
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum FeatureVisibility {
     Private,
-    Some(Box<Class>),
+    Some(ClassID),
     Public,
 }
 
@@ -208,11 +207,8 @@ impl Display for Feature {
             || String::new(),
             |ref return_type| format!(": {return_type}"),
         );
-        write!(f, "{name}{parenthesized_parameters}{format_return_type}")
+        write!(f, "{name} {parenthesized_parameters}{format_return_type}")
     }
-}
-impl Indent for Feature {
-    const INDENTATION_LEVEL: usize = 1;
 }
 
 impl TryFrom<&Feature> for lsp_types::DocumentSymbol {

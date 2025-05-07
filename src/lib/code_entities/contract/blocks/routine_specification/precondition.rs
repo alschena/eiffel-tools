@@ -1,3 +1,4 @@
+use crate::lib::eiffel_source::Indent;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::fmt::Debug;

@@ -1,22 +1,24 @@
 use super::Command;
 use crate::lib::code_entities::prelude::Class;
-use crate::lib::code_entities::prelude::EiffelType;
 use crate::lib::code_entities::prelude::Feature;
-use crate::lib::code_entities::prelude::FeatureParameters;
 use crate::lib::code_entities::prelude::Range;
-use crate::lib::code_entities::Indent;
+use crate::lib::eiffel_source::Indent;
 use crate::lib::language_server_protocol::commands::lsp_types;
 use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
-use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt::Display;
 use std::path::Path;
 use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
+
+mod daikon_types;
+use daikon_types::DaikonDecType;
+use daikon_types::DaikonPosition;
+use daikon_types::DaikonRepType;
+use daikon_types::DaikonVarKind;
 
 #[derive(Debug, Clone)]
 pub struct DaikonInstrumenter<'ws> {
@@ -24,133 +26,6 @@ pub struct DaikonInstrumenter<'ws> {
     filepath: &'ws Path,
     class: &'ws Class,
     feature: &'ws Feature,
-}
-
-enum DaikonVarKind {
-    Field,
-    Function,
-    Array,
-    Variable,
-    Return,
-}
-
-impl DaikonVarKind {
-    fn from_feature_return_type(ft: &Feature) -> Self {
-        assert!(ft.return_type().is_some());
-        DaikonVarKind::Return
-    }
-}
-
-impl Display for DaikonVarKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = match self {
-            DaikonVarKind::Field => "field",
-            DaikonVarKind::Function => "function",
-            DaikonVarKind::Array => "array",
-            DaikonVarKind::Variable => "variable",
-            DaikonVarKind::Return => "return",
-        };
-        write!(f, "\tvar-kind {}", text)
-    }
-}
-
-impl TryFrom<&FeatureParameters> for Vec<DaikonVarKind> {
-    type Error = anyhow::Error;
-    fn try_from(value: &FeatureParameters) -> Result<Self> {
-        value
-            .types()
-            .iter()
-            .map(|ty| {
-                ty.class_name().map(|class_name| {
-                    if class_name.to_string().to_lowercase().contains("array") {
-                        DaikonVarKind::Array
-                    } else {
-                        DaikonVarKind::Variable
-                    }
-                })
-            })
-            .collect::<Result<Vec<_>>>()
-    }
-}
-
-enum DaikonDecType {
-    Int,
-    Boolean,
-    String,
-    Custom(String),
-}
-
-impl TryFrom<&EiffelType> for DaikonDecType {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &EiffelType) -> std::result::Result<Self, Self::Error> {
-        value
-            .class_name()
-            .map(|class_name| match class_name.0.as_str() {
-                "BOOLEAN" => DaikonDecType::Boolean,
-                "INTEGER" => DaikonDecType::Int,
-                "STRING" => DaikonDecType::String,
-                otherwise @ _ => DaikonDecType::Custom(otherwise.to_string()),
-            })
-    }
-}
-
-impl Display for DaikonDecType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = match self {
-            DaikonDecType::Int => "int",
-            DaikonDecType::Boolean => "boolean",
-            DaikonDecType::String => "java.lang.String",
-            DaikonDecType::Custom(s) => &s,
-        };
-        write!(f, "\tdec-type {}", text)
-    }
-}
-
-enum DaikonRepType {
-    Boolean,
-    Int,
-    HashCode,
-    Double,
-    String,
-    Array(Box<DaikonRepType>),
-}
-
-impl TryFrom<&EiffelType> for DaikonRepType {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &EiffelType) -> std::result::Result<Self, Self::Error> {
-        value
-            .class_name()
-            .map(|class_name| match class_name.0.as_str() {
-                "BOOLEAN" => DaikonRepType::Boolean,
-                "INTEGER" => DaikonRepType::Int,
-                "REAL" => DaikonRepType::Double,
-                "STRING" => DaikonRepType::String,
-                custom @ _ if custom.to_lowercase().contains("array") => {
-                    DaikonRepType::Array(Box::new(DaikonRepType::HashCode))
-                }
-                _ => DaikonRepType::HashCode,
-            })
-    }
-}
-
-impl Display for DaikonRepType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = match self {
-            DaikonRepType::Boolean => "boolean".to_string(),
-            DaikonRepType::Int => "int".to_string(),
-            DaikonRepType::HashCode => "hashcode".to_string(),
-            DaikonRepType::Double => "double".to_string(),
-            DaikonRepType::String => "java.lang.String".to_string(),
-            DaikonRepType::Array(base_type) if !matches!(**base_type, Self::Array(_)) => {
-                format!("{base_type}")
-            }
-            _ => unreachable!(),
-        };
-
-        write!(f, "\trep-type {text}")
-    }
 }
 
 impl<'ws> DaikonInstrumenter<'ws> {
@@ -243,7 +118,7 @@ variable {name}
             Some(ret_type) => {
                 let dec_type: DaikonDecType = ret_type.try_into()?;
                 let rep_type: DaikonRepType = ret_type.try_into()?;
-                let var_kind = DaikonVarKind::from_feature_return_type(self.feature);
+                let var_kind = DaikonVarKind::Return;
                 Ok(format!(
                     r#"
 variable return
@@ -354,7 +229,23 @@ ppt-type exit{class_fields_declaration}{parameters_declaration}{return_declarati
     }
 
     fn eiffel_statement_indentation_string() -> String {
-        (0..=Feature::INDENTATION_LEVEL + 1).fold(String::new(), |acc, _| format!("{acc}\t"))
+        "\t\t".to_string()
+    }
+
+    fn feature_instrumentation_at(&self, pos: DaikonPosition) -> String {
+        let class_name = self.class.name();
+        let feature_name = self.feature.name();
+        let indentation_string = Self::eiffel_statement_indentation_string();
+        let class_fields = self.class_fields_instrumentation();
+        let parameters = self.feature_parameter_instrumentation();
+        format!(
+            r#"
+{indentation_string}io.put_string("{class_name}.{feature_name}::{pos}")
+{indentation_string}io.new_line
+{class_fields}
+{parameters}
+            "#
+        )
     }
 
     pub fn instrument_body_start_and_end(&self) -> Result<[lsp_types::TextEdit; 2]> {
@@ -364,42 +255,74 @@ ppt-type exit{class_fields_declaration}{parameters_declaration}{return_declarati
                 &self.feature
             )
         };
-
-        let indentation_string = Self::eiffel_statement_indentation_string();
-
-        let program_point_routine_entry_in_trace = format!(
-            r#"
-{indentation_string}io.put_string("{}.{}::ENTER")
-{indentation_string}io.new_line"#,
-            self.class.name(),
-            self.feature.name()
-        );
-
-        let program_point_routine_exit_in_trace = format!(
-            r#"
-{indentation_string}io.put_string("{}.{}::EXIT")
-{indentation_string}io.new_line"#,
-            self.class.name(),
-            self.feature.name()
-        );
-
-        let class_fields_print_instructions = self.class_fields_instrumentation();
-        let parameters_print_instructions = self.feature_parameter_instrumentation();
-
         start.shift_right(2); // Move start point after word `do`
-        let collapsed_start_range = Range::new_collapsed(start);
-        let text_edit_start = lsp_types::TextEdit {
-            range: collapsed_start_range.try_into()?,
-            new_text: format!("{program_point_routine_entry_in_trace}{class_fields_print_instructions}{parameters_print_instructions}"),
-        };
 
-        let collapsed_end_range = Range::new_collapsed(end);
-        let text_edit_end = lsp_types::TextEdit {
-            range: collapsed_end_range.try_into()?,
-            new_text: format!("{program_point_routine_exit_in_trace}{class_fields_print_instructions}{parameters_print_instructions}"),
-        };
+        Ok([
+            lsp_types::TextEdit {
+                range: Range::new_collapsed(start).try_into()?,
+                new_text: self.feature_instrumentation_at(DaikonPosition::Enter),
+            },
+            lsp_types::TextEdit {
+                range: Range::new_collapsed(end).try_into()?,
+                new_text: self.feature_instrumentation_at(DaikonPosition::Exit),
+            },
+        ])
+    }
 
-        Ok([text_edit_start, text_edit_end])
+    fn instrumented_redefinition(&self) -> String {
+        let indentation_string = Self::eiffel_statement_indentation_string();
+        let instrumentation_body_start = self.feature_instrumentation_at(DaikonPosition::Enter);
+        let instrumentation_body_end = self.feature_instrumentation_at(DaikonPosition::Exit);
+        let feature_name = self.feature.name();
+        let return_type_text = self
+            .feature
+            .return_type()
+            .map(|ty| format!(": {ty}"))
+            .unwrap_or_default();
+        let feature_parameters = self.feature.parameters();
+        let comma_separated_parameters =
+            feature_parameters
+                .names()
+                .iter()
+                .fold(String::new(), |acc, param_name| {
+                    if acc.is_empty() {
+                        format!("{param_name}")
+                    } else {
+                        format!("{acc}, {param_name}")
+                    }
+                });
+        let wrapped_comma_separated_parameters =
+            format!("({})", feature_parameters.to_string().trim());
+        format!(
+            r#"
+    {feature_name} {wrapped_comma_separated_parameters}{return_type_text}
+        do
+{instrumentation_body_start}
+{indentation_string}Precursor ({comma_separated_parameters})
+{instrumentation_body_end}
+        end
+
+            "#
+        )
+    }
+
+    pub fn instrumentation_by_subclass(&self) -> String {
+        let class_name = self.class.name();
+        let feature_name = self.feature.name();
+        let instrumented_redefinition = self.instrumented_redefinition();
+        format!(
+            r#"class
+    {class_name}_DAIKON_INSTRUMENTED
+inherit
+    {class_name}
+    redefine
+        {feature_name}
+    end
+feature
+{instrumented_redefinition}
+end
+"#
+        )
     }
 }
 
@@ -464,6 +387,7 @@ impl<'ws> Command<'ws> for DaikonInstrumenter<'ws> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::lib::code_entities::prelude::*;
     use crate::lib::parser::Parser;
     use crate::lib::processed_file::ProcessedFile;
@@ -499,7 +423,7 @@ end
     }
 
     impl<'ws> DaikonInstrumenter<'ws> {
-        async fn mock(mock_workspace: &'ws mut Workspace) -> Result<Self> {
+        pub async fn mock(mock_workspace: &'ws mut Workspace) -> Result<Self> {
             let processed_file = processed_file().await;
             let filepath = processed_file.path();
             mock_workspace.set_files(vec![processed_file.clone()]);
@@ -561,13 +485,19 @@ end
         };
 
         let [start_edit, end_edit] = daikon_instrumenter.instrument_body_start_and_end()?;
-        assert_eq!(
-            start_edit.range,
-            Range::new_collapsed(Point { row: 4, column: 10 }).try_into()?
-        );
-        assert_eq!(
-            start_edit.new_text,
-            r#"
+
+        let start_edit_iter = start_edit
+            .new_text
+            .lines()
+            .map(|ln| ln.trim())
+            .filter(|ln| !ln.is_empty());
+        let end_edit_iter = end_edit
+            .new_text
+            .lines()
+            .map(|ln| ln.trim())
+            .filter(|ln| !ln.is_empty());
+
+        let oracle_at_start = r#"
 			io.put_string("TEST.sum::ENTER")
 			io.new_line
 			io.put_string("x")
@@ -581,16 +511,8 @@ end
 			io.put_string(y.out)
 			io.new_line
 			io.put_string("1")
-			io.new_line"#
-        );
-
-        assert_eq!(
-            end_edit.range,
-            Range::new_collapsed(Point { row: 5, column: 27 }).try_into()?
-        );
-        assert_eq!(
-            end_edit.new_text,
-            r#"
+			io.new_line"#;
+        let oracle_at_end = r#"
 			io.put_string("TEST.sum::EXIT")
 			io.new_line
 			io.put_string("x")
@@ -604,7 +526,40 @@ end
 			io.put_string(y.out)
 			io.new_line
 			io.put_string("1")
-			io.new_line"#
+			io.new_line"#;
+        let oracle_at_start_iter = oracle_at_start
+            .lines()
+            .map(|ln| ln.trim())
+            .filter(|ln| !ln.is_empty());
+        let oracle_at_end_iter = oracle_at_end
+            .lines()
+            .map(|ln| ln.trim())
+            .filter(|ln| !ln.is_empty());
+
+        let same_start = oracle_at_start_iter
+            .zip(start_edit_iter)
+            .all(|(or, ac)| or == ac);
+        let same_end = oracle_at_end_iter
+            .zip(end_edit_iter)
+            .all(|(or, ac)| or == ac);
+
+        assert!(
+            same_start,
+            "oracle: {oracle_at_start}\nresult: {}",
+            start_edit.new_text
+        );
+        assert!(
+            same_end,
+            "oracle: {oracle_at_end}\nresult: {}",
+            end_edit.new_text
+        );
+        assert_eq!(
+            start_edit.range,
+            Range::new_collapsed(Point { row: 4, column: 10 }).try_into()?
+        );
+        assert_eq!(
+            end_edit.range,
+            Range::new_collapsed(Point { row: 5, column: 27 }).try_into()?
         );
         Ok(())
     }
@@ -644,6 +599,72 @@ variable return
 	dec-type int
 	rep-type int"#
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn instrumented_redefinition() -> Result<()> {
+        let mut ws = Workspace::mock();
+        let dkn = DaikonInstrumenter::mock(&mut ws).await?;
+        let res = dkn.instrumented_redefinition();
+        let instrumentation_body_start = dkn.feature_instrumentation_at(DaikonPosition::Enter);
+        let instrumentation_body_end = dkn.feature_instrumentation_at(DaikonPosition::Exit);
+
+        let oracle = format!(
+            r#"
+sum (x: INTEGER
+    y: INTEGER): INTEGER
+    do
+    {instrumentation_body_start}
+        Precursor (x, y)
+    {instrumentation_body_end}
+    end"#
+        );
+        let oracle_iter = oracle
+            .lines()
+            .map(|ln| ln.trim())
+            .filter(|ln| !ln.is_empty());
+
+        let res_iter = res.lines().map(|ln| ln.trim()).filter(|ln| !ln.is_empty());
+
+        let same = oracle_iter.zip(res_iter).all(|(or, rs)| or == rs);
+        assert!(same, "oracle: {oracle}\nres: {res}");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn instrumented_class_text() -> Result<()> {
+        let mut ws = Workspace::mock();
+        let dkn = DaikonInstrumenter::mock(&mut ws).await?;
+
+        let res = dkn.instrumentation_by_subclass();
+        let instrumented_redefinition = dkn.instrumented_redefinition();
+
+        let oracle_res = format!(
+            r#"
+class
+	TEST_DAIKON_INSTRUMENTED
+inherit
+	TEST
+	redefine
+		sum
+	end
+feature
+{instrumented_redefinition}
+end
+"#
+        );
+
+        let oracle_res_clean = oracle_res
+            .lines()
+            .map(|ln| ln.trim())
+            .filter(|ln| !ln.is_empty());
+        let res_clean = res.lines().map(|ln| ln.trim()).filter(|ln| !ln.is_empty());
+
+        let same = oracle_res_clean.zip(res_clean).all(|(or, ac)| or == ac);
+        assert!(same, "oracle_res: {oracle_res}\nres: {res}");
 
         Ok(())
     }
