@@ -1,6 +1,11 @@
 mod class;
+pub mod new_class;
+
 pub(crate) mod contract;
+
 mod feature;
+pub mod new_feature;
+
 mod shared;
 
 pub(crate) mod prelude {
