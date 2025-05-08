@@ -65,6 +65,7 @@ pub trait FeatureTree<'source, 'tree>: Traversal<'source, 'tree> {
                 (attribute_or_routine
                     (notes)? @notes
                     (precondition)? @precondition
+                    (feature_body) @body
                     (postcondition)? @postcondition
                 )? @attribute_or_routine) @feature_declaration"#,
         )
@@ -96,6 +97,11 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
 
         let notes_node = self.nodes_captures("notes")?;
         let notes_node = notes_node.first();
+
+        let body_range = self
+            .nodes_captures("body")?
+            .first()
+            .map(|body_node| body_node.range().into());
 
         let preconditions_node = self.nodes_captures("precondition")?;
         let preconditions_node = preconditions_node.first();
@@ -189,15 +195,18 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
 
         let features = names
             .iter()
-            .map(|name| Feature {
-                name: name.to_string(),
-                parameters: parameters.clone(),
-                return_type: return_type.clone(),
-                notes: notes.clone(),
-                visibility: FeatureVisibility::Private,
-                range: range.clone(),
-                preconditions: preconditions.clone(),
-                postconditions: postconditions.clone(),
+            .map(|name| {
+                Feature::new(
+                    name.to_string(),
+                    parameters.clone(),
+                    return_type.clone(),
+                    notes.clone(),
+                    FeatureVisibility::Private,
+                    range.clone(),
+                    body_range.clone(),
+                    preconditions.clone(),
+                    postconditions.clone(),
+                )
             })
             .collect();
         Ok(features)
@@ -319,7 +328,7 @@ end"#;
             .pop()
             .with_context(|| format!("fails to get feature from {NOTES_FEATURE_CLASS_SOURCE}"))?;
         let notes = feature
-            .notes
+            .notes()
             .with_context(|| format!("fails to get notes from {NOTES_FEATURE_CLASS_SOURCE}"))?;
         let (tag, value) = notes
             .first()

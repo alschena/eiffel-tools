@@ -46,13 +46,12 @@ impl Display for Parameters {
         let names = self.names();
         let text = names.iter().zip(types.iter()).fold(
             String::new(),
-            |mut acc, (parameter_name, parameter_type)| {
-                acc.push_str(parameter_name.as_str());
-                acc.push(':');
-                acc.push(' ');
-                acc.push_str(format!("{parameter_type}").as_str());
-                acc.push('\n');
-                acc
+            |acc, (parameter_name, parameter_type)| {
+                if acc.is_empty() {
+                    format!("{parameter_name}: {parameter_type}")
+                } else {
+                    format!("{acc}\n{parameter_name}: {parameter_type}")
+                }
             },
         );
         write!(f, "{text}")?;
@@ -94,7 +93,7 @@ pub mod tests {
     #[test]
     fn display_parameter() {
         let p = integer_parameter("test".to_string());
-        assert_eq!(format!("{p}"), "test: INTEGER\n");
+        assert_eq!(format!("{p}"), "test: INTEGER");
     }
 
     #[test]

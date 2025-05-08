@@ -1,9 +1,9 @@
 use crate::lib::code_entities::class::model::ModelExtended;
 use crate::lib::code_entities::prelude::*;
 use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Result;
 use std::fmt::Display;
-use streaming_iterator::StreamingIterator;
-use tree_sitter::{Node, QueryCursor};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum EiffelType {
@@ -24,11 +24,11 @@ impl Display for EiffelType {
     }
 }
 impl EiffelType {
-    pub fn class_name(&self) -> Result<ClassName, &str> {
+    pub fn class_name(&self) -> Result<ClassName> {
         match self {
             EiffelType::ClassType(_, s) => Ok(ClassName(s.to_owned())),
-            EiffelType::TupleType(_) => Err("tuple type"),
-            EiffelType::Anchored(_) => Err("anchored type"),
+            EiffelType::TupleType(_) => bail!("tuple type"),
+            EiffelType::Anchored(_) => bail!("anchored type"),
         }
     }
     pub fn class<'a, 'b: 'a>(
@@ -36,7 +36,10 @@ impl EiffelType {
         mut system_classes: impl Iterator<Item = &'b Class>,
     ) -> &'b Class {
         let class = system_classes
-            .find(|&c| Ok(c.name()) == self.class_name().as_ref())
+            .find(|&c| {
+                self.class_name()
+                    .is_ok_and(|ref class_name| class_name == c.name())
+            })
             .unwrap_or_else(|| {
                 panic!(
                     "parameters' class name: {:?} must be in system.",

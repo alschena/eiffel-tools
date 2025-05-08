@@ -41,24 +41,6 @@ impl<T: Contract + Default> Block<T> {
         }
     }
 }
-impl<T: Indent> Indent for Block<T> {
-    const INDENTATION_LEVEL: usize = T::INDENTATION_LEVEL - 1;
-}
-impl<T: Display + Indent + Contract + Deref<Target = Vec<Clause>>> Display for Block<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.item().is_empty() {
-            write!(f, "")
-        } else {
-            write!(
-                f,
-                "{}{}\n{}",
-                T::keyword(),
-                &self.item,
-                Self::indentation_string(),
-            )
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

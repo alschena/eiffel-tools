@@ -18,7 +18,7 @@ impl HandleRequest for request::CodeActionRequest {
         let path = params.path_owned();
         let point: Point = params.cursor();
 
-        let command =
+        let add_specification_to_routine_under_cursor_command =
             commands::Commands::try_new_add_routine_specification_at_cursor(&ws, &path, point)
                 .map_err(|e| {
                     ResponseError::new(
@@ -29,8 +29,21 @@ impl HandleRequest for request::CodeActionRequest {
                     )
                 })?
                 .command();
+        let daikon_instrumentation_to_routine_under_cursor_command = commands::Commands::try_new_instrument_routine_at_cursor_for_daikon(&ws, &path, point)
+                .map_err(|e| {
+                    ResponseError::new(
+                        async_lsp::ErrorCode::INTERNAL_ERROR,
+                        format!(
+                    "fails to create command to instrument routine at cursor: {:#?} for daikon with error: {}", point,e
+                ),
+                    )
+                })?
+                .command();
 
-        Ok(Some(vec![CodeActionOrCommand::Command(command)]))
+        Ok(Some(vec![
+            CodeActionOrCommand::Command(add_specification_to_routine_under_cursor_command),
+            CodeActionOrCommand::Command(daikon_instrumentation_to_routine_under_cursor_command),
+        ]))
     }
 }
 

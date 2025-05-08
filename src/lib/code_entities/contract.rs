@@ -36,9 +36,6 @@ pub trait Contract: DerefMut<Target = Vec<Clause>> {
         self.retain(|clause| block.iter().all(|c| &c.predicate != &clause.predicate));
     }
 }
-impl<T: Contract> Indent for T {
-    const INDENTATION_LEVEL: usize = 3;
-}
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Keyword {
     Require,

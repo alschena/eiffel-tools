@@ -15,6 +15,7 @@ pub struct ProcessedFile {
     /// In eiffel a class contains all other code entities of a class
     pub class: Class,
 }
+
 impl ProcessedFile {
     pub(crate) fn tree(&self) -> &Tree {
         &self.tree
@@ -72,6 +73,7 @@ impl TryFrom<&ProcessedFile> for lsp_types::SymbolInformation {
         })
     }
 }
+
 impl TryFrom<&ProcessedFile> for lsp_types::WorkspaceSymbol {
     type Error = anyhow::Error;
 
@@ -88,8 +90,9 @@ impl TryFrom<&ProcessedFile> for lsp_types::WorkspaceSymbol {
         })
     }
 }
+
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::lib::parser::Parser;
     use assert_fs::prelude::*;

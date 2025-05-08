@@ -1,6 +1,7 @@
 use super::Command;
 use crate::lib::language_server_protocol::commands::Generators;
 use crate::lib::workspace::Workspace;
+use anyhow::Result;
 use async_lsp::lsp_types;
 
 #[derive(Debug, Clone)]
@@ -36,7 +37,7 @@ impl<'ws> Command<'ws> for MockCommand<'ws> {
     async fn generate_edits(
         &self,
         _generators: &Generators,
-    ) -> anyhow::Result<lsp_types::WorkspaceEdit> {
+    ) -> Result<Option<lsp_types::WorkspaceEdit>> {
         todo!()
     }
 }

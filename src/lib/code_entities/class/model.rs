@@ -4,7 +4,6 @@ use anyhow::Result;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use tracing::warn;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct ModelNames(Vec<String>);
@@ -116,9 +115,6 @@ impl Model {
         Ok(Model(names, types))
     }
 }
-impl Indent for Model {
-    const INDENTATION_LEVEL: usize = 1;
-}
 impl Display for Model {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display_text = self.names().iter().zip(self.types().iter()).fold(
@@ -208,10 +204,6 @@ impl ModelExtended {
         };
         text
     }
-}
-
-impl Indent for ModelExtended {
-    const INDENTATION_LEVEL: usize = Model::INDENTATION_LEVEL;
 }
 
 impl Display for ModelExtended {

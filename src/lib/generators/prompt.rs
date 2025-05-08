@@ -1,4 +1,5 @@
 use crate::lib::code_entities::prelude::*;
+use crate::lib::eiffel_source::Indent;
 use anyhow::Context;
 use std::cmp::Ordering;
 use std::path::Path;

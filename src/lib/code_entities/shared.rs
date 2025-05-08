@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::cmp::{Ordering, PartialOrd};
 use std::ops::Sub;
 use std::path;
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Copy, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Copy, Deserialize, Default)]
 pub struct Point {
     pub row: usize,
     pub column: usize,
@@ -14,6 +14,11 @@ impl Point {
         assert!(shift <= self.column);
         self.column = self.column - shift;
     }
+
+    pub fn shift_right(&mut self, shift: usize) {
+        self.column = self.column + shift;
+    }
+
     pub fn reset_column(&mut self) {
         self.column = 0;
     }
@@ -51,23 +56,31 @@ impl Sub for Point {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct Range {
     pub start: Point,
     pub end: Point,
 }
+
 impl Range {
     pub fn new(start: Point, end: Point) -> Range {
         Range { start, end }
     }
+
     pub fn new_collapsed(point: Point) -> Range {
         Range::new(point.clone(), point)
     }
+
+    pub fn contains(&self, point: Point) -> bool {
+        self.start <= point && point <= self.end
+    }
+
     pub fn collapse_to_line_start(&mut self) {
         self.start.reset_column();
         self.end.reset_column();
     }
 }
+
 impl PartialOrd for Range {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
@@ -79,7 +92,7 @@ impl PartialOrd for Range {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct Location(path::PathBuf);
 
 impl Location {
