@@ -396,20 +396,6 @@ impl<'ws> Command<'ws> for DaikonInstrumenter<'ws> {
         self.write_declaration_file().await?;
         self.write_instrumented_subclass_file().await
     }
-
-    async fn generate_edits(
-        &self,
-        _generators: &crate::lib::generators::Generators,
-    ) -> Result<Option<lsp_types::WorkspaceEdit>> {
-        let url = lsp_types::Url::from_file_path(self.filepath).map_err(|_| {
-            anyhow!("if on unix path must be absolute. if on windows path must have disk prefix")
-        })?;
-
-        Ok(Some(lsp_types::WorkspaceEdit::new(HashMap::from([(
-            url,
-            self.instrument_body_start_and_end()?.into(),
-        )]))))
-    }
 }
 
 #[cfg(test)]

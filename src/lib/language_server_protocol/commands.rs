@@ -28,7 +28,9 @@ trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
     fn generate_edits(
         &self,
         generators: &Generators,
-    ) -> impl Future<Output = Result<Option<lsp_types::WorkspaceEdit>>>;
+    ) -> impl Future<Output = Result<Option<lsp_types::WorkspaceEdit>>> {
+        async { Ok(None) }
+    }
 
     fn is_called(name: &str) -> bool {
         name == Self::NAME
