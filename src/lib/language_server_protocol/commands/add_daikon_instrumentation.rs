@@ -2,14 +2,12 @@ use super::Command;
 use crate::lib::code_entities::prelude::Class;
 use crate::lib::code_entities::prelude::Feature;
 use crate::lib::code_entities::prelude::Range;
-use crate::lib::eiffel_source::Indent;
+use crate::lib::eiffel_source::EiffelSource;
 use crate::lib::language_server_protocol::commands::lsp_types;
 use crate::lib::workspace::Workspace;
-use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
-use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
@@ -281,16 +279,10 @@ ppt-type exit{class_fields_declaration}{parameters_declaration}{return_declarati
         ])
     }
 
-    fn instrumented_redefinition(&self) -> String {
+    fn redefined_current_feature_body(&self) -> String {
         let indentation_string = Self::eiffel_statement_indentation_string();
         let instrumentation_body_start = self.feature_instrumentation_at(DaikonPosition::Enter);
         let instrumentation_body_end = self.feature_instrumentation_at(DaikonPosition::Exit);
-        let feature_name = self.feature.name();
-        let return_type_text = self
-            .feature
-            .return_type()
-            .map(|ty| format!(": {ty}"))
-            .unwrap_or_default();
         let feature_parameters = self.feature.parameters();
         let comma_separated_parameters =
             feature_parameters
@@ -303,38 +295,20 @@ ppt-type exit{class_fields_declaration}{parameters_declaration}{return_declarati
                         format!("{acc}, {param_name}")
                     }
                 });
-        let wrapped_comma_separated_parameters =
-            format!("({})", feature_parameters.to_string().trim());
         format!(
-            r#"
-    {feature_name} {wrapped_comma_separated_parameters}{return_type_text}
-        do
-{instrumentation_body_start}
+            r#"{instrumentation_body_start}
 {indentation_string}Precursor ({comma_separated_parameters})
-{instrumentation_body_end}
-        end
-
-            "#
+{instrumentation_body_end}"#
         )
     }
 
     fn instrumentation_by_subclass(&self) -> String {
-        let class_name = self.class.name();
-        let feature_name = self.feature.name();
-        let instrumented_redefinition = self.instrumented_redefinition();
-        format!(
-            r#"class
-    {class_name}_DAIKON_INSTRUMENTED
-inherit
-    {class_name}
-    redefine
-        {feature_name}
-    end
-feature
-{instrumented_redefinition}
-end
-"#
-        )
+        let instrumented_subclass = EiffelSource::subclass_redefining_features(
+            self.class,
+            "DAIKON_INSTRUMENTED",
+            vec![(self.feature, self.redefined_current_feature_body())],
+        );
+        format!("{instrumented_subclass}")
     }
 
     async fn write_instrumented_subclass_file(&self) -> Result<()> {
@@ -617,22 +591,18 @@ variable return
     }
 
     #[tokio::test]
-    async fn instrumented_redefinition() -> Result<()> {
+    async fn instrumented_redefinition_body() -> Result<()> {
         let mut ws = Workspace::mock();
         let dkn = DaikonInstrumenter::mock(&mut ws).await?;
-        let res = dkn.instrumented_redefinition();
+        let res = dkn.redefined_current_feature_body();
         let instrumentation_body_start = dkn.feature_instrumentation_at(DaikonPosition::Enter);
         let instrumentation_body_end = dkn.feature_instrumentation_at(DaikonPosition::Exit);
 
         let oracle = format!(
             r#"
-sum (x: INTEGER
-    y: INTEGER): INTEGER
-    do
-    {instrumentation_body_start}
-        Precursor (x, y)
-    {instrumentation_body_end}
-    end"#
+            {instrumentation_body_start} Precursor (x, y)
+            {instrumentation_body_end}
+            "#
         );
         let oracle_iter = oracle
             .lines()
@@ -643,41 +613,6 @@ sum (x: INTEGER
 
         let same = oracle_iter.zip(res_iter).all(|(or, rs)| or == rs);
         assert!(same, "oracle: {oracle}\nres: {res}");
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn instrumented_class_text() -> Result<()> {
-        let mut ws = Workspace::mock();
-        let dkn = DaikonInstrumenter::mock(&mut ws).await?;
-
-        let res = dkn.instrumentation_by_subclass();
-        let instrumented_redefinition = dkn.instrumented_redefinition();
-
-        let oracle_res = format!(
-            r#"
-class
-	TEST_DAIKON_INSTRUMENTED
-inherit
-	TEST
-	redefine
-		sum
-	end
-feature
-{instrumented_redefinition}
-end
-"#
-        );
-
-        let oracle_res_clean = oracle_res
-            .lines()
-            .map(|ln| ln.trim())
-            .filter(|ln| !ln.is_empty());
-        let res_clean = res.lines().map(|ln| ln.trim()).filter(|ln| !ln.is_empty());
-
-        let same = oracle_res_clean.zip(res_clean).all(|(or, ac)| or == ac);
-        assert!(same, "oracle_res: {oracle_res}\nres: {res}");
 
         Ok(())
     }

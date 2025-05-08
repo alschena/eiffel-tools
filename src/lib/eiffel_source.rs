@@ -42,7 +42,7 @@ impl<T: Display + Indent + Contract + Deref<Target = Vec<Clause>>> Display for B
 }
 
 #[derive(Clone, Debug, Default)]
-struct EiffelSource(String);
+pub struct EiffelSource(String);
 
 impl Deref for EiffelSource {
     type Target = String;
@@ -175,7 +175,7 @@ impl From<(&Class, Vec<(&Feature, String)>)> for EiffelSource {
 }
 
 impl EiffelSource {
-    fn subclass_redefining_features(
+    pub fn subclass_redefining_features(
         cl: &Class,
         name_postfix: &str,
         fts: Vec<(&Feature, String)>,
