@@ -54,7 +54,7 @@ impl<'ws> super::Command<'ws> for ClassSpecificationGenerator<'ws> {
     async fn generate_edits(
         &self,
         generators: &Generators,
-    ) -> anyhow::Result<lsp_types::WorkspaceEdit> {
+    ) -> anyhow::Result<Option<lsp_types::WorkspaceEdit>> {
         todo!()
     }
 }

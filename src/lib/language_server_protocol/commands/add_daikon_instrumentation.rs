@@ -53,12 +53,12 @@ impl<'ws> DaikonInstrumenter<'ws> {
         })
     }
 
-    async fn write_declaration(&self) -> Result<()> {
+    async fn write_declaration_file(&self) -> Result<()> {
         let mut declaration_file = tokio::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(self.declaration_file()?)
+            .open(self.declaration_filename()?)
             .await?;
 
         let version = format!("decl-version 2.0\n");
@@ -72,9 +72,21 @@ impl<'ws> DaikonInstrumenter<'ws> {
         Ok(())
     }
 
-    fn declaration_file(&self) -> Result<PathBuf> {
-        let mut pathbuf = self.filepath.to_owned().to_path_buf();
+    fn declaration_filename(&self) -> Result<PathBuf> {
+        let mut pathbuf = self.filepath.to_path_buf();
         pathbuf.set_extension("decls");
+        Ok(pathbuf)
+    }
+
+    fn instrumented_subclass_filename(&self) -> Result<PathBuf> {
+        let mut pathbuf = self.filepath.to_path_buf();
+        let Some(stem) = self.filepath.file_stem() else {
+            bail!("fails to get file stem (filename without extension) of current file.")
+        };
+        let Some(stem) = stem.to_str() else {
+            bail!("fails to check UFT-8 validity of file stem: {stem:#?}")
+        };
+        pathbuf.set_file_name(format!("{stem}_daikon_instrumented.e"));
         Ok(pathbuf)
     }
 
@@ -306,7 +318,7 @@ ppt-type exit{class_fields_declaration}{parameters_declaration}{return_declarati
         )
     }
 
-    pub fn instrumentation_by_subclass(&self) -> String {
+    fn instrumentation_by_subclass(&self) -> String {
         let class_name = self.class.name();
         let feature_name = self.feature.name();
         let instrumented_redefinition = self.instrumented_redefinition();
@@ -323,6 +335,20 @@ feature
 end
 "#
         )
+    }
+
+    async fn write_instrumented_subclass_file(&self) -> Result<()> {
+        let mut subclass_file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(self.instrumented_subclass_filename()?)
+            .await?;
+        subclass_file
+            .write(self.instrumentation_by_subclass().as_bytes())
+            .await?;
+        subclass_file.flush().await?;
+        Ok(())
     }
 }
 
@@ -367,21 +393,22 @@ impl<'ws> Command<'ws> for DaikonInstrumenter<'ws> {
     }
 
     async fn side_effect(&self) -> anyhow::Result<()> {
-        self.write_declaration().await
+        self.write_declaration_file().await?;
+        self.write_instrumented_subclass_file().await
     }
 
     async fn generate_edits(
         &self,
         _generators: &crate::lib::generators::Generators,
-    ) -> Result<lsp_types::WorkspaceEdit> {
+    ) -> Result<Option<lsp_types::WorkspaceEdit>> {
         let url = lsp_types::Url::from_file_path(self.filepath).map_err(|_| {
             anyhow!("if on unix path must be absolute. if on windows path must have disk prefix")
         })?;
 
-        Ok(lsp_types::WorkspaceEdit::new(HashMap::from([(
+        Ok(Some(lsp_types::WorkspaceEdit::new(HashMap::from([(
             url,
             self.instrument_body_start_and_end()?.into(),
-        )])))
+        )]))))
     }
 }
 
@@ -452,15 +479,15 @@ end
         let daikon_instrumenter = DaikonInstrumenter::mock(ws).await?;
 
         assert_eq!(
-            daikon_instrumenter.declaration_file()?.parent(),
+            daikon_instrumenter.declaration_filename()?.parent(),
             daikon_instrumenter.filepath.parent()
         );
         assert_eq!(
-            daikon_instrumenter.declaration_file()?.file_stem(),
+            daikon_instrumenter.declaration_filename()?.file_stem(),
             daikon_instrumenter.filepath.file_stem()
         );
         assert!(daikon_instrumenter
-            .declaration_file()?
+            .declaration_filename()?
             .extension()
             .is_some_and(|ext| ext == "decls"));
         Ok(())

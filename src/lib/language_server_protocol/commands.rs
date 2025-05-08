@@ -2,6 +2,7 @@ use crate::lib::code_entities::prelude::Point;
 use crate::lib::generators::Generators;
 use crate::lib::workspace::Workspace;
 use anyhow::Context;
+use anyhow::Result;
 use async_lsp::lsp_types;
 use async_lsp::lsp_types::request;
 use async_lsp::ResponseError;
@@ -27,7 +28,7 @@ trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
     fn generate_edits(
         &self,
         generators: &Generators,
-    ) -> impl Future<Output = anyhow::Result<lsp_types::WorkspaceEdit>>;
+    ) -> impl Future<Output = Result<Option<lsp_types::WorkspaceEdit>>>;
 
     fn is_called(name: &str) -> bool {
         name == Self::NAME
@@ -160,12 +161,12 @@ commands!(
     functions:
         command() -> lsp_types::Command;
     async_functions:
-        generate_edits(g: &Generators) -> anyhow::Result<lsp_types::WorkspaceEdit>,
+        generate_edits(g: &Generators) -> Result<Option<lsp_types::WorkspaceEdit>>,
         request_edits(
             client: &async_lsp::ClientSocket,
             edit: lsp_types::WorkspaceEdit
         ) -> Result<(), async_lsp::ResponseError>,
-        side_effect() -> anyhow::Result<()>
+        side_effect() -> Result<()>
 );
 
 impl<'ws> Commands<'ws> {
@@ -173,7 +174,7 @@ impl<'ws> Commands<'ws> {
         ws: &'ws Workspace,
         filepath: &Path,
         cursor: Point,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self> {
         let command = RoutineSpecificationGenerator::try_new_at_cursor(ws, filepath, cursor)?;
         Ok(Commands::RoutineSpecificationGenerator(command))
     }
@@ -206,14 +207,15 @@ impl<'ws> Commands<'ws> {
             )
         })?;
 
-        let edit = self.generate_edits(generators).await.map_err(|e| {
+        if let Some(edit) = self.generate_edits(generators).await.map_err(|e| {
             async_lsp::ResponseError::new(
                 async_lsp::ErrorCode::REQUEST_FAILED,
                 format!("Fails to generate text edits with error: {e}"),
             )
-        })?;
-
-        self.request_edits(client, edit).await
+        })? {
+            self.request_edits(client, edit).await?;
+        }
+        Ok(())
     }
 }
 
@@ -231,7 +233,7 @@ mod tests {
         name: CommandsTest;
         variants: [MockCommand];
         functions: command() -> lsp_types::Command, test_function_with_arg(s: String)-> String;
-        async_functions: generate_edits(g: &Generators) -> anyhow::Result<WorkspaceEdit>
+        async_functions: generate_edits(g: &Generators) -> Result<Option<WorkspaceEdit>>
     );
 
     #[test]

@@ -8,6 +8,7 @@ use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
+use anyhow::Result;
 use async_lsp::lsp_types;
 use contract::Postcondition;
 use contract::Precondition;
@@ -69,7 +70,7 @@ impl<'ws> super::Command<'ws> for RoutineSpecificationGenerator<'ws> {
     async fn generate_edits(
         &self,
         generators: &Generators,
-    ) -> anyhow::Result<lsp_types::WorkspaceEdit> {
+    ) -> Result<Option<lsp_types::WorkspaceEdit>> {
         let file = self.file;
         let system_classes = self.system_classes();
         let more_routine_spec = generators
@@ -82,22 +83,21 @@ impl<'ws> super::Command<'ws> for RoutineSpecificationGenerator<'ws> {
             .with_context(|| "fix routine specifications.")
             .inspect(|val| info!("Routine spec after fixes:\t{val:#?}"))
             .inspect_err(|e| info!("Error in routine spec after fixes:\t{e:#?}"))?;
-        self.routine_specification_edit(fixed)
-            .inspect(|val| info!("Text edits of routine specs:\t{val:#?}"))
-            .inspect_err(|e| info!("Error in text edit of routine specs:\t{e:#?}"))
+
+        Ok(Some(
+            self.routine_specification_edit(fixed)
+                .inspect(|val| info!("Text edits of routine specs:\t{val:#?}"))
+                .inspect_err(|e| info!("Error in text edit of routine specs:\t{e:#?}"))?,
+        ))
     }
 }
 
 impl<'ws> RoutineSpecificationGenerator<'ws> {
-    fn feature(file: &ProcessedFile, cursor: Point) -> anyhow::Result<&Feature> {
+    fn feature(file: &ProcessedFile, cursor: Point) -> Result<&Feature> {
         file.feature_around_point(cursor)
             .with_context(|| "cursor is not around feature.")
     }
-    pub fn try_new(
-        workspace: &'ws Workspace,
-        filepath: &Path,
-        feature_name: &str,
-    ) -> anyhow::Result<Self> {
+    pub fn try_new(workspace: &'ws Workspace, filepath: &Path, feature_name: &str) -> Result<Self> {
         let file = workspace
             .find_file(filepath)
             .with_context(|| format!("Fails to find file of path: {filepath:#?}"))?;
@@ -119,7 +119,7 @@ impl<'ws> RoutineSpecificationGenerator<'ws> {
         workspace: &'ws Workspace,
         filepath: &Path,
         cursor: Point,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self> {
         let file = workspace
             .find_file(filepath)
             .with_context(|| "fails to find file: {filepath} in workspace.")?;
@@ -134,21 +134,21 @@ impl<'ws> RoutineSpecificationGenerator<'ws> {
         self.file.class()
     }
 
-    fn precondition_add_point(&self) -> anyhow::Result<Point> {
+    fn precondition_add_point(&self) -> Result<Point> {
         let Some(precondition_point) = self.feature.point_end_preconditions() else {
             bail!("The current feature must have an injection point for preconditions.");
         };
         Ok(precondition_point)
     }
 
-    fn postcondition_add_point(&self) -> anyhow::Result<Point> {
+    fn postcondition_add_point(&self) -> Result<Point> {
         let Some(postcondition_point) = self.feature.point_end_postconditions() else {
             bail!("The current feature must have an injection point for postconditions.");
         };
         Ok(postcondition_point)
     }
 
-    fn precondition_edit(&self, precondition: Precondition) -> anyhow::Result<lsp_types::TextEdit> {
+    fn precondition_edit(&self, precondition: Precondition) -> Result<lsp_types::TextEdit> {
         let point = self.precondition_add_point()?;
         let range = Range::new_collapsed(point);
 
@@ -166,10 +166,7 @@ impl<'ws> RoutineSpecificationGenerator<'ws> {
         })
     }
 
-    fn postcondition_edit(
-        &self,
-        postcondition: Postcondition,
-    ) -> anyhow::Result<lsp_types::TextEdit> {
+    fn postcondition_edit(&self, postcondition: Postcondition) -> Result<lsp_types::TextEdit> {
         let point = self.postcondition_add_point()?;
         let range = Range::new_collapsed(point);
 
@@ -190,7 +187,7 @@ impl<'ws> RoutineSpecificationGenerator<'ws> {
     fn routine_specification_edit(
         &self,
         routine_specification: RoutineSpecification,
-    ) -> anyhow::Result<lsp_types::WorkspaceEdit> {
+    ) -> Result<lsp_types::WorkspaceEdit> {
         let precondition = routine_specification.precondition;
         let postcondition = routine_specification.postcondition;
         let pre_edit = self.precondition_edit(precondition)?;
