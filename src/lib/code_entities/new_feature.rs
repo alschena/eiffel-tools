@@ -4,6 +4,7 @@ use crate::lib::code_entities::feature::Parameters;
 use crate::lib::code_entities::new_class::ClassID;
 use contract::{Postcondition, Precondition};
 use std::collections::HashMap;
+use std::ops::Deref;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum FeatureVisibility {
@@ -12,14 +13,24 @@ pub enum FeatureVisibility {
     Public,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct FeatureID(usize);
+#[derive(PartialOrd, Ord, Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct FeatureID(usize, usize);
+
+#[derive(PartialOrd, Ord, Debug, PartialEq, Eq, Clone, Hash)]
+pub struct FeatureName(String);
+impl Deref for FeatureName {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct Features {
-    names: HashMap<FeatureID, String>,
+    names: HashMap<FeatureID, FeatureName>,
     ranges: HashMap<FeatureID, Range>,
-    classes: Vec<(FeatureID, ClassID)>,
+    classes: HashMap<FeatureID, ClassID>,
     params: HashMap<FeatureID, Parameters>,
     ret_type: HashMap<FeatureID, EiffelType>,
     notes: HashMap<FeatureID, Notes>,
@@ -32,23 +43,17 @@ pub struct Features {
 }
 
 impl Features {
-    pub fn names<'slf, T: Iterator<Item = &'slf FeatureID>>(
-        &'slf self,
-        iter: T,
-    ) -> impl Iterator<Item = &'slf str> + use<'slf, T> {
-        iter.map(|id| {
-            self.names
-                .get(id)
-                .expect("fails to find name of feature of id: {id}")
-                .as_ref()
-        })
+    pub fn name_of(&self, id: &FeatureID) -> &FeatureName {
+        self.names
+            .get(id)
+            .unwrap_or_else(|| panic!("fails to find name of feature of id: {id:#?}"))
     }
 
     fn ranges<'slf, T: Iterator<Item = &'slf FeatureID>>(
         &'slf self,
-        iter: T,
+        ids: T,
     ) -> impl Iterator<Item = &'slf Range> + use<'slf, T> {
-        iter.map(|id| {
+        ids.map(|id| {
             self.ranges
                 .get(id)
                 .expect("fails to find range of feature of id: {id}")
