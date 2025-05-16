@@ -6,6 +6,7 @@ pub mod lib {
     mod fix;
     mod generators;
     pub mod language_server_protocol;
+    mod new_eiffel_source;
     mod new_workspace;
     mod parser;
     mod workspace;

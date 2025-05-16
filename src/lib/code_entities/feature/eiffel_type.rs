@@ -77,3 +77,10 @@ impl From<ClassName> for EiffelType {
         EiffelType::ClassType(name.clone(), name)
     }
 }
+
+#[cfg(test)]
+impl EiffelType {
+    pub fn mock_boolean() -> Self {
+        Self::ClassType("BOOLEAN".to_string(), "BOOLEAN".to_string())
+    }
+}

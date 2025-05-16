@@ -61,6 +61,28 @@ impl Display for Parameters {
 }
 
 #[cfg(test)]
+impl Parameters {
+    pub fn mock_integer<T: ToString>(name: T) -> Parameters {
+        Parameters {
+            names: vec![name.to_string()],
+            types: vec![EiffelType::ClassType(
+                "INTEGER".to_string(),
+                "INTEGER".to_string(),
+            )],
+        }
+    }
+    pub fn mock_new_integer<T: ToString>(name: T) -> Parameters {
+        Parameters {
+            names: vec![name.to_string()],
+            types: vec![EiffelType::ClassType(
+                "NEW_INTEGER".to_string(),
+                "NEW_INTEGER".to_string(),
+            )],
+        }
+    }
+}
+
+#[cfg(test)]
 pub mod tests {
     use super::*;
     use crate::lib::parser::Parser;
@@ -71,29 +93,9 @@ pub mod tests {
         parser.class_from_source(source)
     }
 
-    pub fn integer_parameter(name: String) -> Parameters {
-        Parameters {
-            names: vec![name],
-            types: vec![EiffelType::ClassType(
-                "INTEGER".to_string(),
-                "INTEGER".to_string(),
-            )],
-        }
-    }
-
-    pub fn new_integer_parameter(name: String) -> Parameters {
-        Parameters {
-            names: vec![name],
-            types: vec![EiffelType::ClassType(
-                "NEW_INTEGER".to_string(),
-                "NEW_INTEGER".to_string(),
-            )],
-        }
-    }
-
     #[test]
     fn display_parameter() {
-        let p = integer_parameter("test".to_string());
+        let p = Parameters::mock_integer("test");
         assert_eq!(format!("{p}"), "test: INTEGER");
     }
 
@@ -108,7 +110,7 @@ feature
 end
     "#;
         let system_classes = [class(src)?];
-        let p = new_integer_parameter("test".to_string());
+        let p = Parameters::mock_new_integer("test");
         assert_eq!(
             format!("{}", p.fmt_model(&system_classes)),
             "The argument test: NEW_INTEGER\n\thas model: value: INTEGER\n\t\tis terminal. No qualified call is allowed on this value.\n"
