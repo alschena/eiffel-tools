@@ -1,0 +1,89 @@
+use crate::lib::code_entities::prelude::*;
+use crate::lib::generators::Generators;
+use crate::lib::language_server_protocol::commands::fix_routine::path::PathBuf;
+use crate::lib::processed_file::ProcessedFile;
+use crate::lib::workspace::Workspace;
+use anyhow::Context;
+use anyhow::Result;
+use async_lsp::lsp_types;
+use serde_json;
+use std::path;
+use std::path::Path;
+use tracing::info;
+
+#[derive(Debug, Clone)]
+struct FixRoutine<'ws> {
+    workspace: &'ws Workspace,
+    file: &'ws ProcessedFile,
+    feature: &'ws Feature,
+}
+
+impl<'ws> FixRoutine<'ws> {
+    pub fn try_new(workspace: &'ws Workspace, filepath: &Path, feature_name: &str) -> Result<Self> {
+        let file = workspace
+            .find_file(filepath)
+            .with_context(|| format!("Fails to find file of path: {filepath:#?}"))?;
+        let feature = file
+            .class()
+            .features()
+            .iter()
+            .find(|&ft| ft.name() == feature_name)
+            .with_context(|| {
+                format!("Fails to find in file: {file:#?} feature of name: {feature_name}")
+            })?;
+        Ok(Self {
+            workspace,
+            file,
+            feature,
+        })
+    }
+}
+
+impl<'ws> TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> for FixRoutine<'ws> {
+    type Error = anyhow::Error;
+
+    fn try_from(value: (&'ws Workspace, Vec<serde_json::Value>)) -> Result<Self, Self::Error> {
+        let workspace = value.0;
+        let mut arguments = value.1;
+        let feature_name = arguments.pop().with_context(|| {
+            "Fails to retrieve the second argument (feature name) to add routine specification."
+        })?;
+        let feature_name: String = serde_json::from_value(feature_name)?;
+        let filepath = arguments.pop().with_context(|| {
+            "Fails to retrieve the first argument (file path) to add routine specification."
+        })?;
+        let filepath: PathBuf = serde_json::from_value(filepath)?;
+        Self::try_new(workspace, &filepath, &feature_name)
+    }
+}
+
+impl<'ws> FixRoutine<'ws> {
+    fn system_classes(&self) -> Box<[Class]> {
+        self.workspace.system_classes().into()
+    }
+}
+
+impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
+    const NAME: &'static str = "Fix routine";
+
+    const TITLE: &'static str = "fix_routine";
+
+    fn arguments(&self) -> Vec<serde_json::Value> {
+        let path = self.file.path();
+        let Ok(serialized_filepath) = serde_json::to_value(path) else {
+            unreachable!("fails to serialize path: {path:#?}")
+        };
+        let feature = self.feature;
+        let Ok(serialized_feature_name) = serde_json::to_value(feature.name()) else {
+            unreachable!("fails to serialize name of feature: {feature:#?}")
+        };
+        vec![serialized_filepath, serialized_feature_name]
+    }
+
+    async fn generate_edits(
+        &self,
+        generators: &Generators,
+    ) -> Result<Option<lsp_types::WorkspaceEdit>> {
+        todo!()
+    }
+}

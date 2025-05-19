@@ -81,6 +81,10 @@ impl Generators {
 
         Ok(completion_response_processed)
     }
+
+    pub fn fix_routine(&self, routine: &Feature, file: &ProcessedFile, system_classes: &[Class]) {
+        todo!()
+    }
 }
 
 #[cfg(test)]
