@@ -23,25 +23,6 @@ impl ProcessedFile {
     pub(crate) fn feature_around_point(&self, point: Point) -> Option<&Feature> {
         Feature::feature_around_point(self.class().features().iter(), point)
     }
-    pub async fn reload(&mut self) {
-        let mut parser = Parser::new();
-        match parser.processed_file(self.path.clone()).await {
-            Ok(ProcessedFile {
-                tree,
-                path: _,
-                class,
-            }) => {
-                self.tree = tree;
-                self.class = class;
-            }
-            Err(e) => {
-                warn!(
-                    "fails to reload file at path: {:#?} with error: {e:#?}",
-                    self.path
-                )
-            }
-        }
-    }
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -88,57 +69,5 @@ impl TryFrom<&ProcessedFile> for lsp_types::WorkspaceSymbol {
             data: None,
             tags: None,
         })
-    }
-}
-
-#[cfg(test)]
-pub mod tests {
-    use super::*;
-    use crate::lib::parser::Parser;
-    use assert_fs::prelude::*;
-    use assert_fs::{fixture::FileWriteStr, TempDir};
-
-    #[tokio::test]
-    async fn reload() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
-        let temp_dir = TempDir::new().expect("must create temporary directory.");
-        let file = temp_dir.child("processed_file_new.e");
-        file.write_str(
-            r#"
-class A
-feature
-  x: INTEGER
-end
-            "#,
-        )
-        .expect("write to file");
-        assert!(file.exists());
-
-        let mut processed_file = parser.processed_file(file.to_path_buf()).await?;
-
-        assert_eq!(file.to_path_buf(), processed_file.path());
-
-        assert_eq!(processed_file.class().features().len(), 1);
-
-        file.write_str(
-            r#"
-class A
-feature
-  x: INTEGER
-  y: INTEGER
-end
-            "#,
-        )
-        .expect("temp file must be writable");
-
-        processed_file.reload().await;
-
-        assert_eq!(
-            processed_file.class().features().len(),
-            2,
-            "after reload there are two parsed features."
-        );
-
-        Ok(())
     }
 }

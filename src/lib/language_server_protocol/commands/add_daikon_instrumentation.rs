@@ -377,7 +377,8 @@ mod tests {
     use super::*;
     use crate::lib::code_entities::prelude::*;
     use crate::lib::parser::Parser;
-    use crate::lib::processed_file::ProcessedFile;
+    use crate::lib::parser::Tree;
+    use crate::lib::processed_file;
     use crate::lib::workspace::Workspace;
     use anyhow::bail;
     use anyhow::Context;
@@ -387,7 +388,7 @@ mod tests {
 
     use super::DaikonInstrumenter;
 
-    async fn processed_file() -> ProcessedFile {
+    async fn processed_file() -> (Class, PathBuf, Tree) {
         let mut parser = Parser::new();
         let temp_dir = TempDir::new().expect("must create temporary directory.");
         let file = temp_dir.child("processed_file_new.e");
@@ -403,6 +404,7 @@ end
 "#,
         )
         .expect("write to file");
+
         parser
             .processed_file(file.to_path_buf())
             .await
@@ -411,14 +413,20 @@ end
 
     impl<'ws> DaikonInstrumenter<'ws> {
         pub async fn mock(mock_workspace: &'ws mut Workspace) -> Result<Self> {
-            let processed_file = processed_file().await;
-            let filepath = processed_file.path();
-            mock_workspace.set_files(vec![processed_file.clone()]);
-            let file = mock_workspace.find_file(filepath).with_context(|| {
-                format!("fails to find file of path {:#?} in workspace.", filepath)
-            })?;
-            let filepath = file.path();
-            let class = file.class();
+            mock_workspace.add_file(processed_file().await);
+
+            let (filepath, classname) = mock_workspace
+                .path_to_classname
+                .iter()
+                .find(|(_, classname)| *classname == "TEST")
+                .unwrap();
+
+            let class = mock_workspace
+                .classes
+                .iter()
+                .find(|class| class.name() == classname)
+                .unwrap();
+
             let feature = class
                 .features()
                 .first()
@@ -455,21 +463,8 @@ end
 
     #[tokio::test]
     async fn instrument_body_start_and_end() -> Result<()> {
-        let workspace = &mut Workspace::mock();
-        let processed_file = processed_file().await;
-        let filepath = processed_file.path();
-        let class = &processed_file.class().clone();
-        let Some(ref feature) = class.features().first() else {
-            bail!("fails to find feature")
-        };
-        workspace.set_files(vec![processed_file.clone()]);
-
-        let daikon_instrumenter = DaikonInstrumenter {
-            workspace,
-            filepath,
-            class,
-            feature,
-        };
+        let mut ws = Workspace::mock();
+        let daikon_instrumenter = DaikonInstrumenter::mock(&mut ws).await?;
 
         let [start_edit, end_edit] = daikon_instrumenter.instrument_body_start_and_end()?;
 

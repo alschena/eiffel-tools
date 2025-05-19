@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result;
 
@@ -41,8 +41,7 @@ pub trait EntityDeclarationGroupTree<'source, 'tree>: EiffelTypeTree<'source, 't
     fn entity_declaration_group_parameters(&mut self) -> Result<FeatureParameters>;
 }
 
-impl<'source, 'tree> EntityDeclarationGroupTree<'source, 'tree> for TreeTraversal<'source,'tree>
-{
+impl<'source, 'tree> EntityDeclarationGroupTree<'source, 'tree> for TreeTraversal<'source, 'tree> {
     fn goto_entity_declaration_group_tree(&mut self, entity_declaration_group: Node<'tree>) {
         assert_eq!(entity_declaration_group.kind(), "entity_declaration_group");
 
@@ -68,9 +67,11 @@ impl<'source, 'tree> EntityDeclarationGroupTree<'source, 'tree> for TreeTraversa
 
         let type_nodes = self.nodes_captures("parameter_type")?;
 
-        if type_nodes.len() != 1 {
-            return Err(anyhow!("fails to get exactly one node of type per entity declaration group. Type nodes: {type_nodes:#?}").into());
-        }
+        ensure!(
+            type_nodes.len() == 1,
+            "fails to get exactly one node of type per entity declaration group. Type nodes: {:#?}",
+            type_nodes
+        );
 
         let r#type = type_nodes
             .first()
@@ -122,7 +123,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::lib::code_entities::prelude::*;
     use crate::lib::parser::class_tree::tests::FUNCTION_CLASS;
     use crate::lib::parser::Parser;

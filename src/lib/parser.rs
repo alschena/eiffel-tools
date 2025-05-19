@@ -80,27 +80,26 @@ impl Parser {
         Ok(any_feature)
     }
 
-    #[instrument(skip(self))]
-    pub async fn processed_file(&mut self, path: PathBuf) -> Result<ProcessedFile> {
+    pub async fn processed_file(&mut self, path: PathBuf) -> Result<(Class, PathBuf, Tree)> {
         let src = String::from_utf8(
             tokio::fs::read(&path)
                 .await
-                .with_context(|| format!("fails to read file at path: {path:#?}"))?,
+                .with_context(|| format!("fails to read file at path: {:#?}", path))?,
         )?;
+
         let parsed_source = self
             .parse(&src)
-            .with_context(|| "fails processing file at path: {path:#?}")?;
+            .with_context(|| format!("fails processing file at path: {:#?}", path))?;
+
         let mut class_tree = parsed_source
             .class_tree_traversal()
-            .with_context(|| "fails processing file at path: {path:#?}")?;
+            .with_context(|| format!("fails processing file at path: {:#?}", path))?;
+
         let class = class_tree
             .class()
-            .with_context(|| "fails processing file at path: {path:#?}")?;
-        Ok(ProcessedFile {
-            tree: parsed_source.tree,
-            path,
-            class,
-        })
+            .with_context(|| format!("fails processing file at path: {:#?}", path))?;
+
+        Ok((class, path, parsed_source.tree))
     }
 }
 
@@ -148,9 +147,10 @@ mod tests {
         tmp_file.write_str(EMPTY_CLASS)?;
         assert!(tmp_file.exists(), "tmp file exists");
 
-        let processed_file = parser.processed_file(tmp_file.to_path_buf()).await?;
+        let (class, path, tree) = parser.processed_file(tmp_file.to_path_buf()).await?;
 
-        assert_eq!(processed_file.class.name, ClassName("A".to_string()));
+        assert_eq!(class.name(), "A", "class name: {:#?}", class.name());
+        assert_eq!(path, tmp_file.path(), "path is {:#?}", tmp_file.path());
         Ok(())
     }
 }
