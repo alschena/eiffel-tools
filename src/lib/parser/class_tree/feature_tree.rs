@@ -74,6 +74,22 @@ pub trait FeatureTree<'source, 'tree>: Traversal<'source, 'tree> {
     fn goto_feature_tree(&mut self, feature_declaration_node: Node<'tree>);
 
     fn feature(&mut self) -> Result<Vec<Feature>>;
+
+    fn feature_names(&mut self) -> Result<Vec<String>>;
+
+    fn feature_parameters(&mut self) -> Result<FeatureParameters>;
+
+    fn feature_return_type(&mut self) -> Result<Option<EiffelType>>;
+
+    fn feature_precondition(&mut self) -> Result<Option<Block<Precondition>>>;
+
+    fn feature_postcondition(&mut self) -> Result<Option<Block<Postcondition>>>;
+
+    fn feature_notes(&mut self) -> Result<Option<FeatureNotes>>;
+
+    fn feature_range(&mut self) -> Result<Range>;
+
+    fn feature_body_range(&mut self) -> Result<Option<Range>>;
 }
 
 impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tree> {
@@ -85,39 +101,18 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
         self.set_node_and_query(feature_declaration_node, <Self as FeatureTree>::query());
     }
 
-    fn feature(&mut self) -> Result<Vec<Feature>> {
-        let outer_node = self.nodes_captures("feature_declaration")?;
-        let names_nodes = self.nodes_captures("feature_name")?;
+    fn feature_names(&mut self) -> Result<Vec<String>> {
+        self.nodes_captures("feature_name")?
+            .iter()
+            .map(|name| self.node_content(*name).map(|name| name.to_string()))
+            .collect::<Result<Vec<_>, _>>()
+    }
+
+    fn feature_parameters(&mut self) -> Result<FeatureParameters> {
+        let initial_node = self.current_node();
 
         let parameters_node = self.nodes_captures("parameters")?;
         let parameters_node = parameters_node.first();
-
-        let return_type_node = self.nodes_captures("return_type")?;
-        let return_type_node = return_type_node.first();
-
-        let notes_node = self.nodes_captures("notes")?;
-        let notes_node = notes_node.first();
-
-        let body_range = self
-            .nodes_captures("body")?
-            .first()
-            .map(|body_node| body_node.range().into());
-
-        let preconditions_node = self.nodes_captures("precondition")?;
-        let preconditions_node = preconditions_node.first();
-
-        let postconditions_node = self.nodes_captures("postcondition")?;
-        let postconditions_node = postconditions_node.first();
-
-        let some_attribute_or_routine_range_if_contracts_supported = self
-            .nodes_captures("attribute_or_routine")?
-            .first()
-            .map(|aor_node| aor_node.range());
-
-        let names = names_nodes
-            .iter()
-            .map(|name| self.node_content(*name).map(|name| name.to_string()))
-            .collect::<Result<Vec<_>, _>>()?;
 
         let parameters = parameters_node
             .map(|parameters_node| -> Result<_> {
@@ -127,27 +122,44 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
             .transpose()?
             .unwrap_or_default();
 
+        self.goto_feature_tree(initial_node);
+
+        Ok(parameters)
+    }
+
+    fn feature_return_type(&mut self) -> Result<Option<EiffelType>> {
+        let initial_node = self.current_node();
+
+        let return_type_node = self.nodes_captures("return_type")?;
+        let return_type_node = return_type_node.first();
+
         let return_type = return_type_node
             .map(|type_node| {
                 self.goto_eiffel_type_tree(*type_node);
                 self.eiffel_type()
             })
-            .transpose()?;
+            .transpose();
 
-        let notes = notes_node
-            .map(|&note_node| -> Result<_> {
-                self.goto_notes_tree(note_node);
-                self.notes()
-            })
-            .transpose()?;
+        self.goto_feature_tree(initial_node);
 
-        let range: Range = outer_node
+        return_type
+    }
+
+    fn feature_precondition(&mut self) -> Result<Option<Block<Precondition>>> {
+        let initial_node = self.current_node();
+
+        let notes_node = self.nodes_captures("notes")?;
+        let notes_node = notes_node.first();
+
+        let some_attribute_or_routine_range_if_contracts_supported = self
+            .nodes_captures("attribute_or_routine")?
             .first()
-            .map(|outer| outer.range())
-            .with_context(|| "fails to get feature declaration.")?
-            .into();
+            .map(|aor_node| aor_node.range());
 
-        let preconditions: Option<Block<Precondition>> = preconditions_node.map_or_else(
+        let preconditions_node = self.nodes_captures("precondition")?;
+        let preconditions_node = preconditions_node.first();
+
+        let preconditions = preconditions_node.map_or_else(
             || -> Result<Option<Block<Precondition>>> {
                 Ok(
                     some_attribute_or_routine_range_if_contracts_supported.map(|range| {
@@ -168,9 +180,25 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
                     range: precondition_node.range().into(),
                 }))
             },
-        )?;
+        );
 
-        let postconditions: Option<Block<Postcondition>> = postconditions_node.map_or_else(
+        self.goto_feature_tree(initial_node);
+
+        preconditions
+    }
+
+    fn feature_postcondition(&mut self) -> Result<Option<Block<Postcondition>>> {
+        let initial_node = self.current_node();
+
+        let some_attribute_or_routine_range_if_contracts_supported = self
+            .nodes_captures("attribute_or_routine")?
+            .first()
+            .map(|aor_node| aor_node.range());
+
+        let postconditions_node = self.nodes_captures("postcondition")?;
+        let postconditions_node = postconditions_node.first();
+
+        let postconditions = postconditions_node.map_or_else(
             || -> Result<Option<Block<_>>> {
                 Ok(
                     some_attribute_or_routine_range_if_contracts_supported.map(|range| {
@@ -191,7 +219,56 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
                     range: postcondition_node.range().into(),
                 }))
             },
-        )?;
+        );
+
+        self.goto_feature_tree(initial_node);
+
+        postconditions
+    }
+
+    fn feature_notes(&mut self) -> Result<Option<FeatureNotes>> {
+        let initial_node = self.current_node();
+
+        let notes_node = self.nodes_captures("notes")?;
+        let notes_node = notes_node.first();
+
+        let notes = notes_node
+            .map(|&note_node| -> Result<_> {
+                self.goto_notes_tree(note_node);
+                self.notes()
+            })
+            .transpose();
+
+        self.goto_feature_tree(initial_node);
+
+        notes
+    }
+
+    fn feature_range(&mut self) -> Result<Range> {
+        let outer_node = self.nodes_captures("feature_declaration")?;
+
+        outer_node
+            .first()
+            .map(|outer| outer.range().into())
+            .with_context(|| "fails to get feature declaration.")
+    }
+
+    fn feature_body_range(&mut self) -> Result<Option<Range>> {
+        Ok(self
+            .nodes_captures("body")?
+            .first()
+            .map(|body_node| body_node.range().into()))
+    }
+
+    fn feature(&mut self) -> Result<Vec<Feature>> {
+        let names = self.feature_names()?;
+        let parameters = self.feature_parameters()?;
+        let return_type = self.feature_return_type()?;
+        let notes = self.feature_notes()?;
+        let range = self.feature_range()?;
+        let body_range = self.feature_body_range()?;
+        let preconditions = self.feature_precondition()?;
+        let postconditions = self.feature_postcondition()?;
 
         let features = names
             .iter()
