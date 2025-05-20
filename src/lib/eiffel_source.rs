@@ -169,7 +169,7 @@ impl From<(&Class, Vec<(&Feature, String)>)> for EiffelSource {
             });
 
         EiffelSource(format!(
-            "{class_model}class\n{class_name}{inheritance_block}{features}"
+            "{class_model}class\n{class_name}{inheritance_block}{features}\nend"
         ))
     }
 }
