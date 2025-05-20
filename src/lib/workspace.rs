@@ -98,12 +98,13 @@ impl Workspace {
                             let status = sender.send(value).await;
                             if let Err(e) = status {
                                 warn!(
-                                    "fails to send processed file through mpsc with error: {e:#?}"
+                                    "fails to send processed file through mpsc with error: {:#?}",
+                                    e
                                 )
                             }
                         }
                         Err(e) => {
-                            warn!("fails to parse file with error {e}")
+                            warn!("fails to parse file with error {:#?}", e)
                         }
                     }
                 });
