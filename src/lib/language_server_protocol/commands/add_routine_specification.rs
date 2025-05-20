@@ -3,7 +3,6 @@ use crate::lib::fix::FeaturePositionInSystem;
 use crate::lib::fix::Fix;
 use crate::lib::generators::Generators;
 use crate::lib::parser::Parser;
-use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use anyhow::bail;
@@ -22,7 +21,7 @@ use tracing::info;
 #[derive(Debug, Clone)]
 pub struct RoutineSpecificationGenerator<'ws> {
     workspace: &'ws Workspace,
-    file: &'ws ProcessedFile,
+    path: &'ws Path,
     feature: &'ws Feature,
 }
 
@@ -39,16 +38,26 @@ impl<'ws> TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> for RoutineSpecifica
 
     fn try_from(value: (&'ws Workspace, Vec<serde_json::Value>)) -> Result<Self, Self::Error> {
         let workspace = value.0;
+
         let mut arguments = value.1;
+
         let feature_name = arguments.pop().with_context(|| {
             "Fails to retrieve the second argument (feature name) to add routine specification."
         })?;
         let feature_name: String = serde_json::from_value(feature_name)?;
+
         let filepath = arguments.pop().with_context(|| {
             "Fails to retrieve the first argument (file path) to add routine specification."
         })?;
         let filepath: PathBuf = serde_json::from_value(filepath)?;
-        Self::try_new(workspace, &filepath, &feature_name)
+
+        let class = workspace
+            .class(&filepath)
+            .ok_or_else(|| anyhow!("fails to find class loaded from path {:#?}", filepath))?;
+
+        let checked_path = workspace.path(class.name());
+
+        Self::try_new(workspace, checked_path, &feature_name)
     }
 }
 impl<'ws> super::Command<'ws> for RoutineSpecificationGenerator<'ws> {
@@ -56,7 +65,7 @@ impl<'ws> super::Command<'ws> for RoutineSpecificationGenerator<'ws> {
     const NAME: &'static str = "add_routine_specification";
 
     fn arguments(&self) -> Vec<serde_json::Value> {
-        let path = self.file.path();
+        let path = self.path;
         let Ok(serialized_filepath) = serde_json::to_value(path) else {
             unreachable!("fails to serialize path: {path:#?}")
         };
@@ -71,10 +80,8 @@ impl<'ws> super::Command<'ws> for RoutineSpecificationGenerator<'ws> {
         &self,
         generators: &Generators,
     ) -> Result<Option<lsp_types::WorkspaceEdit>> {
-        let file = self.file;
-        let system_classes = self.system_classes();
         let more_routine_spec = generators
-            .more_routine_specifications(self.feature, file, &system_classes)
+            .more_routine_specifications(self.feature, self.workspace, self.path)
             .await
             .inspect(|val| info!("Routine spec before fixes:\t{val:#?}"))
             .inspect_err(|e| info!("Error in routine spec before fixes:\t{e:#?}"))?;
@@ -93,45 +100,50 @@ impl<'ws> super::Command<'ws> for RoutineSpecificationGenerator<'ws> {
 }
 
 impl<'ws> RoutineSpecificationGenerator<'ws> {
-    fn feature(file: &ProcessedFile, cursor: Point) -> Result<&Feature> {
-        file.feature_around_point(cursor)
+    fn feature(workspace: &'ws Workspace, path: &Path, cursor: Point) -> Result<&'ws Feature> {
+        workspace
+            .feature_around(path, cursor)
             .with_context(|| "cursor is not around feature.")
     }
-    pub fn try_new(workspace: &'ws Workspace, filepath: &Path, feature_name: &str) -> Result<Self> {
-        let file = workspace
-            .find_file(filepath)
-            .with_context(|| format!("Fails to find file of path: {filepath:#?}"))?;
-        let feature = file
-            .class()
+
+    pub fn try_new(workspace: &'ws Workspace, path: &'ws Path, feature_name: &str) -> Result<Self> {
+        let class = workspace
+            .class(path)
+            .with_context(|| format!("Fails to find loaded class of path: {:#?}", path))?;
+
+        let feature = class
             .features()
             .iter()
             .find(|&ft| ft.name() == feature_name)
-            .with_context(|| {
-                format!("Fails to find in file: {file:#?} feature of name: {feature_name}")
-            })?;
+            .with_context(|| format!("Fails to find feature of name: {:#?}", feature_name))?;
+
         Ok(Self {
             workspace,
-            file,
+            path,
             feature,
         })
     }
+
     pub fn try_new_at_cursor(
         workspace: &'ws Workspace,
-        filepath: &Path,
+        path: &'ws Path,
         cursor: Point,
     ) -> Result<Self> {
-        let file = workspace
-            .find_file(filepath)
-            .with_context(|| "fails to find file: {filepath} in workspace.")?;
-        let feature = Self::feature(file, cursor)?;
+        let feature = Self::feature(workspace, path, cursor)?;
         Ok(Self {
             workspace,
-            file,
+            path,
             feature,
         })
     }
+
     fn class(&self) -> &Class {
-        self.file.class()
+        self.workspace.class(self.path).unwrap_or_else(|| {
+            unreachable!(
+                "fails to find class at path {:#?}, which was already checked.",
+                self.path
+            )
+        })
     }
 
     fn precondition_add_point(&self) -> Result<Point> {
@@ -194,7 +206,7 @@ impl<'ws> RoutineSpecificationGenerator<'ws> {
         let post_edit = self.postcondition_edit(postcondition)?;
 
         Ok(lsp_types::WorkspaceEdit::new(HashMap::from([(
-            lsp_types::Url::from_file_path(self.file.path()).map_err(|_| {
+            lsp_types::Url::from_file_path(self.path).map_err(|_| {
                 anyhow!(
                     "if on unix path must be absolute. if on windows path must have disk prefix"
                 )

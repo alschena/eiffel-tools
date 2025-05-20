@@ -1,7 +1,9 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::parser::Parser;
-use crate::lib::processed_file::ProcessedFile;
+use crate::lib::workspace::Workspace;
+use anyhow::Context;
 use contract::RoutineSpecification;
+use std::path::Path;
 use std::sync::Arc;
 use tracing::info;
 
@@ -25,19 +27,25 @@ impl Generators {
     pub async fn more_routine_specifications(
         &self,
         feature: &Feature,
-        file: &ProcessedFile,
-        system_classes: &[Class],
+        workspace: &Workspace,
+        path: &Path,
     ) -> anyhow::Result<Vec<RoutineSpecification>> {
-        let current_class = file.class();
-        let current_class_model = current_class.name().model_extended(&system_classes);
+        let current_class = workspace
+            .class(path)
+            .with_context(|| format!("fails to find class loaded from path: {:#?}", path))?;
+
+        let current_class_model = current_class
+            .name()
+            .model_extended(workspace.system_classes());
 
         let prompt = prompt::Prompt::for_feature_specification(
             feature,
             &current_class_model,
-            file.path(),
-            &system_classes,
+            path,
+            workspace.system_classes(),
         )
         .await?;
+
         // Generate feature with specifications
         let completion_parameters = constructor_api::CompletionParameters {
             messages: prompt.into(),
@@ -82,7 +90,7 @@ impl Generators {
         Ok(completion_response_processed)
     }
 
-    pub fn fix_routine(&self, routine: &Feature, file: &ProcessedFile, system_classes: &[Class]) {
+    pub fn fix_routine(&self, routine: &Feature, path: &Path, workspace: &Workspace) {
         todo!()
     }
 }

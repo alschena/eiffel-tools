@@ -5,7 +5,9 @@ use crate::lib::code_entities::prelude::Range;
 use crate::lib::eiffel_source::EiffelSource;
 use crate::lib::language_server_protocol::commands::lsp_types;
 use crate::lib::workspace::Workspace;
+use anyhow::anyhow;
 use anyhow::bail;
+use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result;
 use std::path::Path;
@@ -32,17 +34,16 @@ impl<'ws> DaikonInstrumenter<'ws> {
         filepath: &'ws Path,
         feature_name: &str,
     ) -> Result<Self> {
-        let file = workspace
-            .find_file(filepath)
-            .with_context(|| format!("Fails to find file of path: {filepath:#?}"))?;
-        let class = file.class();
+        let class = workspace
+            .class(filepath)
+            .with_context(|| format!("fails to find loaded class at path: {:#?}", filepath))?;
+
         let feature = class
             .features()
             .iter()
             .find(|&ft| ft.name() == feature_name)
-            .with_context(|| {
-                format!("Fails to find in file: {file:#?} feature of name: {feature_name}")
-            })?;
+            .with_context(|| format!("Fails to find feature of name: {feature_name}"))?;
+
         Ok(Self {
             class,
             workspace,
@@ -340,13 +341,14 @@ impl<'ws> TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> for DaikonInstrument
             "Fails to retrieve the first argument (file path) to add routine specification."
         })?;
         let filepath: PathBuf = serde_json::from_value(filepath)?;
-        let filepath_validated = workspace
-            .find_file(&filepath)
-            .map(|file| file.path())
-            .with_context(|| {
-                format!("fails to find file at path: {:#?} in workspace. ", filepath)
-            })?;
-        Self::try_new(workspace, &filepath_validated, &feature_name)
+
+        let class = workspace
+            .class(&filepath)
+            .ok_or_else(|| anyhow!("fails to find loaded class from path: {:#?}", filepath))?;
+
+        let path_in_workspace = workspace.path(class.name());
+
+        Self::try_new(workspace, path_in_workspace, &feature_name)
     }
 }
 
@@ -378,9 +380,7 @@ mod tests {
     use crate::lib::code_entities::prelude::*;
     use crate::lib::parser::Parser;
     use crate::lib::parser::Tree;
-    use crate::lib::processed_file;
     use crate::lib::workspace::Workspace;
-    use anyhow::bail;
     use anyhow::Context;
     use anyhow::Result;
     use assert_fs::prelude::*;
@@ -415,17 +415,9 @@ end
         pub async fn mock(mock_workspace: &'ws mut Workspace) -> Result<Self> {
             mock_workspace.add_file(processed_file().await);
 
-            let (filepath, classname) = mock_workspace
-                .path_to_classname
-                .iter()
-                .find(|(_, classname)| *classname == "TEST")
-                .unwrap();
-
-            let class = mock_workspace
-                .classes
-                .iter()
-                .find(|class| class.name() == classname)
-                .unwrap();
+            let classname = ClassName("TEST".to_string());
+            let filepath = mock_workspace.path(&classname);
+            let class = mock_workspace.class(filepath).unwrap();
 
             let feature = class
                 .features()

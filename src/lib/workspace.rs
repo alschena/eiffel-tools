@@ -2,19 +2,17 @@ use crate::lib::code_entities::prelude::*;
 use crate::lib::config::System;
 use crate::lib::parser::Parser;
 use crate::lib::parser::Tree;
-use crate::lib::processed_file::ProcessedFile;
-use rayon::iter::ParallelDrainRange;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
-use tokio::task::JoinSet;
 use tracing::warn;
 
 #[derive(Debug, Default)]
 pub struct Workspace {
-    pub path_to_tree: HashMap<PathBuf, Tree>,
-    pub path_to_classname: HashMap<PathBuf, ClassName>,
-    pub classes: Vec<Class>,
+    location_tree: HashMap<PathBuf, Tree>,
+    location_class: HashMap<PathBuf, ClassName>,
+    class_location: HashMap<ClassName, PathBuf>,
+    classes: Vec<Class>,
 }
 
 impl Workspace {
@@ -26,26 +24,43 @@ impl Workspace {
         let (class, pathbuf, tree) = value;
         let classname = class.name().clone();
 
-        self.path_to_tree.insert(pathbuf.clone(), tree);
-        self.path_to_classname.insert(pathbuf, classname);
+        self.location_tree.insert(pathbuf.clone(), tree);
+
+        self.location_class
+            .insert(pathbuf.clone(), classname.clone());
+
+        self.class_location.insert(classname, pathbuf);
+
         self.classes.push(class);
     }
 
+    pub fn class(&self, path: &Path) -> Option<&Class> {
+        self.location_class.get(path).map(|name| {
+            self.classes
+                .iter()
+                .find(|class| class.name() == name)
+                .unwrap_or_else(|| unreachable!("fails to find class with name {:#?}", name))
+        })
+    }
+
+    pub fn path(&self, classname: &ClassName) -> &Path {
+        self.class_location
+            .get(classname)
+            .unwrap_or_else(|| unreachable!("fails to find location of class {:#?}", classname))
+    }
+
     pub fn feature_around(&self, path: &Path, point: Point) -> Option<&Feature> {
-        let Some(classname) = self.path_to_classname.get(path) else {
-            warn!("fails to find classname at {:#?}", path);
-            return None;
-        };
-
-        let Some(class) = self.classes.iter().find(|class| classname == class.name()) else {
-            unreachable!("fails to find class with name {:#?}", classname)
-        };
-
-        Feature::feature_around_point(class.features().iter(), point)
+        match self.class(path) {
+            Some(class) => Feature::feature_around_point(class.features().iter(), point),
+            None => {
+                warn!("fails to find classname at {:#?}", path);
+                return None;
+            }
+        }
     }
 
     pub async fn reload(&mut self, pathbuf: PathBuf) {
-        match self.path_to_classname.get(&pathbuf) {
+        match self.location_class.get(&pathbuf) {
             Some(class_name) => {
                 self.classes.retain(|cl| cl.name() != class_name);
             }
@@ -73,8 +88,7 @@ impl Workspace {
         let eiffel_files = system.eiffel_files();
         let (sender, mut receiver) = tokio::sync::mpsc::channel(100);
 
-        {
-            let sender = sender;
+        tokio::spawn(async move {
             for filepath in eiffel_files {
                 let mut parser = Parser::new();
                 let sender = sender.clone();
@@ -94,7 +108,7 @@ impl Workspace {
                     }
                 });
             }
-        }
+        });
 
         while let Some(value) = receiver.recv().await {
             self.add_file(value);
@@ -144,7 +158,7 @@ end
         ws.add_file(val);
 
         let class_a_is_in_workspace = ws
-            .path_to_classname
+            .location_class
             .get(&file.to_path_buf())
             .is_some_and(|name| name == "A");
 

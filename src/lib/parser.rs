@@ -1,9 +1,7 @@
-use crate::lib::processed_file::ProcessedFile;
 use anyhow::Context;
 use anyhow::Result;
 use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
-use tracing::instrument;
 
 use ::tree_sitter::Node;
 use ::tree_sitter::Parser as TreeSitterParser;

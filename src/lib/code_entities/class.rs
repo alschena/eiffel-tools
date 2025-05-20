@@ -1,8 +1,10 @@
 use super::prelude::*;
+use anyhow::Result;
 use async_lsp::lsp_types;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt::Display;
+use std::path::Path;
 
 pub mod model;
 use model::*;
@@ -229,13 +231,11 @@ impl Class {
     }
 }
 
-impl TryFrom<&Class> for lsp_types::DocumentSymbol {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &Class) -> std::result::Result<Self, Self::Error> {
-        let ClassName(name) = value.name().to_owned();
-        let features = value.features();
-        let range = value.range().clone().try_into()?;
+impl Class {
+    pub fn to_document_symbol(&self) -> Result<lsp_types::DocumentSymbol> {
+        let ClassName(name) = self.name().to_owned();
+        let features = self.features();
+        let range = self.range().clone().try_into()?;
         let children: Option<Vec<lsp_types::DocumentSymbol>> = Some(
             features
                 .into_iter()
@@ -251,6 +251,24 @@ impl TryFrom<&Class> for lsp_types::DocumentSymbol {
             range,
             selection_range: range,
             children,
+        })
+    }
+
+    pub fn to_symbol_information(&self, path: &Path) -> Result<lsp_types::SymbolInformation> {
+        let name = self.name().to_string();
+        let kind = lsp_types::SymbolKind::CLASS;
+        let tags = None;
+        let deprecated = None;
+        let container_name = None;
+        let location = Location::new(path.to_path_buf()).to_lsp_location(self.range().clone())?;
+
+        Ok(lsp_types::SymbolInformation {
+            name,
+            kind,
+            tags,
+            deprecated,
+            location,
+            container_name,
         })
     }
 }

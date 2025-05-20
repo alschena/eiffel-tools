@@ -1,7 +1,6 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::generators::Generators;
 use crate::lib::language_server_protocol::commands::fix_routine::path::PathBuf;
-use crate::lib::processed_file::ProcessedFile;
 use crate::lib::workspace::Workspace;
 use anyhow::Context;
 use anyhow::Result;
@@ -9,31 +8,29 @@ use async_lsp::lsp_types;
 use serde_json;
 use std::path;
 use std::path::Path;
-use tracing::info;
 
 #[derive(Debug, Clone)]
 struct FixRoutine<'ws> {
     workspace: &'ws Workspace,
-    file: &'ws ProcessedFile,
+    path: PathBuf,
     feature: &'ws Feature,
 }
 
 impl<'ws> FixRoutine<'ws> {
     pub fn try_new(workspace: &'ws Workspace, filepath: &Path, feature_name: &str) -> Result<Self> {
-        let file = workspace
-            .find_file(filepath)
-            .with_context(|| format!("Fails to find file of path: {filepath:#?}"))?;
-        let feature = file
-            .class()
+        let class = workspace
+            .class(filepath)
+            .with_context(|| format!("fails to find loaded class at path: {:#?}", filepath))?;
+
+        let feature = class
             .features()
             .iter()
             .find(|&ft| ft.name() == feature_name)
-            .with_context(|| {
-                format!("Fails to find in file: {file:#?} feature of name: {feature_name}")
-            })?;
+            .with_context(|| format!("Fails to find feature of name: {feature_name}"))?;
+
         Ok(Self {
             workspace,
-            file,
+            path: filepath.to_path_buf(),
             feature,
         })
     }
@@ -58,8 +55,8 @@ impl<'ws> TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> for FixRoutine<'ws> 
 }
 
 impl<'ws> FixRoutine<'ws> {
-    fn system_classes(&self) -> Box<[Class]> {
-        self.workspace.system_classes().into()
+    fn system_classes(&self) -> &[Class] {
+        self.workspace.system_classes()
     }
 }
 
@@ -69,9 +66,8 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
     const TITLE: &'static str = "fix_routine";
 
     fn arguments(&self) -> Vec<serde_json::Value> {
-        let path = self.file.path();
-        let Ok(serialized_filepath) = serde_json::to_value(path) else {
-            unreachable!("fails to serialize path: {path:#?}")
+        let Ok(serialized_filepath) = serde_json::to_value(&self.path) else {
+            unreachable!("fails to serialize path: {:#?}", self.path)
         };
         let feature = self.feature;
         let Ok(serialized_feature_name) = serde_json::to_value(feature.name()) else {

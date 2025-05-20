@@ -176,7 +176,7 @@ commands!(
 impl<'ws> Commands<'ws> {
     pub fn try_new_add_routine_specification_at_cursor(
         ws: &'ws Workspace,
-        filepath: &Path,
+        filepath: &'ws Path,
         cursor: Point,
     ) -> Result<Self> {
         let command = RoutineSpecificationGenerator::try_new_at_cursor(ws, filepath, cursor)?;
@@ -188,12 +188,12 @@ impl<'ws> Commands<'ws> {
         filepath: &'ws Path,
         cursor: Point,
     ) -> anyhow::Result<Self> {
-        let file = ws
-            .find_file(filepath)
-            .with_context(|| "fails to find file: {filepath} in workspace.")?;
-        let feature = file
-            .feature_around_point(cursor)
-            .with_context(|| "cursor is not around feature.")?;
+        let feature = ws.feature_around(filepath, cursor).with_context(|| {
+            format!(
+                "fails to find feature around point {:#?} at path: {:#?}.",
+                cursor, filepath,
+            )
+        })?;
 
         let command = DaikonInstrumenter::try_new(ws, filepath, feature.name())?;
         Ok(Commands::DaikonInstrumenter(command))

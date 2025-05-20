@@ -3,7 +3,6 @@ use async_lsp::lsp_types::{request, DocumentSymbolParams, DocumentSymbolResponse
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::future::Future;
-use std::path;
 
 impl HandleRequest for request::DocumentSymbolRequest {
     fn handle_request(
@@ -11,22 +10,19 @@ impl HandleRequest for request::DocumentSymbolRequest {
         params: DocumentSymbolParams,
     ) -> impl Future<Output = Result<Self::Result, ResponseError>> + Send + 'static {
         async move {
-            let path: path::PathBuf = params.text_document.uri.path().into();
-            let read_workspace = st.workspace.read().await;
-            let file = read_workspace
-                .files()
-                .into_iter()
-                .find(|&x| x.path() == path);
-            if let Some(file) = file {
-                let symbol = file
-                    .class()
-                    .try_into()
-                    .expect("class conversion to document symbol");
-                let classes = vec![symbol];
-                return Ok(Some(DocumentSymbolResponse::Nested(classes)));
-            } else {
-                return Ok(None);
-            }
+            let path = params.text_document.uri.path().as_ref();
+            let workspace = st.workspace.read().await;
+
+            Ok(workspace.class(path).map(|class| {
+                let symbol = class.to_document_symbol().unwrap_or_else(|e| {
+                    unreachable!(
+                        "fails to convert class {:#?} ot document symbol with error {:#?}",
+                        class.name(),
+                        e
+                    )
+                });
+                DocumentSymbolResponse::Nested(vec![symbol])
+            }))
         }
     }
 }
