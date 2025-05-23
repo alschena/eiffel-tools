@@ -2,6 +2,7 @@ use crate::lib::code_entities::prelude::*;
 use crate::lib::generators::Generators;
 use crate::lib::language_server_protocol::commands::fix_routine::path::PathBuf;
 use crate::lib::workspace::Workspace;
+use anyhow::anyhow;
 use anyhow::Context;
 use anyhow::Result;
 use async_lsp::lsp_types;
@@ -10,7 +11,7 @@ use std::path;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
-struct FixRoutine<'ws> {
+pub struct FixRoutine<'ws> {
     workspace: &'ws Workspace,
     path: PathBuf,
     feature: &'ws Feature,
@@ -61,9 +62,8 @@ impl<'ws> FixRoutine<'ws> {
 }
 
 impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
-    const NAME: &'static str = "Fix routine";
-
-    const TITLE: &'static str = "fix_routine";
+    const TITLE: &'static str = "Fix routine";
+    const NAME: &'static str = "fix_routine";
 
     fn arguments(&self) -> Vec<serde_json::Value> {
         let Ok(serialized_filepath) = serde_json::to_value(&self.path) else {
@@ -80,6 +80,37 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
         &self,
         generators: &Generators,
     ) -> Result<Option<lsp_types::WorkspaceEdit>> {
-        todo!()
+        let body_range = self
+            .feature
+            .body_range()
+            .with_context(|| {
+                format!(
+                    "fails to get body range from feature {:#?}",
+                    self.feature.name()
+                )
+            })?
+            .to_owned()
+            .try_into()?;
+
+        let url = lsp_types::Url::from_file_path(self.path.clone())
+            .map_err(|_| anyhow!("fails to convert file path to lsp url."))?;
+
+        let workspace_edit = move |s| {
+            lsp_types::WorkspaceEdit::new(
+                [(
+                    url,
+                    vec![lsp_types::TextEdit {
+                        range: body_range,
+                        new_text: s,
+                    }],
+                )]
+                .into(),
+            )
+        };
+
+        Ok(generators
+            .fix_routine(&self.workspace, &self.path, self.feature)
+            .await?
+            .map(|body_routine_verified| workspace_edit(body_routine_verified)))
     }
 }

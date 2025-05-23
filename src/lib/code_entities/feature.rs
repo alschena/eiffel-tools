@@ -1,8 +1,11 @@
 use super::prelude::*;
+use anyhow::{Context, Result};
 use async_lsp::lsp_types;
 use contract::RoutineSpecification;
 use contract::{Block, Postcondition, Precondition};
+use std::borrow::Borrow;
 use std::fmt::Display;
+use std::ops::Deref;
 use std::path::Path;
 
 mod notes;
@@ -71,9 +74,9 @@ impl Feature {
         features.find(|f| f.is_feature_around_point(point))
     }
 
-    pub fn clone_rename(&self, name: String) -> Feature {
+    pub fn clone_rename<T: ToString>(&self, name: T) -> Feature {
         let mut f = self.clone();
-        f.name = name;
+        f.name = name.to_string();
         f
     }
 
@@ -168,8 +171,7 @@ impl Feature {
         self.postconditions.is_some()
     }
 
-    pub async fn src_unchecked<'src>(&self, path: &Path) -> anyhow::Result<String> {
-        let range = self.range();
+    async fn source_in_range_unchecked(&self, path: &Path, range: Range) -> Result<String> {
         let start_column = range.start.column;
         let start_row = range.start.row;
         let end_column = range.end.column;
@@ -192,6 +194,23 @@ impl Feature {
                 acc
             });
         Ok(feature)
+    }
+
+    pub async fn source_unchecked(&self, path: &Path) -> Result<String> {
+        self.source_in_range_unchecked(path, self.range().clone())
+            .await
+    }
+
+    pub async fn body_source_unchecked(&self, path: &Path) -> Result<String> {
+        let mut body = self
+            .body_range()
+            .with_context(|| format!("fails to get body range of feature: {}", self.name()))?
+            .clone();
+
+        // Ignore the do keyword in the range.
+        body.start.column += 2;
+
+        self.source_in_range_unchecked(path, body).await
     }
 }
 
@@ -237,13 +256,13 @@ mod tests {
     use super::*;
     use crate::lib::parser::Parser;
 
-    fn class(src: &str) -> anyhow::Result<Class> {
+    fn class(src: &str) -> Result<Class> {
         let mut parser = Parser::new();
         parser.class_from_source(src)
     }
 
     #[test]
-    fn parse_feature_with_precondition() -> anyhow::Result<()> {
+    fn parse_feature_with_precondition() -> Result<()> {
         let src = r#"
 class A feature
   x

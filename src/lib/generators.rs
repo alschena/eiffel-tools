@@ -1,11 +1,18 @@
 use crate::lib::code_entities::prelude::*;
+use crate::lib::eiffel_source::EiffelSource;
+use crate::lib::eiffelstudio_cli::autoproof;
+use crate::lib::eiffelstudio_cli::VerificationResult;
 use crate::lib::parser::Parser;
 use crate::lib::workspace::Workspace;
+use anyhow::anyhow;
 use anyhow::Context;
+use anyhow::Result;
 use contract::RoutineSpecification;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
+use tracing::warn;
 
 mod post_processing;
 mod prompt;
@@ -24,22 +31,23 @@ impl Generators {
         };
         self.llms.push(Arc::new(llm));
     }
+
     pub async fn more_routine_specifications(
         &self,
         feature: &Feature,
         workspace: &Workspace,
         path: &Path,
-    ) -> anyhow::Result<Vec<RoutineSpecification>> {
+    ) -> Result<Vec<RoutineSpecification>> {
         let current_class = workspace
             .class(path)
             .with_context(|| format!("fails to find class loaded from path: {:#?}", path))?;
 
-        let current_class_model = current_class
-            .name()
-            .model_extended(workspace.system_classes());
+        let current_class_name = current_class.name();
+        let current_class_model = current_class_name.model_extended(workspace.system_classes());
 
-        let prompt = prompt::Prompt::for_feature_specification(
+        let prompt = prompt::Prompt::feature_specification(
             feature,
+            current_class_name,
             &current_class_model,
             path,
             workspace.system_classes(),
@@ -48,7 +56,7 @@ impl Generators {
 
         // Generate feature with specifications
         let completion_parameters = constructor_api::CompletionParameters {
-            messages: prompt.into(),
+            messages: prompt.to_messages(),
             n: Some(50),
             ..Default::default()
         };
@@ -90,9 +98,153 @@ impl Generators {
         Ok(completion_response_processed)
     }
 
-    pub fn fix_routine(&self, routine: &Feature, path: &Path, workspace: &Workspace) {
-        todo!()
+    pub async fn fix_routine(
+        &self,
+        workspace: &Workspace,
+        path: &Path,
+        feature: &Feature,
+    ) -> Result<Option<String>> {
+        let class = workspace
+            .class(path)
+            .ok_or_else(|| anyhow!("fails to find loaded class at path: {:#?}", path))?;
+
+        let feature_body = feature.body_source_unchecked(path).await?;
+
+        // Write subclass redefining `feature` copy-pasting the body
+        tokio::fs::write(
+            path_llm_feature_redefinition(path),
+            candidate_body_in_subclass(
+                class.name(),
+                &name_subclass(class.name()),
+                feature,
+                feature_body,
+            ),
+        )
+        .await?;
+
+        let mut number_of_tries = 0;
+        while let VerificationResult::Failure(error_message) =
+            autoproof(feature.name(), &name_subclass(class.name()))?
+        {
+            if number_of_tries <= 5 {
+                number_of_tries += 1;
+            } else {
+                break;
+            }
+
+            let prompt = prompt::Prompt::feature_fixes(feature, path, error_message)
+                .await?
+                .to_messages();
+
+            info!(target: "llm", "prompt: {:#?}", prompt);
+
+            // Generate feature with specifications
+            let completion_parameters = constructor_api::CompletionParameters {
+                messages: prompt,
+                n: Some(5),
+                ..Default::default()
+            };
+
+            info!(target: "llm", "completion parameters: {:#?}", completion_parameters);
+
+            let mut tasks = tokio::task::JoinSet::new();
+            for llm in self.llms.iter().cloned() {
+                let completion_parameters = completion_parameters.clone();
+                tasks.spawn(async move { llm.model_complete(&completion_parameters).await });
+            }
+            let completion_response = tasks.join_all().await;
+
+            let completion_response_processed: Option<String> = completion_response
+                .iter()
+                .filter_map(|rs| {
+                    rs.as_ref()
+                        .inspect_err(|e| {
+                            warn!(
+                                target = "llm",
+                                "An LLM processing the feature fix has returned the error: {:#?}",
+                                e
+                            )
+                        })
+                        .ok()
+                })
+                .flat_map(|reply| reply.contents())
+                .inspect(|candidate| {
+                    info!(target: "llm", "candidate:\t{candidate}");
+                })
+                .filter_map(|candidate| {
+                    let mut parser = Parser::new();
+
+                    parser
+                        .feature_from_source(candidate)
+                        .inspect_err(|e| {
+                            info!(target: "llm", "fail to parse LLM generated feature with error: {e:#?}");
+                        })
+                        .ok()?;
+
+                    Some(candidate.to_owned())
+                })
+                .inspect(|filtered_candidate| {
+                    info!(target: "llm", "filtered candidate:\t{:#?}", filtered_candidate);
+                })
+                .next();
+
+            // Write text edits to disk.
+            if let Some(candidate) = completion_response_processed {
+                tokio::fs::write(
+                    path_llm_feature_redefinition(path),
+                    candidate_body_in_subclass(
+                        class.name(),
+                        &name_subclass(class.name()),
+                        feature,
+                        candidate,
+                    ),
+                )
+                .await?;
+            }
+        }
+
+        if let VerificationResult::Success =
+            autoproof(feature.name(), &name_subclass(class.name()))?
+        {
+            warn!(
+                target: "llm",
+                "must copy body of generated redefinition in initial feature.");
+        }
+
+        Ok(Some(String::new()))
     }
+}
+
+fn path_llm_feature_redefinition(path: &Path) -> PathBuf {
+    let Some(stem) = path.file_stem() else {
+        panic!("fails to get file stem (filename without extension) of current file.")
+    };
+
+    let Some(stem) = stem.to_str() else {
+        panic!("fails to check UFT-8 validity of file stem: {stem:#?}")
+    };
+
+    let mut pathbuf = PathBuf::new();
+    pathbuf.set_file_name(format!("llm_instrumented_{stem}.e"));
+    pathbuf
+}
+
+fn name_subclass(name_base_class: &ClassName) -> ClassName {
+    ClassName(format!("LLM_INSTRUMENTED_{name_base_class}"))
+}
+
+fn candidate_body_in_subclass(
+    name_class: &ClassName,
+    name_subclass: &ClassName,
+    feature_to_fix: &Feature,
+    body: String,
+) -> String {
+    EiffelSource::subclass_redefining_features(
+        name_class,
+        vec![(feature_to_fix, body)],
+        name_subclass,
+    )
+    .to_string()
 }
 
 #[cfg(test)]

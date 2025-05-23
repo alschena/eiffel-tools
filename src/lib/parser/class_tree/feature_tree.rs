@@ -271,10 +271,10 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
         let postconditions = self.feature_postcondition()?;
 
         let features = names
-            .iter()
+            .into_iter()
             .map(|name| {
                 Feature::new(
-                    name.to_string(),
+                    name,
                     parameters.clone(),
                     return_type.clone(),
                     notes.clone(),

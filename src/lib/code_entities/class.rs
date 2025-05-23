@@ -1,6 +1,7 @@
 use super::prelude::*;
 use anyhow::Result;
 use async_lsp::lsp_types;
+use std::borrow::Borrow;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -14,6 +15,12 @@ pub use parent::Parent;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct ClassName(pub String);
+
+impl Borrow<str> for ClassName {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
 
 impl Display for ClassName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -44,14 +44,33 @@ impl Sub for Point {
     type Output = Point;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        let Point { row, column } = self;
+        let Point {
+            row: mut lhs_row,
+            column: lhs_column,
+        } = self;
+
         let Point {
             row: rhs_row,
             column: rhs_column,
         } = rhs;
+
+        let new_column;
+        if rhs_column <= lhs_column {
+            new_column = lhs_column - rhs_column;
+        } else {
+            lhs_row -= 1;
+            new_column = 0;
+        }
+
+        let new_row = if rhs_row <= lhs_row {
+            lhs_row - rhs_row
+        } else {
+            0
+        };
+
         Self::Output {
-            row: row - rhs_row,
-            column: column - rhs_column,
+            row: new_row,
+            column: new_column,
         }
     }
 }
@@ -187,5 +206,25 @@ impl TryFrom<Range> for async_lsp::lsp_types::Range {
             start: value.start.try_into()?,
             end: value.end.try_into()?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subtract_points() {
+        let start = Point { row: 1, column: 2 };
+        let end = Point { row: 3, column: 1 };
+
+        assert_eq!(
+            end - start,
+            Point { row: 1, column: 0 },
+            "end - start == {:#?} - {:#?} == {:#?}",
+            end,
+            start,
+            end - start
+        )
     }
 }

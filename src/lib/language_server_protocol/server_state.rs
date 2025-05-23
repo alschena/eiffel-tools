@@ -18,6 +18,9 @@ impl ServerState {
         let binding = generators.clone();
         tokio::spawn(async move {
             let mut generators = binding.write().await;
+
+            // `Generator.add_new()` will try to reuse the first knowledge model available.
+            // If you want to add more generators, change the behavior of `LLMBuilder.build`
             for _ in 0..1 {
                 generators.add_new().await
             }

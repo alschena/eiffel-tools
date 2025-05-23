@@ -170,7 +170,7 @@ impl<'system> Fix<'system, ClausePredicate> for Parser {
             .collect();
 
         let identifiers_other_than_feature_names = predicate_identifiers
-            .iter()
+            .into_iter()
             .filter(|&id| !feature_names.contains(id));
 
         let invalid_identifiers = identifiers_other_than_feature_names

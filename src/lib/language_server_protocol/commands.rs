@@ -20,6 +20,7 @@ mod add_daikon_instrumentation;
 use add_daikon_instrumentation::DaikonInstrumenter;
 
 mod fix_routine;
+use fix_routine::FixRoutine;
 
 trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
     const NAME: &'static str;
@@ -161,7 +162,7 @@ macro_rules! commands {
 
 commands!(
     name: Commands;
-    variants: [ClassSpecificationGenerator, RoutineSpecificationGenerator, DaikonInstrumenter];
+    variants: [ClassSpecificationGenerator, RoutineSpecificationGenerator, DaikonInstrumenter, FixRoutine];
     functions:
         command() -> lsp_types::Command;
     async_functions:
@@ -197,6 +198,22 @@ impl<'ws> Commands<'ws> {
 
         let command = DaikonInstrumenter::try_new(ws, filepath, feature.name())?;
         Ok(Commands::DaikonInstrumenter(command))
+    }
+
+    pub fn try_new_fix_routine(
+        ws: &'ws Workspace,
+        filepath: &'ws Path,
+        cursor: Point,
+    ) -> anyhow::Result<Self> {
+        let feature = ws.feature_around(filepath, cursor).with_context(|| {
+            format!(
+                "fails to find feature around point {:#?} at path: {:#?}.",
+                cursor, filepath,
+            )
+        })?;
+
+        let command = FixRoutine::try_new(ws, filepath, feature.name())?;
+        Ok(Commands::FixRoutine(command))
     }
 
     pub async fn run<'st>(
