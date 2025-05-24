@@ -4,6 +4,7 @@ use crate::lib::code_entities::prelude::Feature;
 use crate::lib::code_entities::prelude::Range;
 use crate::lib::eiffel_source::EiffelSource;
 use crate::lib::language_server_protocol::commands::lsp_types;
+use crate::lib::language_server_protocol::commands::Generators;
 use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use anyhow::bail;
@@ -362,7 +363,7 @@ impl<'ws> Command<'ws> for DaikonInstrumenter<'ws> {
         vec![serialized_filepath, serialized_feature_name]
     }
 
-    async fn side_effect(&self) -> anyhow::Result<()> {
+    async fn side_effect(&mut self, _generators: &Generators) -> anyhow::Result<()> {
         self.write_declaration_file().await?;
         self.write_instrumented_subclass_file().await
     }

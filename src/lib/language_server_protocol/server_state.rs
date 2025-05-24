@@ -32,7 +32,7 @@ impl ServerState {
             generators,
         }
     }
-    pub async fn run(&self, command: commands::Commands<'_>) -> Result<(), ResponseError> {
+    pub async fn run(&self, mut command: commands::Commands<'_>) -> Result<(), ResponseError> {
         let client = &self.client;
         let generators = self.generators.read().await;
         command.run(client, &generators).await

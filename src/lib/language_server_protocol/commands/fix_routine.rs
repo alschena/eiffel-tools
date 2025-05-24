@@ -1,6 +1,10 @@
 use crate::lib::code_entities::prelude::*;
+use crate::lib::eiffel_source::EiffelSource;
+use crate::lib::eiffelstudio_cli::autoproof;
+use crate::lib::eiffelstudio_cli::VerificationResult;
 use crate::lib::generators::Generators;
 use crate::lib::language_server_protocol::commands::fix_routine::path::PathBuf;
+use crate::lib::parser::Parser;
 use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use anyhow::Context;
@@ -9,12 +13,15 @@ use async_lsp::lsp_types;
 use serde_json;
 use std::path;
 use std::path::Path;
+use tracing::info;
+use tracing::warn;
 
 #[derive(Debug, Clone)]
 pub struct FixRoutine<'ws> {
     workspace: &'ws Workspace,
     path: PathBuf,
     feature: &'ws Feature,
+    fixed_routine_body: Option<String>,
 }
 
 impl<'ws> FixRoutine<'ws> {
@@ -33,6 +40,7 @@ impl<'ws> FixRoutine<'ws> {
             workspace,
             path: filepath.to_path_buf(),
             feature,
+            fixed_routine_body: None,
         })
     }
 }
@@ -78,7 +86,7 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
 
     async fn generate_edits(
         &self,
-        generators: &Generators,
+        _generators: &Generators,
     ) -> Result<Option<lsp_types::WorkspaceEdit>> {
         let body_range = self
             .feature
@@ -108,9 +116,104 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
             )
         };
 
-        Ok(generators
-            .fix_routine(&self.workspace, &self.path, self.feature)
-            .await?
-            .map(|body_routine_verified| workspace_edit(body_routine_verified)))
+        Ok(self.fixed_routine_body.clone().map(workspace_edit))
     }
+
+    async fn side_effect(&mut self, generators: &Generators) -> anyhow::Result<()> {
+        {
+            let workspace = self.workspace;
+            let path = &self.path;
+            let feature = self.feature;
+
+            let class = workspace
+                .class(path)
+                .ok_or_else(|| anyhow!("fails to find loaded class at path: {:#?}", path))?;
+
+            let feature_body = feature.body_source_unchecked(path).await?;
+
+            // Write subclass redefining `feature` copy-pasting the body
+            tokio::fs::write(
+                path_llm_feature_redefinition(path),
+                candidate_body_in_subclass(
+                    class.name(),
+                    &name_subclass(class.name()),
+                    feature,
+                    feature_body,
+                ),
+            )
+            .await?;
+
+            let mut number_of_tries = 0;
+            let mut feature_verified: Option<String> = None;
+            while let VerificationResult::Failure(error_message) =
+                autoproof(feature.name(), &name_subclass(class.name()))?
+            {
+                if number_of_tries <= 5 {
+                    number_of_tries += 1;
+                } else {
+                    break;
+                }
+
+                let maybe_candidate = generators.fix_routine(path, feature, error_message).await?;
+
+                // Write text edits to disk.
+                if let Some(candidate) = maybe_candidate {
+                    feature_verified = Some(candidate.clone());
+                    tokio::fs::write(
+                        path_llm_feature_redefinition(path),
+                        candidate_body_in_subclass(
+                            class.name(),
+                            &name_subclass(class.name()),
+                            feature,
+                            candidate,
+                        ),
+                    )
+                    .await?;
+                }
+            }
+
+            if let VerificationResult::Success =
+                autoproof(feature.name(), &name_subclass(class.name()))?
+            {
+                warn!(
+                target: "llm",
+                "must copy body of generated redefinition in initial feature.");
+                self.fixed_routine_body = feature_verified;
+            }
+
+            Ok(())
+        }
+    }
+}
+
+fn path_llm_feature_redefinition(path: &Path) -> PathBuf {
+    let Some(stem) = path.file_stem() else {
+        panic!("fails to get file stem (filename without extension) of current file.")
+    };
+
+    let Some(stem) = stem.to_str() else {
+        panic!("fails to check UFT-8 validity of file stem: {stem:#?}")
+    };
+
+    let mut pathbuf = PathBuf::new();
+    pathbuf.set_file_name(format!("llm_instrumented_{stem}.e"));
+    pathbuf
+}
+
+fn name_subclass(name_base_class: &ClassName) -> ClassName {
+    ClassName(format!("LLM_INSTRUMENTED_{name_base_class}"))
+}
+
+fn candidate_body_in_subclass(
+    name_class: &ClassName,
+    name_subclass: &ClassName,
+    feature_to_fix: &Feature,
+    body: String,
+) -> String {
+    EiffelSource::subclass_redefining_features(
+        name_class,
+        vec![(feature_to_fix, body)],
+        name_subclass,
+    )
+    .to_string()
 }

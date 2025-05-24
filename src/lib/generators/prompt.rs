@@ -43,6 +43,7 @@ impl Prompt {
         var.set_feature_src(feature, filepath).await?;
         var.add_commented_injection_after_feature(feature, error_message)
             .await;
+        var.add_commented_injection_at_the_beginning("The following feature does not verify, there is a bug in the body in its body. Fix the body of following feature. After the code you will find a comment with the error message from AutoProof.");
         Ok(var)
     }
 
@@ -57,9 +58,9 @@ impl Prompt {
         Ok(())
     }
 
-    fn add_commented_injection_at_the_beginning(&mut self, message: String) {
+    fn add_commented_injection_at_the_beginning<T: ToString>(&mut self, message: T) {
         let normalized_begin = Point { row: 0, column: 0 };
-        let fmt_message = Self::eiffel_comment(message);
+        let fmt_message = Self::eiffel_comment(message.to_string());
 
         self.injections.push((normalized_begin, fmt_message));
     }

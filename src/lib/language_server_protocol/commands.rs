@@ -54,7 +54,7 @@ trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
         }
     }
 
-    async fn side_effect(&self) -> anyhow::Result<()> {
+    async fn side_effect(&mut self, generators: &Generators) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -95,8 +95,10 @@ macro_rules! commands {
     variants: $variants:tt
     $(; functions: $($fn_name:ident $fn_params:tt -> $fn_ret_type:ty),+)?
     $(; async_functions: $($async_fn_name:ident $async_fn_params:tt -> $async_fn_ret_type:ty),+)?
+    $(; async_functions_mut: $($async_fn_name_mut:ident $async_fn_params_mut:tt -> $async_fn_ret_type_mut:ty),+)?
      ) => {
         commands!(@def_enum $enum_name, $variants);
+
         impl<'ws> $enum_name<'ws> {
             pub fn try_new(
                 ws: &'ws Workspace,
@@ -108,53 +110,80 @@ macro_rules! commands {
                 commands!(@create $enum_name, $variants, name, args, ws);
                 unimplemented!()
             }
+
             pub fn list_names() -> Vec<String> {
                 commands!(@list_variants_static $variants, NAME)
             }
+
             $(commands!(@functions $enum_name, self.[$($fn_name $fn_params -> $fn_ret_type),+], $variants);)?
+
             $(commands!(@async_functions $enum_name, self.[$($async_fn_name $async_fn_params -> $async_fn_ret_type),+], $variants);)?
+
+            $(commands!(@async_functions_mut $enum_name, self.[$($async_fn_name_mut $async_fn_params_mut -> $async_fn_ret_type_mut),+], $variants);)?
         }
     };
+
     (@def_enum $enum_name:ident, [$($variants:ident),+] ) => {
         #[derive(Debug, Clone)]
         pub enum $enum_name<'ws> {
             $($variants($variants<'ws>)),*
         }
     };
+
     (@create $enum_name:ident, [$($variant:ident),+], $name:ident, $arguments:ident, $workspace:ident) => {
         $(if $variant::is_called(&$name) {
             let command = $variant::try_from(($workspace,$arguments))?;
             return Ok($enum_name::$variant(command));
         })+
     };
+
     (@list_variants_static [$($variant:ident),+], $method:ident) => {
         vec![$($variant::$method.to_string()),+]
     };
+
     (@functions $enum_name:ident, $self:ident.[$($func:ident ($($param_name:ident : $param_type:ty),*) -> $ret_type:ty),+], $variants:tt) => {
         $(pub fn $func(&$self $(, $param_name : $param_type)*) -> $ret_type {
             commands!(@match_variants $enum_name, $self, $variants, ($func ($($param_name),*) -> $ret_type))
         })+
     };
+
     (@async_functions $enum_name:ident, $self:ident.[$($func:ident ($($param_name:ident : $param_type:ty),*) -> $ret_type:ty),+], $variants:tt) => {
         $(pub async fn $func(&$self $(, $param_name : $param_type)*) -> $ret_type {
             commands!(@async_match_variants $enum_name, $self, $variants, ($func ($($param_name),*) -> $ret_type))
         })+
     };
+
+    (@async_functions_mut $enum_name:ident, $self:ident.[$($func:ident ($($param_name:ident : $param_type:ty),*) -> $ret_type:ty),+], $variants:tt) => {
+        $(pub async fn $func(&mut $self $(, $param_name : $param_type)*) -> $ret_type {
+            commands!(@async_match_variants_mut $enum_name, $self, $variants, ($func ($($param_name),*) -> $ret_type))
+        })+
+    };
+
     (@match_variants $enum_name:ident, $self:ident, [$($variant:ident),+], ($func:ident $params_names:tt -> $ret_type:ty)) => {
         match $self {
             $($enum_name::$variant(ref inner) => {commands!(@function_call $variant $func $params_names inner)}),+
         }
 
     };
+
     (@async_match_variants $enum_name:ident, $self:ident, [$($variant:ident),+], ($func:ident $params_names:tt -> $ret_type:ty)) => {
         match $self {
             $($enum_name::$variant(ref inner) => {commands!(@async_function_call $variant $func $params_names inner)}),+
         }
 
     };
+
+    (@async_match_variants_mut $enum_name:ident, $self:ident, [$($variant:ident),+], ($func:ident $params_names:tt -> $ret_type:ty)) => {
+        match $self {
+            $($enum_name::$variant(ref mut inner) => {commands!(@async_function_call $variant $func $params_names inner)}),+
+        }
+
+    };
+
     (@function_call $variant:ident $func:ident ($($param_name:ident),*) $target:ident) => {
         $variant::$func($target $(, $param_name)*)
     };
+
     (@async_function_call $variant:ident $func:ident ($($param_name:ident),*) $target:ident) => {
         $variant::$func($target $(, $param_name)*).await
     };
@@ -170,8 +199,9 @@ commands!(
         request_edits(
             client: &async_lsp::ClientSocket,
             edit: lsp_types::WorkspaceEdit
-        ) -> Result<(), async_lsp::ResponseError>,
-        side_effect() -> Result<()>
+        ) -> Result<(), async_lsp::ResponseError>;
+    async_functions_mut:
+        side_effect(g: &Generators) -> Result<()>
 );
 
 impl<'ws> Commands<'ws> {
@@ -217,11 +247,11 @@ impl<'ws> Commands<'ws> {
     }
 
     pub async fn run<'st>(
-        &self,
+        &mut self,
         client: &'st async_lsp::ClientSocket,
         generators: &'st Generators,
     ) -> Result<(), async_lsp::ResponseError> {
-        self.side_effect().await.map_err(|e| {
+        self.side_effect(generators).await.map_err(|e| {
             async_lsp::ResponseError::new(
                 async_lsp::ErrorCode::REQUEST_FAILED,
                 format!("Fails to execute commands side effects with error: {e}"),

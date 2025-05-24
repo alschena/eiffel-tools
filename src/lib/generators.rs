@@ -100,64 +100,36 @@ impl Generators {
 
     pub async fn fix_routine(
         &self,
-        workspace: &Workspace,
         path: &Path,
         feature: &Feature,
+        error_message: String,
     ) -> Result<Option<String>> {
-        let class = workspace
-            .class(path)
-            .ok_or_else(|| anyhow!("fails to find loaded class at path: {:#?}", path))?;
+        let prompt = prompt::Prompt::feature_fixes(feature, path, error_message)
+            .await?
+            .to_messages();
 
-        let feature_body = feature.body_source_unchecked(path).await?;
+        info!(target: "llm", "prompt: {:#?}", prompt);
 
-        // Write subclass redefining `feature` copy-pasting the body
-        tokio::fs::write(
-            path_llm_feature_redefinition(path),
-            candidate_body_in_subclass(
-                class.name(),
-                &name_subclass(class.name()),
-                feature,
-                feature_body,
-            ),
-        )
-        .await?;
+        // Generate feature with specifications
+        let completion_parameters = constructor_api::CompletionParameters {
+            messages: prompt,
+            n: Some(5),
+            ..Default::default()
+        };
 
-        let mut number_of_tries = 0;
-        while let VerificationResult::Failure(error_message) =
-            autoproof(feature.name(), &name_subclass(class.name()))?
-        {
-            if number_of_tries <= 5 {
-                number_of_tries += 1;
-            } else {
-                break;
-            }
+        info!(target: "llm", "completion parameters: {:#?}", completion_parameters);
 
-            let prompt = prompt::Prompt::feature_fixes(feature, path, error_message)
-                .await?
-                .to_messages();
+        let mut tasks = tokio::task::JoinSet::new();
+        for llm in self.llms.iter().cloned() {
+            let completion_parameters = completion_parameters.clone();
+            tasks.spawn(async move { llm.model_complete(&completion_parameters).await });
+        }
+        let completion_response = tasks.join_all().await;
 
-            info!(target: "llm", "prompt: {:#?}", prompt);
-
-            // Generate feature with specifications
-            let completion_parameters = constructor_api::CompletionParameters {
-                messages: prompt,
-                n: Some(5),
-                ..Default::default()
-            };
-
-            info!(target: "llm", "completion parameters: {:#?}", completion_parameters);
-
-            let mut tasks = tokio::task::JoinSet::new();
-            for llm in self.llms.iter().cloned() {
-                let completion_parameters = completion_parameters.clone();
-                tasks.spawn(async move { llm.model_complete(&completion_parameters).await });
-            }
-            let completion_response = tasks.join_all().await;
-
-            let completion_response_processed: Option<String> = completion_response
+        let completion_response_processed: Option<String> = completion_response
                 .iter()
-                .filter_map(|rs| {
-                    rs.as_ref()
+                .filter_map(|maybe_response| {
+                    maybe_response.as_ref()
                         .inspect_err(|e| {
                             warn!(
                                 target = "llm",
@@ -167,7 +139,7 @@ impl Generators {
                         })
                         .ok()
                 })
-                .flat_map(|reply| reply.contents())
+                .flat_map(|response| response.contents())
                 .inspect(|candidate| {
                     info!(target: "llm", "candidate:\t{candidate}");
                 })
@@ -188,63 +160,8 @@ impl Generators {
                 })
                 .next();
 
-            // Write text edits to disk.
-            if let Some(candidate) = completion_response_processed {
-                tokio::fs::write(
-                    path_llm_feature_redefinition(path),
-                    candidate_body_in_subclass(
-                        class.name(),
-                        &name_subclass(class.name()),
-                        feature,
-                        candidate,
-                    ),
-                )
-                .await?;
-            }
-        }
-
-        if let VerificationResult::Success =
-            autoproof(feature.name(), &name_subclass(class.name()))?
-        {
-            warn!(
-                target: "llm",
-                "must copy body of generated redefinition in initial feature.");
-        }
-
-        Ok(Some(String::new()))
+        Ok(completion_response_processed)
     }
-}
-
-fn path_llm_feature_redefinition(path: &Path) -> PathBuf {
-    let Some(stem) = path.file_stem() else {
-        panic!("fails to get file stem (filename without extension) of current file.")
-    };
-
-    let Some(stem) = stem.to_str() else {
-        panic!("fails to check UFT-8 validity of file stem: {stem:#?}")
-    };
-
-    let mut pathbuf = PathBuf::new();
-    pathbuf.set_file_name(format!("llm_instrumented_{stem}.e"));
-    pathbuf
-}
-
-fn name_subclass(name_base_class: &ClassName) -> ClassName {
-    ClassName(format!("LLM_INSTRUMENTED_{name_base_class}"))
-}
-
-fn candidate_body_in_subclass(
-    name_class: &ClassName,
-    name_subclass: &ClassName,
-    feature_to_fix: &Feature,
-    body: String,
-) -> String {
-    EiffelSource::subclass_redefining_features(
-        name_class,
-        vec![(feature_to_fix, body)],
-        name_subclass,
-    )
-    .to_string()
 }
 
 #[cfg(test)]

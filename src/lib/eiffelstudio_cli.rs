@@ -46,9 +46,18 @@ pub fn autoproof(feature_name: &str, class_name: &ClassName) -> Result<Verificat
         );
     }
 
-    let prefix = "\nThis is the counterexample AutoProof provides: ";
+    if !stderr_autoproof.contains("failure") && !stdout_autoproof.contains("failure") {
+        info!(target: "llm",
+        "Autoproof error message does not contain the word failure");
+        return Ok(VerificationResult::Success);
+    };
 
-    let message = format!("{prefix}\nstdout:\t{stdout_autoproof}\nstderr:\t{stderr_autoproof}");
+    let message = format!(
+        r#"
+This is the counterexample AutoProof provides: 
+stdout:\t{stdout_autoproof}
+stderr:\t{stderr_autoproof}"#
+    );
 
     warn!(target:"llm", "AutoProof failure message: {}", message);
 
