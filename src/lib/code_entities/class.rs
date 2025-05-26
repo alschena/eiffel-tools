@@ -239,6 +239,7 @@ impl Class {
 }
 
 impl Class {
+    #[allow(deprecated)]
     pub fn to_document_symbol(&self) -> Result<lsp_types::DocumentSymbol> {
         let ClassName(name) = self.name().to_owned();
         let features = self.features();
@@ -261,6 +262,7 @@ impl Class {
         })
     }
 
+    #[allow(deprecated)]
     pub fn to_symbol_information(&self, path: &Path) -> Result<lsp_types::SymbolInformation> {
         let name = self.name().to_string();
         let kind = lsp_types::SymbolKind::CLASS;
@@ -284,10 +286,6 @@ impl Class {
 mod tests {
     use super::*;
     use crate::lib::parser::Parser;
-    use anyhow::Result;
-    use std::fs::File;
-    use std::io::prelude::*;
-    use std::path::PathBuf;
 
     fn class(source: &str) -> anyhow::Result<Class> {
         let mut parser = Parser::new();

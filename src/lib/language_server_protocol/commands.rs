@@ -275,7 +275,6 @@ mod tests {
     use anyhow::Context;
 
     use super::*;
-    use crate::lib::workspace::tests::*;
     use async_lsp::lsp_types::WorkspaceEdit;
     mod command_mock;
     use command_mock::MockCommand;

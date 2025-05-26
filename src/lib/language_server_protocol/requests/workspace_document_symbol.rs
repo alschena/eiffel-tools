@@ -1,8 +1,7 @@
 use crate::lib::language_server_protocol::prelude::*;
-use async_lsp::lsp_types::{request, SymbolInformation, WorkspaceSymbolResponse};
+use async_lsp::lsp_types::{request, WorkspaceSymbolResponse};
 use async_lsp::ResponseError;
 use async_lsp::Result;
-use std::future::Future;
 use tracing::warn;
 impl HandleRequest for request::WorkspaceSymbolRequest {
     async fn handle_request(

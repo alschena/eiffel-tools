@@ -4,12 +4,9 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fmt::Display;
 use streaming_iterator::StreamingIterator;
-use tracing::info;
 use tree_sitter::Query;
 use tree_sitter::QueryCursor;
 use tree_sitter::Tree;
-
-use super::*;
 
 #[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema)]
 #[schemars(deny_unknown_fields)]
@@ -150,59 +147,6 @@ impl Predicate {
         }
         ids
     }
-
-    fn top_level_calls_with_arguments(&self) -> Vec<(&str, Vec<&str>)> {
-        let tree = self.parse().expect("fails to parse predicate.");
-        let lang = tree_sitter_eiffel::LANGUAGE.into();
-        let text = self.as_str();
-
-        let query_id = Query::new(
-            &lang,
-            r#"(call (unqualified_call (identifier) @id
-            (actuals (expression) @argument
-                ("," (expression) @argument)*) !target))"#,
-        )
-        .expect("Fails to construct query for top-level calls with arguments in predicate: {self}");
-
-        let mut query_cursor = QueryCursor::new();
-
-        let mut matches = query_cursor.matches(&query_id, tree.root_node(), text.as_bytes());
-
-        let mut calls_with_args = Vec::new();
-        while let Some(mat) = matches.next() {
-            let mut args = Vec::new();
-            let name: &str;
-
-            mat.nodes_for_capture_index(
-                query_id
-                    .capture_index_for_name("argument")
-                    .expect("`argument` is a capture name."),
-            )
-            .for_each(|node| {
-                let arg = node
-                    .utf8_text(text.as_bytes())
-                    .expect("valid capture for call's argument.");
-                if !arg.is_empty() {
-                    args.push(arg)
-                }
-            });
-
-            let id_node = mat
-                .nodes_for_capture_index(
-                    query_id
-                        .capture_index_for_name("id")
-                        .expect("`id` is a capture name."),
-                )
-                .next()
-                .expect("Calls must have an identifier.");
-            name = id_node
-                .utf8_text(text.as_bytes())
-                .expect("valid capture for call's identifier.");
-
-            calls_with_args.push((name, args));
-        }
-        calls_with_args
-    }
 }
 
 impl Default for Predicate {
@@ -220,13 +164,6 @@ impl Display for Predicate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lib::parser::Parser;
-    use anyhow::Result;
-
-    fn class(source: &str) -> Result<Class> {
-        let mut parser = Parser::new();
-        parser.class_from_source(source)
-    }
 
     #[test]
     fn predicate_identifiers() {

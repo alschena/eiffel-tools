@@ -77,10 +77,6 @@ impl<'source, 'tree> TreeTraversal<'source, 'tree> {
         })
     }
 
-    pub(super) fn source(&self) -> &'source [u8] {
-        &self.source
-    }
-
     pub(super) fn set_node(&mut self, node: Node<'tree>) {
         self.node = node
     }

@@ -1,9 +1,9 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::language_server_protocol::commands;
 use crate::lib::language_server_protocol::prelude::{HandleRequest, ServerState};
+use async_lsp::lsp_types;
 use async_lsp::lsp_types::request;
 use async_lsp::lsp_types::CodeActionOrCommand;
-use async_lsp::lsp_types::{self, CodeAction};
 use async_lsp::ResponseError;
 use async_lsp::Result;
 use std::path::PathBuf;

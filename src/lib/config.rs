@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::fs::{self, canonicalize};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use tracing::{info, warn};
+use tracing::info;
 use walkdir::{self};
 #[derive(Deserialize, Debug, PartialEq, Clone, Eq)]
 pub struct Config {
@@ -264,7 +264,6 @@ mod tests {
     use anyhow::anyhow;
     use assert_fs::prelude::*;
     use assert_fs::{fixture::FileWriteStr, NamedTempFile, TempDir};
-    use tracing::Value;
     const XML_EXAMPLE: &str = r#"<?xml version="1.0" encoding="ISO-8859-1"?>
 <system xmlns="http://www.eiffel.com/developers/xml/configuration-1-16-0"
 	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"

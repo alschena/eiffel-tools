@@ -7,20 +7,20 @@ pub struct Parameters {
     pub names: Vec<String>,
     pub types: Vec<EiffelType>,
 }
+
 impl Parameters {
     pub fn names(&self) -> &Vec<String> {
         &self.names
     }
+
     pub fn types(&self) -> &Vec<EiffelType> {
         &self.types
     }
-    fn add_parameter(&mut self, id: String, eiffel_type: EiffelType) {
-        self.names.push(id);
-        self.types.push(eiffel_type);
-    }
+
     pub fn is_empty(&self) -> bool {
         self.names().is_empty() && self.types().is_empty()
     }
+
     pub fn model_extension<'s, 'system>(
         &'s self,
         system_classes: &'system [Class],
@@ -29,6 +29,7 @@ impl Parameters {
             .iter()
             .map(|t| t.model_extension(system_classes))
     }
+
     pub fn fmt_model(&self, system_classes: &[Class]) -> String {
         let parameters_models = self.model_extension(system_classes);
 

@@ -293,7 +293,6 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::lib::parser::class_tree::tests::DOUBLE_ATTRIBUTE_CLASS;
     use crate::lib::parser::util::TreeTraversal;
 
     const CONTRACT_FEATURE_CLASS_SOURCE: &str = r#"

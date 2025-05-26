@@ -1,11 +1,9 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::generators::Generators;
 use crate::lib::workspace::Workspace;
-use anyhow::anyhow;
 use anyhow::Context;
 use async_lsp::lsp_types;
 use serde_json;
-use std::path;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
