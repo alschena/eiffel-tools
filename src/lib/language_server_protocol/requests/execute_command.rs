@@ -11,7 +11,7 @@ impl HandleRequest for request::ExecuteCommand {
         let ws = st.workspace.read().await;
         let client = st.client;
         let generators = st.generators.read().await;
-        let command = Commands::try_new(&ws, params).map_err(|e| {
+        let mut command = Commands::try_new(&ws, params).map_err(|e| {
             async_lsp::ResponseError::new(
                 async_lsp::ErrorCode::INVALID_REQUEST,
                 format!("fais to generate command from workspace and parameter with error: {e}"),

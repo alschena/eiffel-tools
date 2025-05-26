@@ -1,5 +1,6 @@
 use crate::lib::code_entities::contract::*;
 use crate::lib::code_entities::prelude::*;
+use std::borrow::Borrow;
 use std::fmt::Display;
 use std::ops::Deref;
 
@@ -175,30 +176,67 @@ impl From<(&Class, Vec<(&Feature, String)>)> for EiffelSource {
 }
 
 impl EiffelSource {
-    pub fn subclass_redefining_features(
-        cl: &Class,
-        name_postfix: &str,
+    pub fn subclass_redefining_features<N>(
+        class_name: &ClassName,
         fts: Vec<(&Feature, String)>,
-    ) -> Self {
-        let name = format!("{}_{}", cl.name(), name_postfix.to_uppercase());
+        new_name: &N,
+    ) -> Self
+    where
+        N: Borrow<str> + ?Sized,
+    {
+        let name = new_name.borrow().to_uppercase();
+
         let features: Vec<Feature> = fts
             .clone()
             .into_iter()
             .map(|(ft, _)| ft.to_owned())
             .collect();
+
         let feature_names = fts.iter().map(|(ft, _)| ft.name().to_owned()).collect();
+
         let parent = ClassParent {
-            name: cl.name().to_string(),
+            name: class_name.to_string(),
             redefine: feature_names,
             ..Default::default()
         };
+
         let class = Class {
             name: ClassName(name),
             features,
             parents: vec![parent],
             ..Default::default()
         };
+
         (&class, fts).into()
+    }
+
+    pub fn simple_precursor_call(
+        parameters_redefined_feature: &FeatureParameters,
+        return_type: Option<&EiffelType>,
+    ) -> String {
+        let prefix = if return_type.is_some() {
+            "Result := Precursor"
+        } else {
+            "Precursor"
+        };
+
+        let comma_separated_parameters =
+            parameters_redefined_feature
+                .names()
+                .iter()
+                .fold(String::new(), |acc, param_name| {
+                    if acc.is_empty() {
+                        format!("{param_name}")
+                    } else {
+                        format!("{acc}, {param_name}")
+                    }
+                });
+
+        if comma_separated_parameters.is_empty() {
+            prefix.to_string()
+        } else {
+            format!("{} ({})", prefix, comma_separated_parameters)
+        }
     }
 }
 
@@ -251,7 +289,8 @@ end
 "#
         );
 
-        let res = EiffelSource::subclass_redefining_features(&cl, "POSTFIX", ft_redefined);
+        let res =
+            EiffelSource::subclass_redefining_features(cl.name(), ft_redefined, "TEST_POSTFIX");
 
         let oracle_res_clean = oracle_res
             .lines()

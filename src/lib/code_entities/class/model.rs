@@ -303,6 +303,16 @@ mod tests {
 
         assert_eq!(types.len(), 1);
         assert_eq!(types.first().unwrap().class_name().unwrap(), "INTEGER");
+
+        assert_eq!(extension.len(), 1);
+
+        assert_eq!(
+            extension[0],
+            ModelExtended::Terminal,
+            "The class INTEGER is a terminal class for the model.\nFound model of INTEGER: {:#?}",
+            extension,
+        );
+
         Ok(())
     }
 

@@ -1,6 +1,7 @@
 use super::prelude::*;
 use anyhow::Result;
 use async_lsp::lsp_types;
+use std::borrow::Borrow;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -14,6 +15,12 @@ pub use parent::Parent;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Default)]
 pub struct ClassName(pub String);
+
+impl Borrow<str> for ClassName {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
 
 impl Display for ClassName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -232,6 +239,7 @@ impl Class {
 }
 
 impl Class {
+    #[allow(deprecated)]
     pub fn to_document_symbol(&self) -> Result<lsp_types::DocumentSymbol> {
         let ClassName(name) = self.name().to_owned();
         let features = self.features();
@@ -254,6 +262,7 @@ impl Class {
         })
     }
 
+    #[allow(deprecated)]
     pub fn to_symbol_information(&self, path: &Path) -> Result<lsp_types::SymbolInformation> {
         let name = self.name().to_string();
         let kind = lsp_types::SymbolKind::CLASS;
@@ -277,10 +286,6 @@ impl Class {
 mod tests {
     use super::*;
     use crate::lib::parser::Parser;
-    use anyhow::Result;
-    use std::fs::File;
-    use std::io::prelude::*;
-    use std::path::PathBuf;
 
     fn class(source: &str) -> anyhow::Result<Class> {
         let mut parser = Parser::new();

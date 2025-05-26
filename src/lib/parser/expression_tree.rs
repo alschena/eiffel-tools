@@ -2,7 +2,6 @@ use super::util;
 use super::util::Traversal;
 use super::Query;
 use super::TreeTraversal;
-use crate::lib::parser::Node;
 use anyhow::Context;
 use anyhow::Result;
 use std::collections::HashSet;

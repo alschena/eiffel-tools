@@ -18,6 +18,9 @@ impl ServerState {
         let binding = generators.clone();
         tokio::spawn(async move {
             let mut generators = binding.write().await;
+
+            // `Generator.add_new()` will try to reuse the first knowledge model available.
+            // If you want to add more generators, change the behavior of `LLMBuilder.build`
             for _ in 0..1 {
                 generators.add_new().await
             }
@@ -29,7 +32,7 @@ impl ServerState {
             generators,
         }
     }
-    pub async fn run(&self, command: commands::Commands<'_>) -> Result<(), ResponseError> {
+    pub async fn run(&self, mut command: commands::Commands<'_>) -> Result<(), ResponseError> {
         let client = &self.client;
         let generators = self.generators.read().await;
         command.run(client, &generators).await

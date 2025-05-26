@@ -2,12 +2,13 @@ use crate::lib::code_entities::prelude::*;
 use crate::lib::parser::Parser;
 use crate::lib::workspace::Workspace;
 use anyhow::Context;
+use anyhow::Result;
 use contract::RoutineSpecification;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::info;
+use tracing::warn;
 
-mod post_processing;
 mod prompt;
 
 mod constructor_api;
@@ -24,22 +25,23 @@ impl Generators {
         };
         self.llms.push(Arc::new(llm));
     }
+
     pub async fn more_routine_specifications(
         &self,
         feature: &Feature,
         workspace: &Workspace,
         path: &Path,
-    ) -> anyhow::Result<Vec<RoutineSpecification>> {
+    ) -> Result<Vec<RoutineSpecification>> {
         let current_class = workspace
             .class(path)
             .with_context(|| format!("fails to find class loaded from path: {:#?}", path))?;
 
-        let current_class_model = current_class
-            .name()
-            .model_extended(workspace.system_classes());
+        let current_class_name = current_class.name();
+        let current_class_model = current_class_name.model_extended(workspace.system_classes());
 
-        let prompt = prompt::Prompt::for_feature_specification(
+        let prompt = prompt::Prompt::feature_specification(
             feature,
+            current_class_name,
             &current_class_model,
             path,
             workspace.system_classes(),
@@ -48,7 +50,7 @@ impl Generators {
 
         // Generate feature with specifications
         let completion_parameters = constructor_api::CompletionParameters {
-            messages: prompt.into(),
+            messages: prompt.to_messages(),
             n: Some(50),
             ..Default::default()
         };
@@ -72,17 +74,20 @@ impl Generators {
                 Ok(reply) => Some(reply),
             })
             .flat_map(|reply| {
-                reply.contents().filter_map(|candidate| {
-                    info!("candidate:\t{candidate}");
-                    let mut parser = Parser::new();
-                    parser.feature_from_source(candidate).map_or_else(
-                        |e| {
-                            info!("fail to parse generated output with error: {e:#?}");
-                            None
-                        },
-                        |ft| Some(ft.routine_specification()),
-                    )
-                })
+                reply
+                    .extract_multiline_code()
+                    .into_iter()
+                    .filter_map(|candidate| {
+                        info!("candidate:\t{candidate}");
+                        let mut parser = Parser::new();
+                        parser.feature_from_source(&candidate).map_or_else(
+                            |e| {
+                                info!("fail to parse generated output with error: {e:#?}");
+                                None
+                            },
+                            |ft| Some(ft.routine_specification()),
+                        )
+                    })
             })
             .collect();
         info!("completions:\t{completion_response_processed:#?}");
@@ -90,8 +95,70 @@ impl Generators {
         Ok(completion_response_processed)
     }
 
-    pub fn fix_routine(&self, routine: &Feature, path: &Path, workspace: &Workspace) {
-        todo!()
+    /// Returns maybe the fixed body the routine.
+    pub async fn fix_routine(
+        &self,
+        path: &Path,
+        feature: &Feature,
+        error_message: String,
+    ) -> Result<Option<String>> {
+        let prompt = prompt::Prompt::feature_fixes(feature, path, error_message)
+            .await?
+            .to_messages();
+
+        // Generate feature with specifications
+        let completion_parameters = constructor_api::CompletionParameters {
+            messages: prompt,
+            n: Some(5),
+            ..Default::default()
+        };
+
+        info!(target: "llm", "completion parameters: {:#?}", completion_parameters);
+
+        let mut tasks = tokio::task::JoinSet::new();
+        for llm in self.llms.iter().cloned() {
+            let completion_parameters = completion_parameters.clone();
+            tasks.spawn(async move { llm.model_complete(&completion_parameters).await });
+        }
+        let completion_response = tasks.join_all().await;
+
+        let completion_response_processed: Option<String> = completion_response
+                .iter()
+                .filter_map(|maybe_response| {
+                    maybe_response.as_ref()
+                        .inspect_err(|e| {
+                            warn!(
+                                target = "llm",
+                                "An LLM processing the feature fix has returned the error: {:#?}",
+                                e
+                            )
+                        })
+                        .ok()
+                })
+                .flat_map(|response| response.extract_multiline_code().into_iter())
+                .inspect(|candidate| {
+                    info!(target: "llm", "candidate:\t{candidate}");
+                })
+                .filter_map(|candidate| {
+                    let mut parser = Parser::new();
+
+                    let ft = parser
+                        .feature_from_source(&candidate)
+                        .inspect_err(|e| {
+                            info!(target: "llm", "fails to parse LLM generated feature with error: {e:#?}");
+                        })
+                        .ok()?;
+
+                    ft.body_source_unchecked(candidate).inspect_err(|e|
+
+                    info!(target: "llm", "fails to extract body of candidate feature with error: {:#?}", e)).ok()
+                })
+                .inspect(|filtered_candidate| {
+                    info!(target: "llm", "candidate of correct body:\t{:#?}", filtered_candidate);
+                })
+                .next();
+
+        Ok(completion_response_processed)
     }
 }
 

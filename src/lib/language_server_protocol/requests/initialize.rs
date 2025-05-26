@@ -5,7 +5,7 @@ use async_lsp::lsp_types::{
     request::{Initialize, Request},
     ExecuteCommandOptions, HoverProviderCapability, InitializeResult, OneOf, ServerCapabilities,
     TextDocumentSyncCapability, TextDocumentSyncOptions, TextDocumentSyncSaveOptions,
-    WorkDoneProgress, WorkDoneProgressOptions,
+    WorkDoneProgressOptions,
 };
 use async_lsp::ResponseError;
 use async_lsp::Result;

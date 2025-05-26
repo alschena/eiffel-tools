@@ -1,10 +1,10 @@
 use crate::lib::code_entities::prelude::*;
 use crate::lib::eiffel_source::Indent;
 use anyhow::Context;
+use anyhow::Result;
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::path::Path;
-use tracing::info;
-use tracing::warn;
 
 mod model_based_contracts;
 mod routine_fixes;
@@ -37,81 +37,39 @@ impl Prompt {
     pub async fn feature_fixes(
         feature: &Feature,
         filepath: &Path,
-        system_classes: &[Class],
-    ) -> anyhow::Result<Self> {
+        error_message: String,
+    ) -> Result<Self> {
         let mut var = Self::default_for_routine_fixes();
         var.set_feature_src(feature, filepath).await?;
-        var.add_autoproof_error_message_injection(feature, todo!())
-            .await?;
-        todo!()
+        var.add_commented_injection_after_feature(feature, error_message)
+            .await;
+        var.add_commented_injection_at_the_beginning("The following feature does not verify, there is a bug in the body in its body. Fix the body of following feature. After the code you will find a comment with the error message from AutoProof.");
+        Ok(var)
     }
 
-    fn set_system_message(&mut self, preable: &str) {
-        self.system_message.clear();
-        self.system_message.push_str(preable);
-    }
-
-    fn set_source(&mut self, source: &str) {
+    fn set_source<S: Borrow<str>>(&mut self, source: S) {
         self.source.clear();
-        self.source.push_str(source);
+        self.source.push_str(source.borrow());
     }
 
-    fn set_injections(&mut self, injections: &mut Vec<(Point, String)>) {
-        self.injections.clear();
-        self.injections.append(injections);
-    }
-
-    async fn set_feature_src(&mut self, feature: &Feature, filepath: &Path) -> anyhow::Result<()> {
-        let feature_src = feature.src_unchecked(filepath).await?;
-        self.source.clear();
-        self.source.push_str(&feature_src);
+    async fn set_feature_src(&mut self, feature: &Feature, filepath: &Path) -> Result<()> {
+        let feature_src = feature.source_unchecked(filepath).await?;
+        self.set_source(feature_src);
         Ok(())
     }
 
-    async fn add_autoproof_error_message_injection(
-        &mut self,
-        feature: &Feature,
-        class_name: &ClassName,
-    ) -> anyhow::Result<()> {
-        let end_point = feature.range().end;
+    fn add_commented_injection_at_the_beginning<T: ToString>(&mut self, message: T) {
+        let normalized_begin = Point { row: 0, column: 0 };
+        let fmt_message = Self::eiffel_comment(message.to_string());
 
-        let autoproof = std::process::Command::new("ec")
-            .arg("-autoproof")
-            .arg("CLASS.feature")
-            .output()
-            .with_context(|| "fails to run the autoproof command: `ec -autoproof CLASS.feature`")?;
+        self.injections.push((normalized_begin, fmt_message));
+    }
 
-        let stderr_autoproof = autoproof.stderr;
-        let stdout_autoproof = autoproof.stdout;
+    async fn add_commented_injection_after_feature(&mut self, feature: &Feature, message: String) {
+        let Range { start, end } = feature.range();
 
-        if !stderr_autoproof.is_empty() {
-            warn!(
-                "AutProof counterexample goes into stderr: {:#?}",
-                stderr_autoproof
-            );
-        }
-
-        if !stdout_autoproof.is_empty() {
-            warn!(
-                "AutProof counterexample goes into stdout: {:#?}",
-                stdout_autoproof
-            );
-        }
-
-        let prefix = "\nThis is the counterexample AutoProof provides: "
-            .as_bytes()
-            .into_iter()
-            .copied();
-
-        let message: Vec<_> = prefix
-            .chain(stderr_autoproof.into_iter())
-            .chain(stdout_autoproof.into_iter())
-            .collect();
-
-        let fmt_message = Self::eiffel_comment(String::from_utf8(message)?);
-
-        self.injections.push((end_point, fmt_message));
-        Ok(())
+        self.injections
+            .push((end.clone() - start.clone(), Self::eiffel_comment(message)));
     }
 
     fn eiffel_comment(text: String) -> String {
@@ -124,9 +82,7 @@ impl Prompt {
             acc
         })
     }
-}
 
-impl Prompt {
     fn sort_injections(injections: &mut [(Point, String)]) {
         injections.sort_by(
             |(Point { row, column }, _),
@@ -146,6 +102,7 @@ impl Prompt {
             },
         );
     }
+
     fn inject_into_source(mut injections: Vec<(Point, String)>, source: String) -> String {
         Self::sort_injections(&mut injections);
 
@@ -165,6 +122,7 @@ impl Prompt {
                 text.push('\n');
                 continue;
             };
+
             text.push_str(&line[..oc]);
             text.push_str(oi);
             for (nc, ni) in current_injections {
@@ -172,22 +130,20 @@ impl Prompt {
                 text.push_str(ni);
                 oc = nc;
             }
+
             text.push_str(&line[oc..]);
             text.push('\n');
         }
         text
     }
-}
 
-impl From<Prompt> for Vec<super::constructor_api::MessageOut> {
-    fn from(value: Prompt) -> Self {
-        let text = Prompt::inject_into_source(value.injections, value.source);
+    pub fn to_messages(self) -> Vec<super::constructor_api::MessageOut> {
+        let text = Prompt::inject_into_source(self.injections, self.source);
 
         let val = vec![
-            super::constructor_api::MessageOut::new_system(value.system_message),
+            super::constructor_api::MessageOut::new_system(self.system_message),
             super::constructor_api::MessageOut::new_user(text),
         ];
-        info!("{val:#?}");
         val
     }
 }

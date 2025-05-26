@@ -4,10 +4,10 @@ use crate::lib::code_entities::prelude::Feature;
 use crate::lib::code_entities::prelude::Range;
 use crate::lib::eiffel_source::EiffelSource;
 use crate::lib::language_server_protocol::commands::lsp_types;
+use crate::lib::language_server_protocol::commands::Generators;
 use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use anyhow::bail;
-use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result;
 use std::path::Path;
@@ -281,33 +281,28 @@ ppt-type exit{class_fields_declaration}{parameters_declaration}{return_declarati
     }
 
     fn redefined_current_feature_body(&self) -> String {
-        let indentation_string = Self::eiffel_statement_indentation_string();
         let instrumentation_body_start = self.feature_instrumentation_at(DaikonPosition::Enter);
         let instrumentation_body_end = self.feature_instrumentation_at(DaikonPosition::Exit);
-        let feature_parameters = self.feature.parameters();
-        let comma_separated_parameters =
-            feature_parameters
-                .names()
-                .iter()
-                .fold(String::new(), |acc, param_name| {
-                    if acc.is_empty() {
-                        format!("{param_name}")
-                    } else {
-                        format!("{acc}, {param_name}")
-                    }
-                });
+        let indented_simple_precursor_call = format!(
+            "{}{}",
+            Self::eiffel_statement_indentation_string(),
+            EiffelSource::simple_precursor_call(
+                self.feature.parameters(),
+                self.feature.return_type()
+            )
+        );
         format!(
             r#"{instrumentation_body_start}
-{indentation_string}Precursor ({comma_separated_parameters})
+{indented_simple_precursor_call}
 {instrumentation_body_end}"#
         )
     }
 
     fn instrumentation_by_subclass(&self) -> String {
         let instrumented_subclass = EiffelSource::subclass_redefining_features(
-            self.class,
-            "DAIKON_INSTRUMENTED",
+            self.class.name(),
             vec![(self.feature, self.redefined_current_feature_body())],
+            &format!("DAIKON_INSTRUMENTED_{}", self.class.name()),
         );
         format!("{instrumented_subclass}")
     }
@@ -368,7 +363,7 @@ impl<'ws> Command<'ws> for DaikonInstrumenter<'ws> {
         vec![serialized_filepath, serialized_feature_name]
     }
 
-    async fn side_effect(&self) -> anyhow::Result<()> {
+    async fn side_effect(&mut self, _generators: &Generators) -> anyhow::Result<()> {
         self.write_declaration_file().await?;
         self.write_instrumented_subclass_file().await
     }
@@ -587,7 +582,7 @@ variable return
 
         let oracle = format!(
             r#"
-            {instrumentation_body_start} Precursor (x, y)
+            {instrumentation_body_start}Result := Precursor (x, y)
             {instrumentation_body_end}
             "#
         );
@@ -598,7 +593,11 @@ variable return
 
         let res_iter = res.lines().map(|ln| ln.trim()).filter(|ln| !ln.is_empty());
 
-        let same = oracle_iter.zip(res_iter).all(|(or, rs)| or == rs);
+        let same = oracle_iter
+            .zip(res_iter)
+            .find(|(or, rs)| or != rs)
+            .inspect(|(or, rs)| eprintln!("oracle: {}\nresult: {}", or, rs))
+            .is_none();
         assert!(same, "oracle: {oracle}\nres: {res}");
 
         Ok(())

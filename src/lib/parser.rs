@@ -145,7 +145,7 @@ mod tests {
         tmp_file.write_str(EMPTY_CLASS)?;
         assert!(tmp_file.exists(), "tmp file exists");
 
-        let (class, path, tree) = parser.processed_file(tmp_file.to_path_buf()).await?;
+        let (class, path, _tree) = parser.processed_file(tmp_file.to_path_buf()).await?;
 
         assert_eq!(class.name(), "A", "class name: {:#?}", class.name());
         assert_eq!(path, tmp_file.path(), "path is {:#?}", tmp_file.path());

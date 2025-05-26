@@ -7,7 +7,6 @@ pub(crate) mod prelude {
     pub(crate) use super::class::model::Model as ClassLocalModel;
     pub(crate) use super::class::model::ModelExtended as ClassModel;
     pub(crate) use super::class::model::ModelNames;
-    pub(crate) use super::class::model::ModelTypes;
     pub(crate) use super::class::Class;
     pub(crate) use super::class::ClassID;
     pub(crate) use super::class::ClassName;

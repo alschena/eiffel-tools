@@ -146,6 +146,12 @@ pub mod tests {
     use crate::lib::parser::tests::EMPTY_CLASS;
     use anyhow::anyhow;
 
+    /// class
+    ///     TEST
+    /// feature
+    ///     x: INTEGER
+    ///     y: INTEGER
+    /// end
     pub const DOUBLE_ATTRIBUTE_CLASS: &str = r#"
 class
     TEST
@@ -223,14 +229,23 @@ end"#;
         let mut parser = Parser::new();
         let parsed_source = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
         let mut class_tree = parsed_source.class_tree_traversal()?;
+
         let ClassDeclarationNodes {
             notes_nodes,
             name_node,
             parents_nodes,
             feature_clause_nodes,
-            class_node,
+            class_node: _,
         } = (&mut class_tree).try_into()?;
+
+        assert!(
+            notes_nodes.is_empty(),
+            "There is no note block in {}",
+            DOUBLE_ATTRIBUTE_CLASS
+        );
+
         assert_eq!(class_tree.node_content(name_node)?, "TEST");
+
         assert_eq!(
             feature_clause_nodes.len(),
             1,

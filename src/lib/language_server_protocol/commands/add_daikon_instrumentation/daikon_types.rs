@@ -1,6 +1,5 @@
 use crate::lib::code_entities::prelude::EiffelType;
 use crate::lib::code_entities::prelude::FeatureParameters;
-use crate::lib::language_server_protocol::commands::Point;
 use anyhow::Result;
 use std::fmt::Display;
 

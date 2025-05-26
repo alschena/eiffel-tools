@@ -1,3 +1,4 @@
+use anyhow::Result;
 use reqwest::header::HeaderMap;
 use schemars::schema_for;
 use schemars::JsonSchema;
@@ -231,8 +232,28 @@ pub struct CompletionResponse {
 }
 
 impl CompletionResponse {
-    pub fn contents<'s>(&'s self) -> impl Iterator<Item = &'s str> + use<'s> {
+    fn contents<'s>(&'s self) -> impl Iterator<Item = &'s str> + use<'s> {
         self.choices.iter().map(|c| c.message.content.as_str())
+    }
+
+    pub fn extract_multiline_code(&self) -> Vec<String> {
+        self.contents()
+            .map(|content| {
+                content
+                    .lines()
+                    .skip_while(|&line| {
+                        let line = line.trim_start();
+                        let val = line.is_empty() || line.starts_with(r#"```"#);
+                        val
+                    })
+                    .map_while(|line| (!(line.trim_end() == r#"```"#)).then_some(line))
+                    .fold(String::new(), |mut acc, line| {
+                        acc.push_str(line);
+                        acc.push('\n');
+                        acc
+                    })
+            })
+            .collect()
     }
 }
 
@@ -241,14 +262,15 @@ pub struct LLMBuilder {
     headers: HeaderMap,
 }
 impl LLMBuilder {
-    pub fn try_new() -> anyhow::Result<Self> {
+    pub fn try_new() -> Result<Self> {
         let client = reqwest::Client::new();
         let token = std::env::var("CONSTRUCTOR_APP_API_TOKEN")?;
         let mut headers = HeaderMap::new();
         headers.insert("X-KM-AccessKey", format!("Bearer {token}").parse()?);
         Ok(Self { client, headers })
     }
-    async fn list_language_models(&self) -> anyhow::Result<ListLanguageModels> {
+
+    async fn list_language_models(&self) -> Result<ListLanguageModels> {
         let response = self
             .client
             .get(format!("{END_POINT}/language_models"))
@@ -261,10 +283,47 @@ impl LLMBuilder {
         Ok(list_language_models)
     }
 
+    async fn list_knowledge_models(&self) -> Result<ListKnowledgeModels> {
+        let response = self
+            .client
+            .get(format!("{END_POINT}/knowledge-models"))
+            .headers(self.headers.clone())
+            .send()
+            .await?;
+        let list_knowledge_models_response = response.json().await?;
+
+        Ok(list_knowledge_models_response)
+    }
+
+    async fn get_knowledge_model(&self, id: String) -> Result<KnowledgeModel> {
+        let response = self
+            .client
+            .get(format!("{END_POINT}/knowledge-models/{id}"))
+            .headers(self.headers.clone())
+            .send()
+            .await?;
+        let knowledge_model = response.json().await?;
+        Ok(knowledge_model)
+    }
+
+    async fn find_available_knowledge_model(&self) -> Result<Option<KnowledgeModel>> {
+        match self.list_knowledge_models().await {
+            Ok(list_knowledge_models) => match list_knowledge_models.results.first() {
+                Some(first_result) => {
+                    let id = first_result.id.clone();
+                    let knowledge_model = self.get_knowledge_model(id).await?;
+                    Ok(Some(knowledge_model))
+                }
+                None => Ok(None),
+            },
+            Err(e) => Err(e),
+        }
+    }
+
     async fn create_knowledge_model(
         &self,
         parameters: &CreateKnowledgeModelParameters,
-    ) -> anyhow::Result<KnowledgeModel> {
+    ) -> Result<KnowledgeModel> {
         let response = self
             .client
             .post(format!("{END_POINT}/knowledge-models"))
@@ -275,8 +334,16 @@ impl LLMBuilder {
         let response_parsed = response.json().await?;
         Ok(response_parsed)
     }
-    pub async fn build(self, parameters: &CreateKnowledgeModelParameters) -> anyhow::Result<LLM> {
-        let knowledge_model_id = self.create_knowledge_model(parameters).await?.id;
+
+    pub async fn build(self, parameters: &CreateKnowledgeModelParameters) -> Result<LLM> {
+        let already_available_knowledge_model = self.find_available_knowledge_model().await?;
+
+        let knowledge_model = match already_available_knowledge_model {
+            Some(val) => val,
+            None => self.create_knowledge_model(parameters).await?,
+        };
+
+        let knowledge_model_id = knowledge_model.id;
 
         Ok(LLM {
             client: self.client,
@@ -293,7 +360,7 @@ pub struct LLM {
     knowledge_model_id: String,
 }
 impl LLM {
-    pub async fn try_new() -> anyhow::Result<LLM> {
+    pub async fn try_new() -> Result<LLM> {
         let builder = LLMBuilder::try_new()?;
         let parameters = CreateKnowledgeModelParameters {
             name: "Eiffel contract factory".to_string(),
@@ -303,10 +370,11 @@ impl LLM {
         };
         builder.build(&parameters).await
     }
+
     pub async fn model_complete(
         &self,
         parameters: &CompletionParameters,
-    ) -> anyhow::Result<CompletionResponse> {
+    ) -> Result<CompletionResponse> {
         let knowledge_model_id = &self.knowledge_model_id;
 
         let request = self
@@ -317,7 +385,7 @@ impl LLM {
             .json(&parameters)
             .headers(self.headers.clone());
 
-        info!("request:\t{request:#?}");
+        info!(target: "llm", "request:\t{request:#?}");
 
         let response = request.send().await?;
 
@@ -335,7 +403,7 @@ mod tests {
 
     #[ignore]
     #[tokio::test]
-    async fn private_inference_request() -> anyhow::Result<()> {
+    async fn private_inference_request() -> Result<()> {
         let llm_builder = LLMBuilder::try_new()?;
 
         // List knowledge models
@@ -371,7 +439,7 @@ mod tests {
 
     #[ignore]
     #[tokio::test]
-    async fn structured_inference_request() -> anyhow::Result<()> {
+    async fn structured_inference_request() -> Result<()> {
         let llm = LLM::try_new().await?;
 
         let knowledge_model_id = llm.knowledge_model_id.clone();
@@ -401,5 +469,50 @@ mod tests {
             eprintln!("{out}");
         }
         Ok(())
+    }
+
+    impl MessageReceived {
+        fn new(content: String) -> Self {
+            Self {
+                role: "assistant".to_string(),
+                content,
+                tool_calls: None,
+            }
+        }
+    }
+
+    impl CompletionChoice {
+        fn new(content: String) -> Self {
+            Self {
+                index: 0,
+                message: MessageReceived::new(content),
+                finish_reason: Some("stop".to_string()),
+            }
+        }
+    }
+
+    impl CompletionResponse {
+        fn new(content: String) -> Self {
+            CompletionResponse {
+                id: "".to_string(),
+                object: "chat.completion".to_string(),
+                created: 1,
+                model: "dummy".to_string(),
+                choices: vec![CompletionChoice::new(content)],
+                usage: CompletionTokenUsage {
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    total_tokens: 0,
+                },
+            }
+        }
+    }
+
+    #[test]
+    fn extract_multiline_code() {
+        let res = CompletionResponse::new("```eiffel\nsmaller (other: NEW_INTEGER): BOOLEAN\n\tdo\n\t\tResult := value < other.value\n\tensure\n\t\tResult = (value < other.value)\n\tend\n```".to_string());
+        let multiline_code = res.extract_multiline_code();
+        let multiline_code = multiline_code.first().unwrap();
+        assert_eq!(multiline_code, "smaller (other: NEW_INTEGER): BOOLEAN\n\tdo\n\t\tResult := value < other.value\n\tensure\n\t\tResult = (value < other.value)\n\tend\n");
     }
 }

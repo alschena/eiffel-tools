@@ -29,6 +29,7 @@ impl HandleRequest for request::CodeActionRequest {
                     )
                 })?
                 .command();
+
         let daikon_instrumentation_to_routine_under_cursor_command = commands::Commands::try_new_instrument_routine_at_cursor_for_daikon(&ws, &path, point)
                 .map_err(|e| {
                     ResponseError::new(
@@ -40,9 +41,21 @@ impl HandleRequest for request::CodeActionRequest {
                 })?
                 .command();
 
+        let fix_routine_under_cursor_with_llm =
+            commands::Commands::try_new_fix_routine(&ws, &path, point).map_err(|e| {
+                    ResponseError::new(
+                        async_lsp::ErrorCode::INTERNAL_ERROR,
+                        format!(
+                    "fails to create command to fix routine at cursor: {:#?} with llm with error: {}", point,e
+                ),
+                    )
+                }
+            )?.command();
+
         Ok(Some(vec![
             CodeActionOrCommand::Command(add_specification_to_routine_under_cursor_command),
             CodeActionOrCommand::Command(daikon_instrumentation_to_routine_under_cursor_command),
+            CodeActionOrCommand::Command(fix_routine_under_cursor_with_llm),
         ]))
     }
 }

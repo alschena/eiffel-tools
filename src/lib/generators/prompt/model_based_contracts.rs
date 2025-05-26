@@ -6,53 +6,46 @@ impl Prompt {
         self.add_postcondition_injection(feature)
     }
 
-    fn add_current_model_injections(&mut self, class_model: &ClassModel) {
-        let injection_point = Point { row: 0, column: 0 };
+    fn add_current_model_injections_at_the_beginning(&mut self, class_model: &ClassModel) {
         let model_fmt = format!(
             "For the current class and its ancestors, {}",
             class_model.fmt_verbose_indented(0),
         );
-        let display_model_as_comment = Self::eiffel_comment(model_fmt);
-        self.injections
-            .push((injection_point, display_model_as_comment))
+        self.add_commented_injection_at_the_beginning(model_fmt);
     }
 
-    fn add_list_possible_postconditions_identifiers(
+    fn add_list_possible_postconditions_identifiers_at_beginning(
         &mut self,
         class_name: &ClassName,
         feature: &Feature,
         system_classes: &[Class],
     ) -> anyhow::Result<()> {
-        let injection_point = Point { row: 0, column: 0 };
         let text =
             self.fmt_list_possible_postconditions_identifiers(class_name, feature, system_classes)?;
-        let commented_text = Prompt::eiffel_comment(text);
-        self.injections.push((injection_point, commented_text));
+
+        self.add_commented_injection_at_the_beginning(text);
         Ok(())
     }
 
-    fn add_list_possible_preconditions_identifiers(
+    fn add_list_possible_preconditions_identifiers_before_feature(
         &mut self,
         class_name: &ClassName,
         feature: &Feature,
         system_classes: &[Class],
     ) -> anyhow::Result<()> {
-        let injection_point = Point { row: 0, column: 0 };
         let text =
             self.fmt_list_possible_preconditions_identifiers(class_name, feature, system_classes)?;
-        let commented_text = Prompt::eiffel_comment(text);
-        self.injections.push((injection_point, commented_text));
+
+        self.add_commented_injection_at_the_beginning(text);
         Ok(())
     }
 
     fn add_parameters_model_injections(&mut self, feature: &Feature, system_classes: &[Class]) {
-        let injection_point = Point { row: 0, column: 0 };
         let parameters_fmt = feature.parameters().fmt_model(system_classes);
 
-        let display_parameters_as_comment = Self::eiffel_comment(parameters_fmt);
-        self.injections
-            .push((injection_point, display_parameters_as_comment));
+        self.add_commented_injection_at_the_beginning(parameters_fmt);
     }
+
     fn add_postcondition_injection(&mut self, feature: &Feature) -> anyhow::Result<()> {
         let point_offset_postcondition = Self::offset_postcondition(feature)?;
         let hole_postconditions = Self::hole_postconditions(feature);
@@ -153,8 +146,9 @@ Respond with the same code, substituting the holes with valid eiffel code.
         })
     }
 
-    pub async fn for_feature_specification(
+    pub async fn feature_specification(
         feature: &Feature,
+        class_name: &ClassName,
         class_model: &ClassModel,
         filepath: &Path,
         system_classes: &[Class],
@@ -162,7 +156,17 @@ Respond with the same code, substituting the holes with valid eiffel code.
         let mut var = Self::default_for_model_based_contracts();
         var.set_feature_src(feature, filepath).await?;
         var.add_contracts_injection(feature)?;
-        var.add_current_model_injections(class_model);
+        var.add_list_possible_preconditions_identifiers_before_feature(
+            class_name,
+            feature,
+            system_classes,
+        )?;
+        var.add_list_possible_postconditions_identifiers_at_beginning(
+            class_name,
+            feature,
+            system_classes,
+        )?;
+        var.add_current_model_injections_at_the_beginning(class_model);
         var.add_parameters_model_injections(feature, system_classes);
         Ok(var)
     }
@@ -291,10 +295,11 @@ end
         let mut prompt = Prompt::default_for_model_based_contracts();
         prompt.set_source(feature_src);
         prompt.add_contracts_injection(feature)?;
-        prompt.add_current_model_injections(&class_model);
+        prompt.add_current_model_injections_at_the_beginning(&class_model);
         prompt.add_parameters_model_injections(feature, &system_classes);
 
-        let messages: Vec<MessageOut> = prompt.clone().into();
+        let messages: Vec<MessageOut> = prompt.clone().to_messages();
+
         eprintln!("{messages:#?}");
 
         let system_message = MessageOut::new_system(prompt.system_message);
@@ -322,13 +327,13 @@ end
         let mut prompt = Prompt::default_for_model_based_contracts();
         prompt.set_source(SRC_NEW_INTEGER_SMALLER);
         eprintln!("{prompt:#?}");
-        prompt.add_list_possible_preconditions_identifiers(
+        prompt.add_list_possible_preconditions_identifiers_before_feature(
             &class_name,
             &feature,
             &system_classes,
         )?;
         eprintln!("{prompt:#?}");
-        prompt.add_list_possible_postconditions_identifiers(
+        prompt.add_list_possible_postconditions_identifiers_at_beginning(
             &class_name,
             &feature,
             &system_classes,
