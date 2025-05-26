@@ -68,10 +68,8 @@ impl Prompt {
     async fn add_commented_injection_after_feature(&mut self, feature: &Feature, message: String) {
         let Range { start, end } = feature.range();
 
-        let normalized_end = end.clone() - start.clone();
-        let fmt_message = Self::eiffel_comment(message);
-
-        self.injections.push((normalized_end, fmt_message));
+        self.injections
+            .push((end.clone() - start.clone(), Self::eiffel_comment(message)));
     }
 
     fn eiffel_comment(text: String) -> String {

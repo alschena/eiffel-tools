@@ -1,20 +1,14 @@
 use crate::lib::code_entities::prelude::*;
-use crate::lib::eiffel_source::EiffelSource;
-use crate::lib::eiffelstudio_cli::autoproof;
-use crate::lib::eiffelstudio_cli::VerificationResult;
 use crate::lib::parser::Parser;
 use crate::lib::workspace::Workspace;
-use anyhow::anyhow;
 use anyhow::Context;
 use anyhow::Result;
 use contract::RoutineSpecification;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
 use tracing::warn;
 
-mod post_processing;
 mod prompt;
 
 mod constructor_api;
@@ -80,17 +74,20 @@ impl Generators {
                 Ok(reply) => Some(reply),
             })
             .flat_map(|reply| {
-                reply.contents().filter_map(|candidate| {
-                    info!("candidate:\t{candidate}");
-                    let mut parser = Parser::new();
-                    parser.feature_from_source(candidate).map_or_else(
-                        |e| {
-                            info!("fail to parse generated output with error: {e:#?}");
-                            None
-                        },
-                        |ft| Some(ft.routine_specification()),
-                    )
-                })
+                reply
+                    .extract_multiline_code()
+                    .into_iter()
+                    .filter_map(|candidate| {
+                        info!("candidate:\t{candidate}");
+                        let mut parser = Parser::new();
+                        parser.feature_from_source(&candidate).map_or_else(
+                            |e| {
+                                info!("fail to parse generated output with error: {e:#?}");
+                                None
+                            },
+                            |ft| Some(ft.routine_specification()),
+                        )
+                    })
             })
             .collect();
         info!("completions:\t{completion_response_processed:#?}");
@@ -98,6 +95,7 @@ impl Generators {
         Ok(completion_response_processed)
     }
 
+    /// Returns maybe the fixed body the routine.
     pub async fn fix_routine(
         &self,
         path: &Path,
@@ -107,8 +105,6 @@ impl Generators {
         let prompt = prompt::Prompt::feature_fixes(feature, path, error_message)
             .await?
             .to_messages();
-
-        info!(target: "llm", "prompt: {:#?}", prompt);
 
         // Generate feature with specifications
         let completion_parameters = constructor_api::CompletionParameters {
@@ -139,24 +135,26 @@ impl Generators {
                         })
                         .ok()
                 })
-                .flat_map(|response| response.contents())
+                .flat_map(|response| response.extract_multiline_code().into_iter())
                 .inspect(|candidate| {
                     info!(target: "llm", "candidate:\t{candidate}");
                 })
                 .filter_map(|candidate| {
                     let mut parser = Parser::new();
 
-                    parser
-                        .feature_from_source(candidate)
+                    let ft = parser
+                        .feature_from_source(&candidate)
                         .inspect_err(|e| {
-                            info!(target: "llm", "fail to parse LLM generated feature with error: {e:#?}");
+                            info!(target: "llm", "fails to parse LLM generated feature with error: {e:#?}");
                         })
                         .ok()?;
 
-                    Some(candidate.to_owned())
+                    ft.body_source_unchecked(candidate).inspect_err(|e|
+
+                    info!(target: "llm", "fails to extract body of candidate feature with error: {:#?}", e)).ok()
                 })
                 .inspect(|filtered_candidate| {
-                    info!(target: "llm", "filtered candidate:\t{:#?}", filtered_candidate);
+                    info!(target: "llm", "candidate of correct body:\t{:#?}", filtered_candidate);
                 })
                 .next();
 

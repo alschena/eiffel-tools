@@ -2,24 +2,35 @@ use crate::lib::code_entities::prelude::*;
 use anyhow::Context;
 use anyhow::Result;
 use tracing::info;
-use tracing::warn;
 
 pub enum VerificationResult {
     Success,
     Failure(String),
 }
 
-pub fn autoproof(feature_name: &str, class_name: &ClassName) -> Result<VerificationResult> {
+fn verification_result(verification_message: String) -> VerificationResult {
+    if verification_message.contains("Verification failed") {
+        info!(target:"llm", "AutoProof fails with message: {}", verification_message);
+        VerificationResult::Failure(verification_message)
+    } else {
+        info!(target: "llm",
+        "Autoproof succedes.");
+        VerificationResult::Success
+    }
+}
+
+pub async fn autoproof(feature_name: &str, class_name: &ClassName) -> Result<VerificationResult> {
     let upcase_class_name = class_name.to_string().to_uppercase();
 
     let autoproof_cli = std::env::var("AP_COMMAND").with_context(|| {
         "fails to find environment variable `AP_COMMAND` pointing to the AutoProof executable."
     })?;
 
-    let autoproof = std::process::Command::new(autoproof_cli)
+    let autoproof = tokio::process::Command::new(autoproof_cli)
         .arg("-autoproof")
         .arg(format!("{}.{}", upcase_class_name, feature_name))
         .output()
+        .await
         .with_context(|| {
             format!(
                 "fails to run the autoproof command: `ec -autoproof {}.{}`",
@@ -46,12 +57,6 @@ pub fn autoproof(feature_name: &str, class_name: &ClassName) -> Result<Verificat
         );
     }
 
-    if !stderr_autoproof.contains("failure") && !stdout_autoproof.contains("failure") {
-        info!(target: "llm",
-        "Autoproof error message does not contain the word failure");
-        return Ok(VerificationResult::Success);
-    };
-
     let message = format!(
         r#"
 This is the counterexample AutoProof provides: 
@@ -59,7 +64,5 @@ stdout:\t{stdout_autoproof}
 stderr:\t{stderr_autoproof}"#
     );
 
-    warn!(target:"llm", "AutoProof failure message: {}", message);
-
-    Ok(VerificationResult::Failure(message))
+    Ok(verification_result(message))
 }

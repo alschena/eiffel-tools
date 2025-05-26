@@ -45,7 +45,7 @@ impl Sub for Point {
 
     fn sub(self, rhs: Self) -> Self::Output {
         let Point {
-            row: mut lhs_row,
+            row: lhs_row,
             column: lhs_column,
         } = self;
 
@@ -54,23 +54,13 @@ impl Sub for Point {
             column: rhs_column,
         } = rhs;
 
-        let new_column;
-        if rhs_column <= lhs_column {
-            new_column = lhs_column - rhs_column;
-        } else {
-            lhs_row -= 1;
-            new_column = 0;
-        }
-
-        let new_row = if rhs_row <= lhs_row {
-            lhs_row - rhs_row
-        } else {
-            0
-        };
-
         Self::Output {
-            row: new_row,
-            column: new_column,
+            row: lhs_row - rhs_row,
+            column: if lhs_row == rhs_row {
+                lhs_column - rhs_column
+            } else {
+                lhs_column
+            },
         }
     }
 }
@@ -220,7 +210,7 @@ mod tests {
 
         assert_eq!(
             end - start,
-            Point { row: 1, column: 0 },
+            Point { row: 2, column: 1 },
             "end - start == {:#?} - {:#?} == {:#?}",
             end,
             start,

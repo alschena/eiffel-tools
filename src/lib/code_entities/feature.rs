@@ -5,7 +5,6 @@ use contract::RoutineSpecification;
 use contract::{Block, Postcondition, Precondition};
 use std::borrow::Borrow;
 use std::fmt::Display;
-use std::ops::Deref;
 use std::path::Path;
 
 mod notes;
@@ -171,14 +170,22 @@ impl Feature {
         self.postconditions.is_some()
     }
 
-    async fn source_in_range_unchecked(&self, path: &Path, range: Range) -> Result<String> {
-        let start_column = range.start.column;
-        let start_row = range.start.row;
-        let end_column = range.end.column;
-        let end_row = range.end.row;
+    fn source_in_range_unchecked<T: Borrow<str>>(&self, source: T, range: Range) -> Result<String> {
+        let Range {
+            start:
+                Point {
+                    row: start_row,
+                    column: start_column,
+                },
+            end:
+                Point {
+                    row: end_row,
+                    column: end_column,
+                },
+        } = range;
 
-        let file_source = String::from_utf8(tokio::fs::read(&path).await?)?;
-        let feature = file_source
+        let feature = source
+            .borrow()
             .lines()
             .skip(start_row)
             .enumerate()
@@ -196,12 +203,24 @@ impl Feature {
         Ok(feature)
     }
 
+    async fn external_source_in_range_unchecked(
+        &self,
+        path: &Path,
+        range: Range,
+    ) -> Result<String> {
+        Self::source_in_range_unchecked(
+            &self,
+            String::from_utf8(tokio::fs::read(&path).await?)?,
+            range,
+        )
+    }
+
     pub async fn source_unchecked(&self, path: &Path) -> Result<String> {
-        self.source_in_range_unchecked(path, self.range().clone())
+        self.external_source_in_range_unchecked(path, self.range().clone())
             .await
     }
 
-    pub async fn body_source_unchecked(&self, path: &Path) -> Result<String> {
+    pub async fn body_source_unchecked_at_path(&self, path: &Path) -> Result<String> {
         let mut body = self
             .body_range()
             .with_context(|| format!("fails to get body range of feature: {}", self.name()))?
@@ -210,7 +229,19 @@ impl Feature {
         // Ignore the do keyword in the range.
         body.start.column += 2;
 
-        self.source_in_range_unchecked(path, body).await
+        self.external_source_in_range_unchecked(path, body).await
+    }
+
+    pub fn body_source_unchecked<T: Borrow<str>>(&self, source: T) -> Result<String> {
+        let mut body = self
+            .body_range()
+            .with_context(|| format!("fails to get body range of feature: {}", self.name()))?
+            .clone();
+
+        // Ignore the do keyword in the range.
+        body.start.column += 2;
+
+        self.source_in_range_unchecked(source, body)
     }
 }
 
@@ -233,6 +264,7 @@ impl Display for Feature {
 impl TryFrom<&Feature> for lsp_types::DocumentSymbol {
     type Error = anyhow::Error;
 
+    #[allow(deprecated)]
     fn try_from(value: &Feature) -> std::result::Result<Self, Self::Error> {
         let name = value.name().to_string();
         let range = value.range().clone().try_into()?;
@@ -251,8 +283,6 @@ impl TryFrom<&Feature> for lsp_types::DocumentSymbol {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::Context;
-
     use super::*;
     use crate::lib::parser::Parser;
 

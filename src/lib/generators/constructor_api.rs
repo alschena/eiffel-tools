@@ -5,7 +5,6 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
 use tracing::info;
-use tracing::warn;
 
 const END_POINT: &'static str = r#"https://training.constructor.app/api/platform-kmapi/v1"#;
 
@@ -233,8 +232,28 @@ pub struct CompletionResponse {
 }
 
 impl CompletionResponse {
-    pub fn contents<'s>(&'s self) -> impl Iterator<Item = &'s str> + use<'s> {
+    fn contents<'s>(&'s self) -> impl Iterator<Item = &'s str> + use<'s> {
         self.choices.iter().map(|c| c.message.content.as_str())
+    }
+
+    pub fn extract_multiline_code(&self) -> Vec<String> {
+        self.contents()
+            .map(|content| {
+                content
+                    .lines()
+                    .skip_while(|&line| {
+                        let line = line.trim_start();
+                        let val = line.is_empty() || line.starts_with(r#"```"#);
+                        val
+                    })
+                    .map_while(|line| (!(line.trim_end() == r#"```"#)).then_some(line))
+                    .fold(String::new(), |mut acc, line| {
+                        acc.push_str(line);
+                        acc.push('\n');
+                        acc
+                    })
+            })
+            .collect()
     }
 }
 
@@ -366,7 +385,7 @@ impl LLM {
             .json(&parameters)
             .headers(self.headers.clone());
 
-        info!("request:\t{request:#?}");
+        info!(target: "llm", "request:\t{request:#?}");
 
         let response = request.send().await?;
 
@@ -450,5 +469,50 @@ mod tests {
             eprintln!("{out}");
         }
         Ok(())
+    }
+
+    impl MessageReceived {
+        fn new(content: String) -> Self {
+            Self {
+                role: "assistant".to_string(),
+                content,
+                tool_calls: None,
+            }
+        }
+    }
+
+    impl CompletionChoice {
+        fn new(content: String) -> Self {
+            Self {
+                index: 0,
+                message: MessageReceived::new(content),
+                finish_reason: Some("stop".to_string()),
+            }
+        }
+    }
+
+    impl CompletionResponse {
+        fn new(content: String) -> Self {
+            CompletionResponse {
+                id: "".to_string(),
+                object: "chat.completion".to_string(),
+                created: 1,
+                model: "dummy".to_string(),
+                choices: vec![CompletionChoice::new(content)],
+                usage: CompletionTokenUsage {
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    total_tokens: 0,
+                },
+            }
+        }
+    }
+
+    #[test]
+    fn extract_multiline_code() {
+        let res = CompletionResponse::new("```eiffel\nsmaller (other: NEW_INTEGER): BOOLEAN\n\tdo\n\t\tResult := value < other.value\n\tensure\n\t\tResult = (value < other.value)\n\tend\n```".to_string());
+        let multiline_code = res.extract_multiline_code();
+        let multiline_code = multiline_code.first().unwrap();
+        assert_eq!(multiline_code, "smaller (other: NEW_INTEGER): BOOLEAN\n\tdo\n\t\tResult := value < other.value\n\tensure\n\t\tResult = (value < other.value)\n\tend\n");
     }
 }
