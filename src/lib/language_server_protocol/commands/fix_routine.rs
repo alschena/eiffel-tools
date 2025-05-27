@@ -81,7 +81,7 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
         &self,
         _generators: &Generators,
     ) -> Result<Option<lsp_types::WorkspaceEdit>> {
-        let body_range = self
+        let Range { mut start, end } = self
             .feature
             .body_range()
             .with_context(|| {
@@ -90,8 +90,11 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
                     self.feature.name()
                 )
             })?
-            .to_owned()
-            .try_into()?;
+            .to_owned();
+
+        start.shift_right(2); // Compensate for `do` keyword.
+
+        let body_range = Range { start, end }.try_into()?;
 
         let url = lsp_types::Url::from_file_path(self.path.clone())
             .map_err(|_| anyhow!("fails to convert file path to lsp url."))?;
