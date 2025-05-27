@@ -149,14 +149,16 @@ impl Generators {
                         })
                         .ok()?;
 
-                    ft.body_source_unchecked(candidate).inspect_err(|e|
-
-                    info!(target: "llm", "fails to extract body of candidate feature with error: {:#?}", e)).ok()
+                    ft.body_source_unchecked(candidate).inspect_err(|e| info!(target: "llm", "fails to extract body of candidate feature with error: {:#?}", e)).ok()
                 })
                 .inspect(|filtered_candidate| {
                     info!(target: "llm", "candidate of correct body:\t{:#?}", filtered_candidate);
                 })
                 .next();
+
+        if completion_response_processed.is_none() {
+            info!(target:"llm", "llm proposes no candidate.");
+        }
 
         Ok(completion_response_processed)
     }

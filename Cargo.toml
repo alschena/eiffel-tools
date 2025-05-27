@@ -21,7 +21,7 @@ streaming-iterator = { version = "0.1.9" }
 tokio = { version = "1.27", features = ["full"] }
 
 # Parallelism
-rayon = "1.10"
+tokio-rayon = "2.1.0"
 
 # Service-based framework (framework for lsp is built upon this)
 tower = "0.5.*"

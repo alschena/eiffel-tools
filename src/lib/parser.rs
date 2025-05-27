@@ -78,26 +78,14 @@ impl Parser {
         Ok(any_feature)
     }
 
-    pub async fn processed_file(&mut self, path: PathBuf) -> Result<(Class, PathBuf, Tree)> {
-        let src = String::from_utf8(
-            tokio::fs::read(&path)
-                .await
-                .with_context(|| format!("fails to read file at path: {:#?}", path))?,
-        )?;
+    pub fn processed_file<S: AsRef<[u8]>>(&mut self, source: S) -> Result<(Class, Tree)> {
+        let parsed_source = self.parse(source.as_ref())?;
 
-        let parsed_source = self
-            .parse(&src)
-            .with_context(|| format!("fails processing file at path: {:#?}", path))?;
+        let mut class_tree = parsed_source.class_tree_traversal()?;
 
-        let mut class_tree = parsed_source
-            .class_tree_traversal()
-            .with_context(|| format!("fails processing file at path: {:#?}", path))?;
+        let class = class_tree.class()?;
 
-        let class = class_tree
-            .class()
-            .with_context(|| format!("fails processing file at path: {:#?}", path))?;
-
-        Ok((class, path, parsed_source.tree))
+        Ok((class, parsed_source.tree))
     }
 }
 
@@ -131,24 +119,14 @@ impl ParsedSource<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert_fs::prelude::*;
-    use assert_fs::{fixture::FileWriteStr, TempDir};
-
     pub const EMPTY_CLASS: &str = r#"class A end"#;
 
     #[tokio::test]
     async fn process_file() -> anyhow::Result<()> {
         let mut parser = Parser::new();
-
-        let tmp_dir = TempDir::new().expect("fails to create temporary directory.");
-        let tmp_file = tmp_dir.child("tmp_file.e");
-        tmp_file.write_str(EMPTY_CLASS)?;
-        assert!(tmp_file.exists(), "tmp file exists");
-
-        let (class, path, _tree) = parser.processed_file(tmp_file.to_path_buf()).await?;
+        let (class, _tree) = parser.processed_file(EMPTY_CLASS)?;
 
         assert_eq!(class.name(), "A", "class name: {:#?}", class.name());
-        assert_eq!(path, tmp_file.path(), "path is {:#?}", tmp_file.path());
         Ok(())
     }
 }

@@ -387,8 +387,7 @@ mod tests {
         let mut parser = Parser::new();
         let temp_dir = TempDir::new().expect("must create temporary directory.");
         let file = temp_dir.child("processed_file_new.e");
-        file.write_str(
-            r#"class
+        let source = r#"class
     TEST
 feature
     sum (x,y: INTEGER): INTEGER
@@ -396,14 +395,14 @@ feature
             Result := x + y
         end
 end
-"#,
-        )
-        .expect("write to file");
+"#;
+        file.write_str(source).expect("write to file");
 
-        parser
-            .processed_file(file.to_path_buf())
-            .await
-            .expect("fails to create processed file")
+        let (cl, tr) = parser
+            .processed_file(source)
+            .expect("fails to create processed file");
+
+        (cl, file.to_path_buf(), tr)
     }
 
     impl<'ws> DaikonInstrumenter<'ws> {

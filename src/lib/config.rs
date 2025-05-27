@@ -29,7 +29,7 @@ impl System {
         }
     }
     /// All eiffel files present in the system.
-    pub fn eiffel_files(&self) -> impl IntoIterator<Item = PathBuf> {
+    pub fn eiffel_files(&self) -> Vec<PathBuf> {
         let eiffel_files = self
             .target
             .cluster

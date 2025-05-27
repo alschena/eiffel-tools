@@ -5,6 +5,7 @@ use crate::lib::parser::Tree;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
+use tracing::instrument;
 use tracing::warn;
 
 #[derive(Debug, Default)]
@@ -59,6 +60,17 @@ impl Workspace {
         }
     }
 
+    async fn read_file(path: &Path) -> Option<String> {
+        tokio::fs::read(path)
+            .await
+            .inspect_err(|e| warn!("fails to read file at path: {:#?} with error: {:#?}", path, e))
+            .into_iter()
+            .flat_map(|byte_source| {
+                String::from_utf8(byte_source)
+                    .inspect_err(|e| warn!("fails to convert file at path: {:#?} from byte form to utf-8 with error: {:#?}",path, e))
+            }).next()
+    }
+
     pub async fn reload(&mut self, pathbuf: PathBuf) {
         match self.location_class.get(&pathbuf) {
             Some(class_name) => {
@@ -69,13 +81,20 @@ impl Workspace {
             }
         }
 
-        let mut parser = Parser::new();
-        match parser.processed_file(pathbuf).await {
-            Ok(val) => {
-                self.add_file(val);
-            }
-            Err(e) => {
-                warn!("fails to add a file to the workspace file with error: {e:#?}")
+        let src = Self::read_file(&pathbuf).await;
+
+        if let Some(source) = src {
+            let mut parser = Parser::new();
+            match parser.processed_file(source) {
+                Ok((class, tree)) => {
+                    self.add_file((class, pathbuf, tree));
+                }
+                Err(e) => {
+                    warn!(
+                        "fails to reload the file at {:#?} in the workspace file with error: {:#?}",
+                        pathbuf, e
+                    )
+                }
             }
         }
     }
@@ -84,28 +103,33 @@ impl Workspace {
         &self.classes
     }
 
+    #[instrument(skip_all)]
     pub async fn load_system(&mut self, system: &System) {
         let eiffel_files = system.eiffel_files();
-        let (sender, mut receiver) = tokio::sync::mpsc::channel(100);
+
+        let (transmitter, mut receiver) = tokio::sync::mpsc::unbounded_channel();
 
         tokio::spawn(async move {
             for filepath in eiffel_files {
                 let mut parser = Parser::new();
-                let sender = sender.clone();
+                let transmitter = transmitter.clone();
+
                 tokio::spawn(async move {
-                    match parser.processed_file(filepath).await {
-                        Ok(value) => {
-                            let status = sender.send(value).await;
-                            if let Err(e) = status {
-                                warn!(
-                                    "fails to send processed file through mpsc with error: {:#?}",
-                                    e
-                                )
+                    if let Some(source) = Self::read_file(&filepath).await {
+                        tokio_rayon::spawn(move || match parser.processed_file(source) {
+                            Ok((class, tree)) => {
+                                transmitter
+                                    .send((class, filepath, tree))
+                                    .inspect_err(|e| {
+                                        warn!("fails to send parsed file with error: {:#?}", e)
+                                    })
+                                    .ok();
                             }
-                        }
-                        Err(e) => {
-                            warn!("fails to parse file with error {:#?}", e)
-                        }
+                            Err(e) => {
+                                warn!("fails to parse file with error {:#?}", e);
+                            }
+                        })
+                        .await
                     }
                 });
             }
@@ -138,25 +162,22 @@ pub mod tests {
         let mut parser = Parser::new();
         let temp_dir = TempDir::new().expect("must create temporary directory.");
         let file = temp_dir.child("processed_file_new.e");
-        file.write_str(
-            r#"
+        let source = r#"
 class A
 feature
   x: INTEGER
 end
-            "#,
-        )
-        .expect("write to file");
+            "#;
+        file.write_str(source).expect("write to file");
         assert!(file.exists());
 
         let mut ws = Workspace::mock();
 
-        let val = parser
-            .processed_file(file.to_path_buf())
-            .await
+        let (cl, tr) = parser
+            .processed_file(source)
             .expect("fails to process tmp file");
 
-        ws.add_file(val);
+        ws.add_file((cl, file.to_path_buf(), tr));
 
         let class_a_is_in_workspace = ws
             .location_class

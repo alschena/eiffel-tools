@@ -263,7 +263,7 @@ end
         let src = SRC_NEW_INTEGER;
         file.write_str(src)?;
 
-        let (client, path, _) = parser.processed_file(file.to_path_buf()).await?;
+        let (client, _) = parser.processed_file(SRC_NEW_INTEGER)?;
 
         let feature = client
             .features()
@@ -272,7 +272,7 @@ end
             .expect("find feature `smaller`");
 
         let mut prompt = Prompt::default_for_model_based_contracts();
-        prompt.set_feature_src(feature, &path).await?;
+        prompt.set_feature_src(feature, &file.to_path_buf()).await?;
 
         assert_eq!(prompt.source, String::from(SRC_NEW_INTEGER_SMALLER));
         Ok(())

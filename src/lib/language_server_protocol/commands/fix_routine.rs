@@ -127,8 +127,6 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
 
             let feature_body = feature.body_source_unchecked_at_path(path).await?;
 
-            eprintln!("feature body: {:#?}", feature_body);
-
             write_to_feature_redefinition(path, class.name(), feature, feature_body).await?;
 
             let mut number_of_tries = 0;
@@ -148,9 +146,7 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
                 if let Some(candidate) = maybe_candidate {
                     feature_verified = Some(candidate.clone());
 
-                    let parser = Parser::new();
-                    // parser.feature_from_source(candidate)
-
+                    info!(target: "llm", "Writing candidate to subclass file:\n{}", candidate);
                     write_to_feature_redefinition(path, class.name(), feature, candidate).await?;
                 }
             }

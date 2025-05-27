@@ -385,13 +385,16 @@ impl LLM {
             .json(&parameters)
             .headers(self.headers.clone());
 
-        info!(target: "llm", "request:\t{request:#?}");
+        info!(target: "llm", "request sent to llm:\t{:#?}", request);
 
         let response = request.send().await?;
 
         debug_assert!(response.status().is_success(), "{}", response.text().await?);
 
         let response_json = response.json().await?;
+
+        info!(target: "llm", "response sent by llm:\t{:#?}", response_json);
+
         Ok(response_json)
     }
 }
