@@ -5,6 +5,7 @@ use crate::lib::parser::Tree;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
+use tokio::sync::mpsc::UnboundedSender;
 use tracing::instrument;
 use tracing::warn;
 
@@ -104,39 +105,46 @@ impl Workspace {
     }
 
     #[instrument(skip_all)]
-    pub async fn load_system(&mut self, system: &System) {
-        let eiffel_files = system.eiffel_files();
+    fn parse_file(path: PathBuf, transmitter: UnboundedSender<(Class, PathBuf, Tree)>) {
+        if let Ok(source) = std::fs::read(&path) {
+            let mut parser = Parser::new();
+            match parser.processed_file(source) {
+                Ok((class, tree)) => {
+                    transmitter
+                        .send((class, path, tree))
+                        .inspect_err(|e| warn!("fails to send parsed file with error: {:#?}", e))
+                        .ok();
+                }
+                Err(e) => {
+                    warn!("fails to parse file with error {:#?}", e);
+                }
+            }
+        } else {
+            warn!("fails to read file");
+        }
+    }
 
+    #[instrument(skip_all)]
+    fn parse_files(system: &System, transmitter: UnboundedSender<(Class, PathBuf, Tree)>) {
+        for path in system.eiffel_files() {
+            let transmitter = transmitter.clone();
+
+            rayon::spawn(move || Self::parse_file(path, transmitter));
+        }
+    }
+
+    #[instrument(skip_all)]
+    pub async fn load_system(&mut self, system: &System) {
         let (transmitter, mut receiver) = tokio::sync::mpsc::unbounded_channel();
 
-        tokio::spawn(async move {
-            for filepath in eiffel_files {
-                let mut parser = Parser::new();
-                let transmitter = transmitter.clone();
+        Self::parse_files(system, transmitter);
 
-                tokio::spawn(async move {
-                    if let Some(source) = Self::read_file(&filepath).await {
-                        tokio_rayon::spawn(move || match parser.processed_file(source) {
-                            Ok((class, tree)) => {
-                                transmitter
-                                    .send((class, filepath, tree))
-                                    .inspect_err(|e| {
-                                        warn!("fails to send parsed file with error: {:#?}", e)
-                                    })
-                                    .ok();
-                            }
-                            Err(e) => {
-                                warn!("fails to parse file with error {:#?}", e);
-                            }
-                        })
-                        .await
-                    }
-                });
+        let limit = 100;
+        let buffer = &mut Vec::with_capacity(limit);
+        while receiver.recv_many(buffer, limit).await != 0 {
+            while let Some(value) = buffer.pop() {
+                self.add_file(value);
             }
-        });
-
-        while let Some(value) = receiver.recv().await {
-            self.add_file(value);
         }
     }
 }
