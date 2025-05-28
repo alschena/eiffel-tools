@@ -16,6 +16,7 @@ use notes_tree::NotesTree;
 
 mod notes_tree;
 
+#[instrument(skip_all)]
 pub(super) fn query() -> Query {
     util::query(
         r#"
@@ -26,7 +27,6 @@ pub(super) fn query() -> Query {
                 (feature_clause)* @feature_clause
                 (notes)? @notes
             )@class
-                
             "#,
     )
 }
@@ -62,6 +62,7 @@ impl<'source, 'tree> TreeTraversal<'source, 'tree> {
         Ok(parents)
     }
 
+    #[instrument(skip_all)]
     fn class_feature_by_clauses(
         &mut self,
         nodes: &ClassDeclarationNodes<'tree>,
@@ -83,6 +84,7 @@ impl<'source, 'tree> TreeTraversal<'source, 'tree> {
         Ok(model_names)
     }
 
+    #[instrument(skip_all)]
     pub(super) fn class(&mut self) -> Result<Class> {
         let nodes: ClassDeclarationNodes<'tree> = self.try_into()?;
         let name = self.class_name(&nodes)?;
@@ -198,17 +200,6 @@ feature
     seq: MML_SEQUENCE [INTEGER]
 end
 "#;
-
-    pub const ANNOTATED_CLASS: &str = r#"
-note
-  demo_note: True
-  multi_note: True, False
-class DEMO_CLASS
-invariant
-  note
-    note_after_invariant: True
-end
-    "#;
 
     pub const PROCEDURE_CLASS: &str = r#"
 class A feature

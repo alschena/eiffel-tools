@@ -1,7 +1,7 @@
 use anyhow::Context;
 use anyhow::Result;
-use std::path::PathBuf;
 use streaming_iterator::StreamingIterator;
+use tracing::instrument;
 
 use ::tree_sitter::Node;
 use ::tree_sitter::Parser as TreeSitterParser;
@@ -31,6 +31,7 @@ impl Parser {
         Self(parser)
     }
 
+    #[instrument(skip_all)]
     pub fn parse<'source, T>(&mut self, source: &'source T) -> Result<ParsedSource<'source>>
     where
         T: AsRef<[u8]> + ?Sized,
@@ -78,6 +79,7 @@ impl Parser {
         Ok(any_feature)
     }
 
+    #[instrument(skip_all)]
     pub fn processed_file<S: AsRef<[u8]>>(&mut self, source: S) -> Result<(Class, Tree)> {
         let parsed_source = self.parse(source.as_ref())?;
 

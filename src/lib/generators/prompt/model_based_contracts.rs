@@ -224,13 +224,6 @@ mod tests {
     use assert_fs::prelude::*;
     use assert_fs::{fixture::FileWriteStr, TempDir};
 
-    const SRC_CLIENT_NEW_INTEGER: &'static str = r#"
-class A feature
-  x (arg: NEW_INTEGER)
-    do
-    end
-end
-"#;
     const SRC_NEW_INTEGER: &'static str = r#"note
     	model: value
     class

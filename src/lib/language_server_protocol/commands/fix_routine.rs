@@ -4,7 +4,6 @@ use crate::lib::eiffelstudio_cli::autoproof;
 use crate::lib::eiffelstudio_cli::VerificationResult;
 use crate::lib::generators::Generators;
 use crate::lib::language_server_protocol::commands::fix_routine::path::PathBuf;
-use crate::lib::parser::Parser;
 use crate::lib::workspace::Workspace;
 use anyhow::anyhow;
 use anyhow::Context;

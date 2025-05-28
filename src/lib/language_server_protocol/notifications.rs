@@ -16,8 +16,8 @@ pub trait HandleNotification: Notification {
 }
 impl HandleNotification for DidChangeConfiguration {
     fn handle_notification(
-        st: ServerState,
-        params: <Self as Notification>::Params,
+        _st: ServerState,
+        _params: <Self as Notification>::Params,
     ) -> ControlFlow<Result<()>, ()> {
         ControlFlow::Continue(())
     }
@@ -25,8 +25,8 @@ impl HandleNotification for DidChangeConfiguration {
 
 impl HandleNotification for DidOpenTextDocument {
     fn handle_notification(
-        st: ServerState,
-        params: <Self as Notification>::Params,
+        _st: ServerState,
+        _params: <Self as Notification>::Params,
     ) -> ControlFlow<Result<()>, ()> {
         ControlFlow::Continue(())
     }
@@ -34,8 +34,8 @@ impl HandleNotification for DidOpenTextDocument {
 
 impl HandleNotification for DidChangeTextDocument {
     fn handle_notification(
-        st: ServerState,
-        params: <Self as Notification>::Params,
+        _st: ServerState,
+        _params: <Self as Notification>::Params,
     ) -> ControlFlow<Result<()>, ()> {
         ControlFlow::Continue(())
     }
@@ -43,8 +43,8 @@ impl HandleNotification for DidChangeTextDocument {
 
 impl HandleNotification for DidCloseTextDocument {
     fn handle_notification(
-        st: ServerState,
-        params: <Self as Notification>::Params,
+        _st: ServerState,
+        _params: <Self as Notification>::Params,
     ) -> ControlFlow<Result<()>, ()> {
         ControlFlow::Continue(())
     }

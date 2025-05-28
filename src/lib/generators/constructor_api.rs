@@ -137,6 +137,7 @@ pub struct OpenAIJsonSchema {
 }
 
 impl OpenAIJsonSchema {
+    #[allow(unused)]
     pub fn new<T: JsonSchema>() -> Self {
         let schema = schema_for!(T);
         let name = schema
@@ -163,6 +164,7 @@ pub struct OpenAIResponseFormat {
 }
 
 impl OpenAIResponseFormat {
+    #[allow(unused)]
     pub fn json<T: JsonSchema>() -> Self {
         Self {
             r#type: OpenAIResponseFormatOptions::JsonSchema,
@@ -270,6 +272,7 @@ impl LLMBuilder {
         Ok(Self { client, headers })
     }
 
+    #[allow(unused)]
     async fn list_language_models(&self) -> Result<ListLanguageModels> {
         let response = self
             .client

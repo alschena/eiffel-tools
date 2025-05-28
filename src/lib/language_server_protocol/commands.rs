@@ -30,7 +30,7 @@ trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
 
     fn generate_edits(
         &self,
-        generators: &Generators,
+        _generators: &Generators,
     ) -> impl Future<Output = Result<Option<lsp_types::WorkspaceEdit>>> {
         async { Ok(None) }
     }
@@ -54,7 +54,7 @@ trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
         }
     }
 
-    async fn side_effect(&mut self, generators: &Generators) -> anyhow::Result<()> {
+    async fn side_effect(&mut self, _generators: &Generators) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -272,9 +272,9 @@ impl<'ws> Commands<'ws> {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::Context;
-
     use super::*;
+    use crate::lib::generators::Generators;
+    use anyhow::Context;
     use async_lsp::lsp_types::WorkspaceEdit;
     mod command_mock;
     use command_mock::MockCommand;
@@ -297,6 +297,20 @@ mod tests {
         assert_eq!(command.title, "Mock");
         assert_eq!(command.command, "mock");
         assert_eq!(command.arguments, None);
+    }
+
+    #[tokio::test]
+    async fn enum_command_generate_edits() {
+        let ws = Workspace::mock();
+        let commands = CommandsTest::MockCommand(MockCommand::new(&ws));
+
+        let generators = Generators::mock();
+        let generations = commands.generate_edits(&generators).await;
+
+        assert!(generations.is_ok());
+
+        let generations = generations.unwrap();
+        assert!(generations.is_none());
     }
 
     #[test]

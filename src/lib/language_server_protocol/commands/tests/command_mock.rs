@@ -6,12 +6,14 @@ use async_lsp::lsp_types;
 
 #[derive(Debug, Clone)]
 pub struct MockCommand<'ws> {
-    workspace: &'ws Workspace,
+    _workspace: &'ws Workspace,
 }
 
 impl<'ws> MockCommand<'ws> {
     pub fn new(workspace: &'ws Workspace) -> Self {
-        Self { workspace }
+        Self {
+            _workspace: workspace,
+        }
     }
     pub fn test_function_with_arg(&self, s: String) -> String {
         s
@@ -22,7 +24,9 @@ impl<'ws> From<(&'ws Workspace, Vec<serde_json::Value>)> for MockCommand<'ws> {
     fn from(value: (&'ws Workspace, Vec<serde_json::Value>)) -> Self {
         assert!(value.0.is_mock());
         assert!(value.1.is_empty());
-        Self { workspace: value.0 }
+        Self {
+            _workspace: value.0,
+        }
     }
 }
 impl<'ws> Command<'ws> for MockCommand<'ws> {
@@ -38,6 +42,6 @@ impl<'ws> Command<'ws> for MockCommand<'ws> {
         &self,
         _generators: &Generators,
     ) -> Result<Option<lsp_types::WorkspaceEdit>> {
-        todo!()
+        Ok(None)
     }
 }

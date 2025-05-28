@@ -12,6 +12,12 @@ pub struct ClassSpecificationGenerator<'ws> {
     path: &'ws Path,
 }
 
+impl<'ws> ClassSpecificationGenerator<'ws> {
+    fn class(&self) -> &Class {
+        self.workspace.class(self.path).unwrap_or_else(|| panic!("fails to find a class in the workspace for creating a class specification generator at path: {:#?} ",self.path))
+    }
+}
+
 impl<'ws> TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> for ClassSpecificationGenerator<'ws> {
     type Error = anyhow::Error;
 
@@ -44,8 +50,9 @@ impl<'ws> super::Command<'ws> for ClassSpecificationGenerator<'ws> {
 
     async fn generate_edits(
         &self,
-        generators: &Generators,
+        _generators: &Generators,
     ) -> anyhow::Result<Option<lsp_types::WorkspaceEdit>> {
+        let _ = self.class();
         todo!()
     }
 }
