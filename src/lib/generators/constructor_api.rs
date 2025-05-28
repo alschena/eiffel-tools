@@ -144,8 +144,7 @@ impl OpenAIJsonSchema {
             .schema
             .metadata
             .as_ref()
-            .map(|meta| meta.title.as_ref().map(|title| title.clone()))
-            .flatten()
+            .and_then(|meta| meta.title.clone())
             .unwrap_or_default();
         Self {
             name,
@@ -234,7 +233,7 @@ pub struct CompletionResponse {
 }
 
 impl CompletionResponse {
-    fn contents<'s>(&'s self) -> impl Iterator<Item = &'s str> + use<'s> {
+    fn contents(&self) -> impl Iterator<Item = &str> {
         self.choices.iter().map(|c| c.message.content.as_str())
     }
 
@@ -245,10 +244,9 @@ impl CompletionResponse {
                     .lines()
                     .skip_while(|&line| {
                         let line = line.trim_start();
-                        let val = line.is_empty() || line.starts_with(r#"```"#);
-                        val
+                        line.is_empty() || line.starts_with(r#"```"#)
                     })
-                    .map_while(|line| (!(line.trim_end() == r#"```"#)).then_some(line))
+                    .map_while(|line| (line.trim_end() != r#"```"#).then_some(line))
                     .fold(String::new(), |mut acc, line| {
                         acc.push_str(line);
                         acc.push('\n');
@@ -259,11 +257,11 @@ impl CompletionResponse {
     }
 }
 
-pub struct LLMBuilder {
+pub struct LlmBuilder {
     client: reqwest::Client,
     headers: HeaderMap,
 }
-impl LLMBuilder {
+impl LlmBuilder {
     pub fn try_new() -> Result<Self> {
         let client = reqwest::Client::new();
         let token = std::env::var("CONSTRUCTOR_APP_API_TOKEN")?;
@@ -338,7 +336,7 @@ impl LLMBuilder {
         Ok(response_parsed)
     }
 
-    pub async fn build(self, parameters: &CreateKnowledgeModelParameters) -> Result<LLM> {
+    pub async fn build(self, parameters: &CreateKnowledgeModelParameters) -> Result<Llm> {
         let already_available_knowledge_model = self.find_available_knowledge_model().await?;
 
         let knowledge_model = match already_available_knowledge_model {
@@ -348,7 +346,7 @@ impl LLMBuilder {
 
         let knowledge_model_id = knowledge_model.id;
 
-        Ok(LLM {
+        Ok(Llm {
             client: self.client,
             headers: self.headers,
             knowledge_model_id,
@@ -357,14 +355,14 @@ impl LLMBuilder {
 }
 
 #[derive(Clone, Debug)]
-pub struct LLM {
+pub struct Llm {
     client: reqwest::Client,
     headers: HeaderMap,
     knowledge_model_id: String,
 }
-impl LLM {
-    pub async fn try_new() -> Result<LLM> {
-        let builder = LLMBuilder::try_new()?;
+impl Llm {
+    pub async fn try_new() -> Result<Llm> {
+        let builder = LlmBuilder::try_new()?;
         let parameters = CreateKnowledgeModelParameters {
             name: "Eiffel contract factory".to_string(),
             description: "Remote private inference for the `Eiffel contract factory` tool."
@@ -410,7 +408,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     async fn private_inference_request() -> Result<()> {
-        let llm_builder = LLMBuilder::try_new()?;
+        let llm_builder = LlmBuilder::try_new()?;
 
         // List knowledge models
         let list_language_models = llm_builder.list_language_models().await?;
@@ -446,7 +444,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     async fn structured_inference_request() -> Result<()> {
-        let llm = LLM::try_new().await?;
+        let llm = Llm::try_new().await?;
 
         let knowledge_model_id = llm.knowledge_model_id.clone();
         eprintln!("create knowledge model id:\n{knowledge_model_id:#?}");

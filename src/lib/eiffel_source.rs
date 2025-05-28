@@ -8,7 +8,7 @@ pub(crate) trait Indent {
     const INDENTATION_LEVEL: usize;
     const INDENTATION_CHARACTER: char = '\t';
     fn indentation_string() -> String {
-        (0..Self::INDENTATION_LEVEL).into_iter().fold(
+        (0..Self::INDENTATION_LEVEL).fold(
             String::with_capacity(Self::INDENTATION_LEVEL),
             |mut acc, _| {
                 acc.push(Self::INDENTATION_CHARACTER);
@@ -226,7 +226,7 @@ impl EiffelSource {
                 .iter()
                 .fold(String::new(), |acc, param_name| {
                     if acc.is_empty() {
-                        format!("{param_name}")
+                        param_name.to_string()
                     } else {
                         format!("{acc}, {param_name}")
                     }

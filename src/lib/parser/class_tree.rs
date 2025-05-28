@@ -40,13 +40,13 @@ struct ClassDeclarationNodes<'tree> {
     class_node: Node<'tree>,
 }
 
-impl<'source, 'tree> ClassDeclarationNodes<'tree> {
+impl ClassDeclarationNodes<'_> {
     fn range(&self) -> Range {
         self.class_node.range().into()
     }
 }
 
-impl<'source, 'tree> TreeTraversal<'source, 'tree> {
+impl<'tree> TreeTraversal<'_, 'tree> {
     fn class_name(&self, nodes: &ClassDeclarationNodes) -> Result<ClassName> {
         self.node_content(nodes.name_node)
             .map(|name| ClassName(name.into()))

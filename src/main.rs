@@ -39,13 +39,13 @@ async fn main() -> anyhow::Result<()> {
     let default_log_file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
-        .append(false)
+        .truncate(true)
         .open(log_directory_path.join("log.log"))?;
 
     let llm_log_file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
-        .append(false)
+        .truncate(true)
         .open(log_directory_path.join("llm.log"))?;
 
     let default_layer = fmt::layer()

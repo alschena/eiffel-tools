@@ -56,7 +56,7 @@ impl Workspace {
             Some(class) => Feature::feature_around_point(class.features().iter(), point),
             None => {
                 warn!("fails to find classname at {:#?}", path);
-                return None;
+                None
             }
         }
     }

@@ -66,7 +66,7 @@ impl Parser {
         traversal.class().map(|class| (parsed_source.tree, class))
     }
 
-    pub fn feature_from_source<'source, T>(&mut self, source: &'source T) -> Result<Feature>
+    pub fn feature_from_source<T>(&mut self, source: &T) -> Result<Feature>
     where
         T: AsRef<[u8]> + ?Sized,
     {

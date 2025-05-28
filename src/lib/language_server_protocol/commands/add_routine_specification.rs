@@ -29,7 +29,7 @@ impl Deref for RoutineSpecificationGenerator<'_> {
     type Target = Workspace;
 
     fn deref(&self) -> &Self::Target {
-        &self.workspace
+        self.workspace
     }
 }
 
@@ -224,7 +224,7 @@ impl<'ws> RoutineSpecificationGenerator<'ws> {
         let feature = self.feature;
 
         let mut parser = Parser::new();
-        let fixing_context = FeaturePositionInSystem::new(&system_classes, class, feature);
+        let fixing_context = FeaturePositionInSystem::new(system_classes, class, feature);
 
         let specs = routine_specifications
             .into_iter()
@@ -234,13 +234,11 @@ impl<'ws> RoutineSpecificationGenerator<'ws> {
                 acc
             });
 
-        specs
-            .map(|spec| {
-                parser
-                    .fix(spec, &fixing_context)
-                    .inspect_err(|e| info!("fix refuses routine specification with error: {e:#?}"))
-                    .ok()
-            })
-            .flatten()
+        specs.and_then(|spec| {
+            parser
+                .fix(spec, &fixing_context)
+                .inspect_err(|e| info!("fix refuses routine specification with error: {e:#?}"))
+                .ok()
+        })
     }
 }

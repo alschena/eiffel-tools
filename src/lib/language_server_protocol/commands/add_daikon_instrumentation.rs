@@ -60,13 +60,12 @@ impl<'ws> DaikonInstrumenter<'ws> {
             .open(self.declaration_filename()?)
             .await?;
 
-        let version = format!("decl-version 2.0\n");
+        let version = "decl-version 2.0\n".to_string();
         let declarations = self.feature_declaration()?;
 
         declaration_file
-            .write(format!("{version}\n{declarations}").as_bytes())
+            .write_all(format!("{version}\n{declarations}").as_bytes())
             .await?;
-        declaration_file.flush().await?;
 
         Ok(())
     }
@@ -91,26 +90,29 @@ impl<'ws> DaikonInstrumenter<'ws> {
 
     fn feature_parameters_declarations(&self) -> Result<String> {
         let feature = self.feature;
+
         let feature_parameters = feature.parameters();
+
         let feature_parameters_types = feature.parameters().types();
+
         let parameters_names = feature_parameters.names();
+
         let parameters_daikon_var_kinds: Vec<DaikonVarKind> = feature_parameters.try_into()?;
-        let parameters_daikon_dec_types = feature_parameters_types
-            .iter()
-            .map(|ty| DaikonDecType::try_from(ty));
-        let parameters_daikon_rep_types = feature_parameters_types
-            .iter()
-            .map(|ty| DaikonRepType::try_from(ty));
+
+        let parameters_daikon_dec_types =
+            feature_parameters_types.iter().map(DaikonDecType::try_from);
+
+        let parameters_daikon_rep_types =
+            feature_parameters_types.iter().map(DaikonRepType::try_from);
 
         parameters_names
             .iter()
             .zip(parameters_daikon_var_kinds)
             .zip(parameters_daikon_dec_types)
             .zip(parameters_daikon_rep_types)
-            .fold(
-                Ok(String::new()),
-                |acc: Result<String>, (((name, var_kind), dec_type), rep_type)| {
-                    let acc = acc?;
+            .try_fold(
+                String::new(),
+                |acc, (((name, var_kind), dec_type), rep_type)| {
                     let dec_type = dec_type?;
                     let rep_type = rep_type?;
                     Ok(format!(
@@ -145,17 +147,17 @@ variable return
     // TODO: use `var-kind field` with the required `enclosing-var Current` (if it works with unqualified calls),i.e. implement constructor for fields in `DaikonVarKind`.
     fn class_fields_declaration(&self) -> Result<String> {
         let system_classes = self.workspace.system_classes();
+
         let class_fields: Vec<_> = self
             .class
-            .immediate_and_inherited_features(&system_classes)
+            .immediate_and_inherited_features(system_classes)
             .into_iter()
             .filter_map(|ft| {
                 (ft.parameters().is_empty() && ft.return_type().is_some()).then_some(ft)
             })
             .collect();
 
-        class_fields.into_iter().fold(Ok(String::new()), |acc, ft| {
-            let acc = acc?;
+        class_fields.into_iter().try_fold(String::new(), |acc, ft| {
             let Some(ft_type) = ft.return_type() else {
                 unreachable!("fails to get type of attribute")
             };
@@ -193,9 +195,10 @@ ppt-type exit{class_fields_declaration}{parameters_declaration}{return_declarati
 
     fn class_fields_instrumentation(&self) -> String {
         let system_classes = self.workspace.system_classes();
+
         let class_fields: Vec<_> = self
             .class
-            .immediate_and_inherited_features(&system_classes)
+            .immediate_and_inherited_features(system_classes)
             .into_iter()
             .filter_map(|ft| {
                 (ft.parameters().is_empty() && ft.return_type().is_some()).then_some(ft)
@@ -315,9 +318,8 @@ ppt-type exit{class_fields_declaration}{parameters_declaration}{return_declarati
             .open(self.instrumented_subclass_filename()?)
             .await?;
         subclass_file
-            .write(self.instrumentation_by_subclass().as_bytes())
+            .write_all(self.instrumentation_by_subclass().as_bytes())
             .await?;
-        subclass_file.flush().await?;
         Ok(())
     }
 }

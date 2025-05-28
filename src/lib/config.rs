@@ -19,12 +19,12 @@ impl System {
                 Ok(v) => Some(v),
                 Err(e) => {
                     info!("fails to parse the configuration file of the library with error {e:?}");
-                    return None;
+                    None
                 }
             },
             Err(e) => {
                 info!("fails reading from {file:?} with error {e:?}");
-                return None;
+                None
             }
         }
     }
@@ -91,11 +91,9 @@ struct Cluster {
 }
 impl Cluster {
     fn recursive(&self) -> bool {
-        match self.recursive {
-            Some(true) => true,
-            _ => false,
-        }
+        matches!(self.recursive, Some(true))
     }
+
     fn path(&self) -> Option<PathBuf> {
         match shellexpand::env(&self.location) {
             Ok(v) => Some(PathBuf::from(
@@ -109,10 +107,9 @@ impl Cluster {
             }
         }
     }
-    fn paths<'a>(&'a self) -> Option<impl IntoIterator<Item = (PathBuf, bool)> + 'a> {
-        let Some(base_path) = self.path() else {
-            return None;
-        };
+
+    fn paths(&self) -> Option<impl IntoIterator<Item = (PathBuf, bool)> + '_> {
+        let base_path = self.path()?;
         let mut paths = vec![(base_path.clone(), self.recursive())];
         let Some(clusters) = self.cluster.as_ref() else {
             return Some(paths);
@@ -125,6 +122,7 @@ impl Cluster {
         });
         Some(paths)
     }
+
     fn in_library_paths<'a, 'b>(
         &'a self,
         lib: &'b Library,
@@ -186,10 +184,10 @@ impl Cluster {
                             Ok(v) if (v.path()).extension().is_some_and(|ext| ext == "e") => {
                                 Some(v.path().to_owned())
                             }
-                            Ok(_) => return None,
+                            Ok(_) => None,
                             Err(ref e) => {
                                 info!("fails to read entry {entry:?} with error {e:?}");
-                                return None;
+                                None
                             }
                         })
                         .for_each(|path| acc.push(path));
@@ -198,7 +196,7 @@ impl Cluster {
             })
     }
 
-    fn eiffel_files<'a>(&'a self) -> Option<impl IntoIterator<Item = PathBuf> + 'a> {
+    fn eiffel_files(&self) -> Option<impl IntoIterator<Item = PathBuf> + use<'_>> {
         self.paths()
             .map(|paths| Cluster::eiffel_files_from_paths(paths.into_iter()))
     }
@@ -239,7 +237,7 @@ impl Library {
             Some(parent) => Some(parent.to_owned()),
             None => {
                 info!("fails to retrieve library parent directory.");
-                return None;
+                None
             }
         }
     }
@@ -250,9 +248,7 @@ impl Library {
         clusters
             .iter()
             .filter_map(move |cluster| {
-                let Some(paths) = cluster.in_library_paths(&self) else {
-                    return None;
-                };
+                let paths = cluster.in_library_paths(self)?;
                 Some(Cluster::eiffel_files_from_paths(paths))
             })
             .flatten()

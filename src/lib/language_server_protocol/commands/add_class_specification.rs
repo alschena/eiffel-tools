@@ -12,7 +12,7 @@ pub struct ClassSpecificationGenerator<'ws> {
     path: &'ws Path,
 }
 
-impl<'ws> ClassSpecificationGenerator<'ws> {
+impl ClassSpecificationGenerator<'_> {
     fn class(&self) -> &Class {
         self.workspace.class(self.path).unwrap_or_else(|| panic!("fails to find a class in the workspace for creating a class specification generator at path: {:#?} ",self.path))
     }
@@ -33,7 +33,7 @@ impl<'ws> TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> for ClassSpecificati
 
         let path = ws.path(&ClassName(classname));
 
-        return Ok(ClassSpecificationGenerator::try_new(ws, path)?);
+        ClassSpecificationGenerator::try_new(ws, path)
     }
 }
 

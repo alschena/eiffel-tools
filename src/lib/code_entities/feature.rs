@@ -149,10 +149,7 @@ impl Feature {
     }
 
     pub fn point_end_postconditions(&self) -> Option<Point> {
-        match &self.postconditions {
-            Some(post) => Some(post.range().end),
-            None => None,
-        }
+        self.postconditions.as_ref().map(|post| post.range().end)
     }
 
     pub fn point_start_postconditions(&self) -> Option<Point> {
@@ -209,7 +206,7 @@ impl Feature {
         range: Range,
     ) -> Result<String> {
         Self::source_in_range_unchecked(
-            &self,
+            self,
             String::from_utf8(tokio::fs::read(&path).await?)?,
             range,
         )
@@ -253,10 +250,9 @@ impl Display for Feature {
         } else {
             format!("({})", self.parameters())
         };
-        let format_return_type = self.return_type().map_or_else(
-            || String::new(),
-            |ref return_type| format!(": {return_type}"),
-        );
+        let format_return_type = self
+            .return_type()
+            .map_or_else(String::new, |ref return_type| format!(": {return_type}"));
         write!(f, "{name} {parenthesized_parameters}{format_return_type}")
     }
 }

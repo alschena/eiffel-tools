@@ -12,11 +12,11 @@ pub struct Point {
 impl Point {
     pub fn shift_left(&mut self, shift: usize) {
         assert!(shift <= self.column);
-        self.column = self.column - shift;
+        self.column -= shift;
     }
 
     pub fn shift_right(&mut self, shift: usize) {
-        self.column = self.column + shift;
+        self.column += shift;
     }
 
     pub fn reset_column(&mut self) {
@@ -25,18 +25,10 @@ impl Point {
 }
 impl PartialOrd for Point {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.row < other.row {
-            Some(Ordering::Less)
-        } else if other.row < self.row {
-            Some(Ordering::Greater)
-        } else {
-            if self.column < other.column {
-                Some(Ordering::Less)
-            } else if other.column < self.column {
-                Some(Ordering::Greater)
-            } else {
-                Some(Ordering::Equal)
-            }
+        match self.row.cmp(&other.row) {
+            Ordering::Less => Some(Ordering::Less),
+            Ordering::Greater => Some(Ordering::Greater),
+            _ => Some(self.column.cmp(&other.column)),
         }
     }
 }
@@ -77,7 +69,7 @@ impl Range {
     }
 
     pub fn new_collapsed(point: Point) -> Range {
-        Range::new(point.clone(), point)
+        Range::new(point, point)
     }
 
     pub fn contains(&self, point: Point) -> bool {

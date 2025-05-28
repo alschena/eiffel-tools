@@ -24,7 +24,7 @@ pub trait ExpressionTree<'tree> {
     fn top_level_calls_with_arguments(&mut self) -> Result<Vec<(String, Vec<String>)>>;
 }
 
-impl<'source, 'tree> ExpressionTree<'tree> for TreeTraversal<'source, 'tree> {
+impl<'tree> ExpressionTree<'tree> for TreeTraversal<'_, 'tree> {
     fn top_level_identifiers(&mut self) -> Result<HashSet<&str>> {
         self.set_query(<Self as ExpressionTree>::query_top_level_identifiers());
 

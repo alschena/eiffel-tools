@@ -70,7 +70,7 @@ impl Display for DaikonDecType {
             DaikonDecType::Int => "int",
             DaikonDecType::Boolean => "boolean",
             DaikonDecType::String => "java.lang.String",
-            DaikonDecType::Custom(s) => &s,
+            DaikonDecType::Custom(s) => s,
         };
         write!(f, "\tdec-type {}", text)
     }

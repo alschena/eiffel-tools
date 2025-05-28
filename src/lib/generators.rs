@@ -15,12 +15,12 @@ mod constructor_api;
 
 #[derive(Debug, Default)]
 pub struct Generators {
-    llms: Vec<Arc<constructor_api::LLM>>,
+    llms: Vec<Arc<constructor_api::Llm>>,
 }
 
 impl Generators {
     pub async fn add_new(&mut self) {
-        let Ok(llm) = constructor_api::LLM::try_new().await else {
+        let Ok(llm) = constructor_api::Llm::try_new().await else {
             info!("fail to create LLM via constructor API");
             return;
         };
@@ -51,7 +51,7 @@ impl Generators {
 
         // Generate feature with specifications
         let completion_parameters = constructor_api::CompletionParameters {
-            messages: prompt.to_messages(),
+            messages: prompt.into_llm_chat_messages(),
             n: Some(50),
             ..Default::default()
         };
@@ -105,7 +105,7 @@ impl Generators {
     ) -> Result<Option<String>> {
         let prompt = prompt::Prompt::feature_fixes(feature, path, error_message)
             .await?
-            .to_messages();
+            .into_llm_chat_messages();
 
         // Generate feature with specifications
         let completion_parameters = constructor_api::CompletionParameters {

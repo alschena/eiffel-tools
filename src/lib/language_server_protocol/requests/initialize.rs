@@ -22,26 +22,23 @@ impl HandleRequest for Initialize {
     {
         let ecf_path = params
             .initialization_options
-            .map(|x| {
+            .and_then(|x| {
                 x.as_object()
-                    .map(|z| {
+                    .and_then(|z| {
                         z.get("ecf_path").map(|path| {
-                            PathBuf::try_from(path.as_str().expect("must be string"))
-                                .expect("must be a valid path")
+                            PathBuf::from(path.as_str().expect("must be string"))
                         })
                     })
-                    .flatten()
             })
-            .flatten()
             .unwrap_or_else(|| {
                 let cwd = env::current_dir().expect("fails to retrieve current working directory");
                 let first_config_file = fs::read_dir(cwd)
                     .expect("fails to interate over current directory contents")
-                    .filter(|file| {
+                    .find(|file| {
                         file.as_ref().is_ok_and(|file| {
                             file.path().extension().is_some_and(|ext| ext == "ecf")
                         })
-                    }).next().expect("fails to find any ecf in current working directory and the configuration has not been passed as initialization option").expect("fails to read at least one ecf file in current working directory");
+                    }).expect("fails to find any ecf in current working directory and the configuration has not been passed as initialization option").expect("fails to read at least one ecf file in current working directory");
                 first_config_file.path()
             });
         let Some(system) = System::parse_from_file(&ecf_path) else {

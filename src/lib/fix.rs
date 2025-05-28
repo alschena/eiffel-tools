@@ -165,7 +165,7 @@ impl<'system> Fix<'system, ClausePredicate> for Parser {
             .current_feature
             .parameters()
             .names()
-            .into_iter()
+            .iter()
             .map(|name| name.as_str())
             .collect();
 

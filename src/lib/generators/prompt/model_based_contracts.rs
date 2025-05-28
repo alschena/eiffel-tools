@@ -111,7 +111,7 @@ Respond with the same code, substituting the holes with valid eiffel code.
         let fmt_parameters_model = Self::fmt_inline_and_append(Self::fmt_parameters(feature));
         let fmt_return_type = feature
             .return_type()
-            .map_or_else(|| String::new(), |ty| format!(", Result: {ty}"));
+            .map_or_else(String::new, |ty| format!(", Result: {ty}"));
 
         Ok(format!("Identifiers available in the pre-state for the postcondition: Current: {class_name}{fmt_current_model_prestate}{fmt_parameters_prestate}.\nIdentifiers available in the post-state for the postcondition: Current: {class_name}{fmt_current_model}{fmt_parameters_model}{fmt_return_type}."))
     }
@@ -291,7 +291,7 @@ mod tests {
         prompt.add_current_model_injections_at_the_beginning(&class_model);
         prompt.add_parameters_model_injections(feature, &system_classes);
 
-        let messages: Vec<MessageOut> = prompt.clone().to_messages();
+        let messages: Vec<MessageOut> = prompt.clone().into_llm_chat_messages();
 
         eprintln!("{messages:#?}");
 

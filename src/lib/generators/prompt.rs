@@ -69,7 +69,7 @@ impl Prompt {
         let Range { start, end } = feature.range();
 
         self.injections
-            .push((end.clone() - start.clone(), Self::eiffel_comment(message)));
+            .push((*end - *start, Self::eiffel_comment(message)));
     }
 
     fn eiffel_comment(text: String) -> String {
@@ -137,7 +137,7 @@ impl Prompt {
         text
     }
 
-    pub fn to_messages(self) -> Vec<super::constructor_api::MessageOut> {
+    pub fn into_llm_chat_messages(self) -> Vec<super::constructor_api::MessageOut> {
         let text = Prompt::inject_into_source(self.injections, self.source);
 
         let val = vec![

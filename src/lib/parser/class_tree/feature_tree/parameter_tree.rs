@@ -104,11 +104,11 @@ where
                 self.goto_entity_declaration_group_tree(*group_node);
                 self.entity_declaration_group_parameters()
             })
-            .fold(Ok(FeatureParameters::default()), |acc, parameters| {
+            .try_fold(FeatureParameters::default(), |acc, parameters| {
                 let FeatureParameters {
                     mut names,
                     mut types,
-                } = acc?;
+                } = acc;
                 let FeatureParameters {
                     names: mut new_names,
                     types: mut new_types,
