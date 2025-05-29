@@ -1,17 +1,17 @@
 use crate::lib::code_entities::contract::Contract;
+use crate::lib::code_entities::prelude::Class;
+use crate::lib::code_entities::prelude::Feature;
 use crate::lib::code_entities::prelude::contract::Clause;
 use crate::lib::code_entities::prelude::contract::ClausePredicate;
 use crate::lib::code_entities::prelude::contract::ClauseTag;
 use crate::lib::code_entities::prelude::contract::Postcondition;
 use crate::lib::code_entities::prelude::contract::Precondition;
 use crate::lib::code_entities::prelude::contract::RoutineSpecification;
-use crate::lib::code_entities::prelude::Class;
-use crate::lib::code_entities::prelude::Feature;
 use crate::lib::parser::ExpressionTree;
 use crate::lib::parser::Parser;
+use anyhow::Result;
 use anyhow::bail;
 use anyhow::ensure;
-use anyhow::Result;
 use std::collections::HashSet;
 
 pub trait Fix<'system, T> {
@@ -35,7 +35,7 @@ pub trait Fix<'system, T> {
         position_in_system: &Self::PositionInSystem,
     ) -> Result<T>;
     fn fix_syntax_of(&mut self, value: T, position_in_system: &Self::PositionInSystem)
-        -> Result<T>;
+    -> Result<T>;
 }
 
 pub struct FeaturePositionInSystem<'system> {
@@ -120,7 +120,7 @@ impl<'system> Fix<'system, ClausePredicate> for Parser {
 
         let invalid_top_level_call_identifiers = top_level_calls_with_arguments
             .iter()
-            .filter(|&(id, ref args)| {
+            .filter(|&(id, args)| {
                 eprintln!(
                     "filter eval: {:#?} for pair {:#?}. args {:#?}",
                     !all_current_class_features_names_and_number_of_parameters
@@ -659,9 +659,11 @@ mod tests {
         .into();
 
         let fixed_pre = parser.fix(pre, &context)?;
-        assert!(fixed_pre
-            .first()
-            .is_some_and(|p| p.predicate == ClausePredicate::new("f = r")));
+        assert!(
+            fixed_pre
+                .first()
+                .is_some_and(|p| p.predicate == ClausePredicate::new("f = r"))
+        );
         Ok(())
     }
 

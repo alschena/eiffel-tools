@@ -3,9 +3,9 @@ use crate::lib::generators::Generators;
 use crate::lib::workspace::Workspace;
 use anyhow::Context;
 use anyhow::Result;
+use async_lsp::ResponseError;
 use async_lsp::lsp_types;
 use async_lsp::lsp_types::request;
-use async_lsp::ResponseError;
 use serde_json;
 use std::future::Future;
 use std::path::Path;
@@ -161,21 +161,21 @@ macro_rules! commands {
 
     (@match_variants $enum_name:ident, $self:ident, [$($variant:ident),+], ($func:ident $params_names:tt -> $ret_type:ty)) => {
         match $self {
-            $($enum_name::$variant(ref inner) => {commands!(@function_call $variant $func $params_names inner)}),+
+            $($enum_name::$variant(inner) => {commands!(@function_call $variant $func $params_names inner)}),+
         }
 
     };
 
     (@async_match_variants $enum_name:ident, $self:ident, [$($variant:ident),+], ($func:ident $params_names:tt -> $ret_type:ty)) => {
         match $self {
-            $($enum_name::$variant(ref inner) => {commands!(@async_function_call $variant $func $params_names inner)}),+
+            $($enum_name::$variant(inner) => {commands!(@async_function_call $variant $func $params_names inner)}),+
         }
 
     };
 
     (@async_match_variants_mut $enum_name:ident, $self:ident, [$($variant:ident),+], ($func:ident $params_names:tt -> $ret_type:ty)) => {
         match $self {
-            $($enum_name::$variant(ref mut inner) => {commands!(@async_function_call $variant $func $params_names inner)}),+
+            $($enum_name::$variant(inner) => {commands!(@async_function_call $variant $func $params_names inner)}),+
         }
 
     };
@@ -321,9 +321,9 @@ mod tests {
             arguments: Vec::new(),
             ..Default::default()
         };
-        let _ = CommandsTest::try_new(&ws, params).with_context(|| {
-            "fails to create a commands from mock workspace and execute_command_parameters."
-        })?;
+        let _ = CommandsTest::try_new(&ws, params).with_context(
+            || "fails to create a commands from mock workspace and execute_command_parameters.",
+        )?;
         Ok(())
     }
 

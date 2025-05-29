@@ -220,13 +220,17 @@ impl Library {
                 match PathBuf::from_str(&clean_location) {
                     Ok(v) => Some(v),
                     Err(e) => {
-                        info!("fails to convert {clean_location:?} into an owned path with error {e:?}");
+                        info!(
+                            "fails to convert {clean_location:?} into an owned path with error {e:?}"
+                        );
                         None
                     }
                 }
             }
             Err(e) => {
-                info!("fails to expand library location {location:?} by env variables with error: {e:?}");
+                info!(
+                    "fails to expand library location {location:?} by env variables with error: {e:?}"
+                );
                 None
             }
         }
@@ -259,7 +263,7 @@ mod tests {
     use super::*;
     use anyhow::anyhow;
     use assert_fs::prelude::*;
-    use assert_fs::{fixture::FileWriteStr, NamedTempFile, TempDir};
+    use assert_fs::{NamedTempFile, TempDir, fixture::FileWriteStr};
     const XML_EXAMPLE: &str = r#"<?xml version="1.0" encoding="ISO-8859-1"?>
 <system xmlns="http://www.eiffel.com/developers/xml/configuration-1-16-0"
 	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -369,7 +373,7 @@ mod tests {
     #[test]
     fn expand_path_containing_environment_variables() {
         let path_with_environment_variables = "$AP/library_config.ecf".to_string();
-        std::env::set_var("AP", std::env::temp_dir());
+        unsafe { std::env::set_var("AP", std::env::temp_dir()) };
         let expanded_path = shellexpand::env(&path_with_environment_variables)
             .expect("Expansion of library location");
         let path = std::env::temp_dir().join(std::path::PathBuf::from("library_config.ecf"));
@@ -382,7 +386,7 @@ mod tests {
     #[test]
     fn all_clusters() {
         let ap_val = std::env::temp_dir();
-        std::env::set_var("AP", &ap_val);
+        unsafe { std::env::set_var("AP", &ap_val) };
         let system: System = quick_xml::de::from_str(XML_EXAMPLE_WITH_LIBRARY)
             .expect("Parsable {XML_EXAMPLE_LIBRARY}");
         let Some(libraries) = system.target.library else {

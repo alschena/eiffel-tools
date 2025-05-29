@@ -1,17 +1,18 @@
-use async_lsp::client_monitor::ClientProcessMonitorLayer;
-use async_lsp::concurrency::ConcurrencyLayer;
-use async_lsp::panic::CatchUnwindLayer;
-use async_lsp::router;
-use async_lsp::server::LifecycleLayer;
-use async_lsp::tracing::TracingLayer;
-use eiffel_tools::lib::language_server_protocol::prelude::*;
+use eiffel_tools_lib::async_lsp;
+use eiffel_tools_lib::async_lsp::client_monitor::ClientProcessMonitorLayer;
+use eiffel_tools_lib::async_lsp::concurrency::ConcurrencyLayer;
+use eiffel_tools_lib::async_lsp::panic::CatchUnwindLayer;
+use eiffel_tools_lib::async_lsp::router;
+use eiffel_tools_lib::async_lsp::server::LifecycleLayer;
+use eiffel_tools_lib::async_lsp::tracing::TracingLayer;
+use eiffel_tools_lib::lib::language_server_protocol::prelude::*;
+use eiffel_tools_lib::tower::ServiceBuilder;
+use eiffel_tools_lib::tracing_subscriber::filter;
+use eiffel_tools_lib::tracing_subscriber::fmt::{self, format::FmtSpan};
+use eiffel_tools_lib::tracing_subscriber::layer::SubscriberExt;
+use eiffel_tools_lib::tracing_subscriber::util::SubscriberInitExt;
+use eiffel_tools_lib::tracing_subscriber::{Layer, Registry};
 use std::path::Path;
-use tower::ServiceBuilder;
-use tracing_subscriber::filter;
-use tracing_subscriber::fmt::{self, format::FmtSpan};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{Layer, Registry};
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
