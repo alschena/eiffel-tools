@@ -1,0 +1,77 @@
+use crate::config::System;
+use crate::language_server_protocol::commands::Commands;
+use crate::language_server_protocol::prelude::*;
+use async_lsp::ResponseError;
+use async_lsp::Result;
+use async_lsp::lsp_types::{
+    ExecuteCommandOptions, HoverProviderCapability, InitializeResult, OneOf, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncOptions, TextDocumentSyncSaveOptions,
+    WorkDoneProgressOptions,
+    request::{Initialize, Request},
+};
+use std::env;
+use std::fs;
+use std::future::Future;
+use std::path::PathBuf;
+
+impl HandleRequest for Initialize {
+    fn handle_request(
+        st: ServerState,
+        params: <Self as Request>::Params,
+    ) -> impl Future<Output = Result<<Self as Request>::Result, ResponseError>> + Send + 'static
+    {
+        let ecf_path = params
+            .initialization_options
+            .and_then(|x| {
+                x.as_object()
+                    .and_then(|z| {
+                        z.get("ecf_path").map(|path| {
+                            PathBuf::from(path.as_str().expect("must be string"))
+                        })
+                    })
+            })
+            .unwrap_or_else(|| {
+                let cwd = env::current_dir().expect("fails to retrieve current working directory");
+                let first_config_file = fs::read_dir(cwd)
+                    .expect("fails to interate over current directory contents")
+                    .find(|file| {
+                        file.as_ref().is_ok_and(|file| {
+                            file.path().extension().is_some_and(|ext| ext == "ecf")
+                        })
+                    }).expect("fails to find any ecf in current working directory and the configuration has not been passed as initialization option").expect("fails to read at least one ecf file in current working directory");
+                first_config_file.path()
+            });
+        let Some(system) = System::parse_from_file(&ecf_path) else {
+            panic!("fails to read config file")
+        };
+        async move {
+            tokio::spawn(async move {
+                let mut ws = st.workspace.write().await;
+                ws.load_system(&system).await;
+            });
+            Ok(InitializeResult {
+                capabilities: ServerCapabilities {
+                    hover_provider: Some(HoverProviderCapability::Simple(true)),
+                    definition_provider: Some(OneOf::Left(true)),
+                    document_symbol_provider: Some(OneOf::Left(true)),
+                    workspace_symbol_provider: Some(OneOf::Left(true)),
+                    code_action_provider: Some(true.into()),
+                    text_document_sync: Some(TextDocumentSyncCapability::Options(
+                        TextDocumentSyncOptions {
+                            save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                            ..TextDocumentSyncOptions::default()
+                        },
+                    )),
+                    execute_command_provider: Some(ExecuteCommandOptions {
+                        commands: Commands::list_names(),
+                        work_done_progress_options: WorkDoneProgressOptions {
+                            work_done_progress: None,
+                        },
+                    }),
+                    ..ServerCapabilities::default()
+                },
+                server_info: None,
+            })
+        }
+    }
+}

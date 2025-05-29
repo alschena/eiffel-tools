@@ -5,7 +5,7 @@ use eiffel_tools_lib::async_lsp::panic::CatchUnwindLayer;
 use eiffel_tools_lib::async_lsp::router;
 use eiffel_tools_lib::async_lsp::server::LifecycleLayer;
 use eiffel_tools_lib::async_lsp::tracing::TracingLayer;
-use eiffel_tools_lib::lib::language_server_protocol::prelude::*;
+use eiffel_tools_lib::language_server_protocol::prelude::*;
 use eiffel_tools_lib::tower::ServiceBuilder;
 use eiffel_tools_lib::tracing_subscriber::filter;
 use eiffel_tools_lib::tracing_subscriber::fmt::{self, format::FmtSpan};
