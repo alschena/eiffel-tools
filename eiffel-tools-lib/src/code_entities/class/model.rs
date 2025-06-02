@@ -188,10 +188,12 @@ impl ModelExtended {
 
         match self {
             ModelExtended::Terminal => {
-                text.push_str("is terminal. No qualified call is allowed on this value.\n");
+                text.push_str("is terminal, its behaviour is defined axiomatically in boogie.\n");
             }
-            ModelExtended::Recursive => text.push_str("has a recursive model.\n"),
-            ModelExtended::IsEmpty => text.push_str("has an empty model.\n"),
+            ModelExtended::Recursive => {
+                text.push_str("is recursive, thus any added information would be redundant.\n")
+            }
+            ModelExtended::IsEmpty => text.push_str("is empty.\n"),
             ModelExtended::Model {
                 names,
                 types,

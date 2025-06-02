@@ -30,13 +30,18 @@ impl Parameters {
             .map(|t| t.model_extension(system_classes))
     }
 
-    pub fn fmt_model(&self, system_classes: &[Class]) -> String {
+    pub fn formatted_model(&self, system_classes: &[Class]) -> String {
         let parameters_models = self.model_extension(system_classes);
 
         format!("{self}")
             .lines()
             .zip(parameters_models)
-            .map(|(line, model)| format!("The argument {line}\n{}", model.fmt_verbose_indented(1)))
+            .map(|(line, model)| {
+                format!(
+                    "Model of the argument {line}:\n{}",
+                    model.fmt_verbose_indented(1)
+                )
+            })
             .collect()
     }
 }
@@ -110,7 +115,7 @@ end
         let system_classes = [class(src)?];
         let p = new_integer_parameter("test".to_string());
         assert_eq!(
-            format!("{}", p.fmt_model(&system_classes)),
+            format!("{}", p.formatted_model(&system_classes)),
             "The argument test: NEW_INTEGER\n\thas model: value: INTEGER\n\t\tis terminal. No qualified call is allowed on this value.\n"
         );
 
