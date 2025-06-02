@@ -54,37 +54,45 @@ pub trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
         }
     }
 
-    async fn side_effect(&mut self, _generators: &Generators) -> anyhow::Result<()> {
-        Ok(())
+    fn side_effect(
+        &mut self,
+        _generators: &Generators,
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+        async { Ok(()) }
     }
 
-    async fn request_edits(
+    fn request_edits(
         &self,
         client: &async_lsp::ClientSocket,
         edit: lsp_types::WorkspaceEdit,
-    ) -> Result<(), async_lsp::ResponseError> {
-        let response = client
-            .request::<request::ApplyWorkspaceEdit>(lsp_types::ApplyWorkspaceEditParams {
-                label: Some(format!("Edits requested by {:#?}", self.command())),
-                edit,
-            })
-            .await
-            .map_err(|e| {
-                async_lsp::ResponseError::new(
+    ) -> impl std::future::Future<Output = Result<(), async_lsp::ResponseError>> + Send
+    where
+        Self: Sync,
+    {
+        async {
+            let response = client
+                .request::<request::ApplyWorkspaceEdit>(lsp_types::ApplyWorkspaceEditParams {
+                    label: Some(format!("Edits requested by {:#?}", self.command())),
+                    edit,
+                })
+                .await
+                .map_err(|e| {
+                    async_lsp::ResponseError::new(
+                        async_lsp::ErrorCode::REQUEST_FAILED,
+                        format!("fails with error: {e}"),
+                    )
+                })?;
+            if response.applied {
+                Ok(())
+            } else {
+                let error = ResponseError::new(
                     async_lsp::ErrorCode::REQUEST_FAILED,
-                    format!("fails with error: {e}"),
-                )
-            })?;
-        if response.applied {
-            Ok(())
-        } else {
-            let error = ResponseError::new(
-                async_lsp::ErrorCode::REQUEST_FAILED,
-                response.failure_reason.unwrap_or_else(|| {
-                    "The client does not apply the workspace edits.".to_string()
-                }),
-            );
-            Err(error)
+                    response.failure_reason.unwrap_or_else(|| {
+                        "The client does not apply the workspace edits.".to_string()
+                    }),
+                );
+                Err(error)
+            }
         }
     }
 }

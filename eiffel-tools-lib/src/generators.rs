@@ -1,7 +1,6 @@
 use crate::code_entities::prelude::*;
 use crate::parser::Parser;
 use crate::workspace::Workspace;
-use anyhow::Context;
 use anyhow::Result;
 use contract::RoutineSpecification;
 use std::path::Path;
@@ -33,21 +32,8 @@ impl Generators {
         workspace: &Workspace,
         path: &Path,
     ) -> Result<Vec<RoutineSpecification>> {
-        let current_class = workspace
-            .class(path)
-            .with_context(|| format!("fails to find class loaded from path: {:#?}", path))?;
-
-        let current_class_name = current_class.name();
-        let current_class_model = current_class_name.model_extended(workspace.system_classes());
-
-        let prompt = prompt::Prompt::feature_specification(
-            feature,
-            current_class_name,
-            &current_class_model,
-            path,
-            workspace.system_classes(),
-        )
-        .await?;
+        let prompt =
+            prompt::FeaturePrompt::for_feature_specification(workspace, path, feature).await?;
 
         // Generate feature with specifications
         let completion_parameters = constructor_api::CompletionParameters {
@@ -56,7 +42,7 @@ impl Generators {
             ..Default::default()
         };
 
-        info!("{completion_parameters:#?}");
+        info!(target:"llm", "{completion_parameters:#?}");
 
         let mut tasks = tokio::task::JoinSet::new();
         for llm in self.llms.iter().cloned() {
@@ -69,7 +55,7 @@ impl Generators {
             .iter()
             .filter_map(|rs| match rs {
                 Err(e) => {
-                    info!("An LLM request has returned the error: {e:#?}");
+                    warn!(target:"llm", "An LLM request has returned the error: {e:#?}");
                     None
                 }
                 Ok(reply) => Some(reply),
@@ -79,11 +65,11 @@ impl Generators {
                     .extract_multiline_code()
                     .into_iter()
                     .filter_map(|candidate| {
-                        info!("candidate:\t{candidate}");
+                        info!(target:"llm", "candidate:\t{candidate}");
                         let mut parser = Parser::new();
                         parser.feature_from_source(&candidate).map_or_else(
                             |e| {
-                                info!("fail to parse generated output with error: {e:#?}");
+                                warn!(target:"llm", "fail to parse generated output with error: {e:#?}");
                                 None
                             },
                             |ft| Some(ft.routine_specification()),
@@ -91,6 +77,7 @@ impl Generators {
                     })
             })
             .collect();
+
         info!("completions:\t{completion_response_processed:#?}");
 
         Ok(completion_response_processed)
@@ -103,7 +90,7 @@ impl Generators {
         feature: &Feature,
         error_message: String,
     ) -> Result<Option<String>> {
-        let prompt = prompt::Prompt::feature_fixes(feature, path, error_message)
+        let prompt = prompt::FeaturePrompt::for_feature_fixes(feature, path, error_message)
             .await?
             .into_llm_chat_messages();
 

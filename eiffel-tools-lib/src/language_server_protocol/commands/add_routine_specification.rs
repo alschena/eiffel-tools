@@ -37,9 +37,7 @@ impl<'ws> TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> for RoutineSpecifica
     type Error = anyhow::Error;
 
     fn try_from(value: (&'ws Workspace, Vec<serde_json::Value>)) -> Result<Self, Self::Error> {
-        let workspace = value.0;
-
-        let mut arguments = value.1;
+        let (workspace, mut arguments) = value;
 
         let feature_name = arguments.pop().with_context(
             || "Fails to retrieve the second argument (feature name) to add routine specification.",
@@ -85,6 +83,7 @@ impl<'ws> super::Command<'ws> for RoutineSpecificationGenerator<'ws> {
             .await
             .inspect(|val| info!("Routine spec before fixes:\t{val:#?}"))
             .inspect_err(|e| info!("Error in routine spec before fixes:\t{e:#?}"))?;
+
         let fixed = self
             .fix_routine_specifications(more_routine_spec)
             .with_context(|| "fix routine specifications.")
