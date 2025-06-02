@@ -17,9 +17,9 @@ use tracing::info;
 #[derive(Debug, Clone)]
 pub struct FixRoutine<'ws> {
     workspace: &'ws Workspace,
-    pub path: PathBuf,
-    pub feature: &'ws Feature,
-    pub fixed_routine_body: Option<String>,
+    path: PathBuf,
+    feature: &'ws Feature,
+    fixed_routine_body: Option<String>,
 }
 
 impl<'ws> FixRoutine<'ws> {
@@ -40,6 +40,18 @@ impl<'ws> FixRoutine<'ws> {
             feature,
             fixed_routine_body: None,
         })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn feature(&self) -> &Feature {
+        &self.feature
+    }
+
+    pub fn fixed_routine_body(&self) -> Option<&String> {
+        self.fixed_routine_body.as_ref()
     }
 }
 

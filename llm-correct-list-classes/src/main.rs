@@ -5,15 +5,16 @@ use eiffel_tools_lib::generators::Generators;
 use eiffel_tools_lib::language_server_protocol::commands::Command;
 use eiffel_tools_lib::language_server_protocol::commands::FixRoutine;
 use eiffel_tools_lib::workspace::Workspace;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(short, long)]
+    #[arg(long)]
     config_file: std::path::PathBuf,
-    #[arg(short, long)]
+    #[arg(long)]
     classes_file: std::path::PathBuf,
 }
 
@@ -43,93 +44,118 @@ async fn main() {
         .await
         .inspect_err(|e| eprintln!("awaiting parsing fails with:{:#?} ", e));
 
-    let classes_names = tokio::spawn(async move {
-        tokio::fs::read(classes_file)
-            .await
-            .inspect_err(|e| eprintln!("fails to read classes_file with error: {:#?}",e))
-            .ok()
-            .and_then(|text| {
-                String::from_utf8(text)
-                    .inspect_err(|e| {
-                        eprintln!("fails to convert content of classes file to UFT8 string with error: {:#?}", e)
-                    })
-                    .ok()
-            })
-            .map(|text| {
-                text.lines()
-                    .map(|name| ClassName(name.to_string()))
-                    .collect::<Vec<_>>()
-            })
-    })
-    .await
-    .inspect_err(|e| {
-        eprintln!(
-            "fails to extract classes from classes_file with error: {:#?}",
-            e
-        )
-    }).ok().flatten();
+    let classes_names = name_classes(&classes_file).await;
 
     let ws = workspace.clone();
-    let maybe_fix_classes_handle = classes_names.map(|classes_names| {
-        tokio::spawn(async move {
-            let generators = Generators::default();
-            // Add generators here
 
-            let ws = ws.read().await;
+    let mut generators = Generators::default();
+    generators.add_new().await;
 
-            let mut paths = Vec::new();
-            let mut feature_for_path = Vec::new();
-            for name in classes_names {
-                let path = ws.path(&name);
-                paths.push(path);
-                feature_for_path.push(ws.class(path).map(|class| class.features()));
-            }
+    let ws = ws.read().await;
 
-            let mut fix_routine = Vec::new();
-            for (num, path) in paths.into_iter().enumerate() {
-                let features = feature_for_path[num];
-                if let Some(features) = features {
-                    for feature_name in features {
-                        if let Some(fix_routine_cursor) =
-                            FixRoutine::try_new(&ws, path, feature_name.name())
-                                .inspect_err(|e| {
-                                    eprintln!(
-                                        "fails to construct routine fixer with error: {:#?}",
-                                        e
-                                    )
-                                })
-                                .ok()
-                        {
-                            fix_routine.push(fix_routine_cursor)
-                        }
-                    }
-                }
-            }
-
-            let mut outcomes = Vec::new();
-            for mut fix_cursor in fix_routine {
-                let _ = fix_cursor
-                    .side_effect(&generators)
-                    .await
-                    .inspect_err(|e| {
-                        eprintln!("fails to execute side effects of the fixing routine cursor with error: {:#?}",e)
-                    })
-                    .ok();
-
-                outcomes.push((fix_cursor.path.clone(), fix_cursor.feature.name(), fix_cursor.fixed_routine_body))
-            }
-
-            for (path, feature_name, maybe_fixed_body) in outcomes {
-                println!("path: {:#?}\tfeature name: {:#?}\tfixed body: {:#?}",path,feature_name,maybe_fixed_body);
-                
-            }
-        })
-    });
-
-    if let Some(fix_classes_handle) = maybe_fix_classes_handle {
-        let _ = fix_classes_handle.await.inspect_err(|e|eprintln!("fails waiting for classes fixer with error: {:#?}",e)).ok();
-        
-    }
+    let paths_and_routines = paths_and_routines(&ws, classes_names);
+    let mut routine_fixers = routine_fixers(&ws, paths_and_routines);
+    let fixes = fixes(&generators, &mut routine_fixers).await;
+    print_fixes(fixes);
 
     println!("DONE FIXING CLASSES.");
+}
+
+async fn name_classes(classes_file: &Path) -> Vec<ClassName> {
+    tokio::fs::read(classes_file)
+        .await
+        .inspect_err(|e| eprintln!("fails to read classes_file with error: {:#?}", e))
+        .ok()
+        .and_then(|text| {
+            String::from_utf8(text)
+                .inspect_err(|e| {
+                    eprintln!(
+                        "fails to convert content of classes file to UFT8 string with error: {:#?}",
+                        e
+                    )
+                })
+                .ok()
+        })
+        .map(|text| {
+            text.lines()
+                .flat_map(|name| (!name.is_empty()).then_some(ClassName(name.to_uppercase())))
+                .inspect(|name| println!("Class name read: {}", name))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn paths_and_routines(
+    workspace: &Workspace,
+    classes: Vec<ClassName>,
+) -> Vec<(&Path, &Vec<Feature>)> {
+    classes
+        .iter()
+        .filter_map(|class_name| {
+            let path = workspace.path(class_name);
+            let features = workspace.class(path).map(|class| class.features())?;
+            Some((path, features))
+        })
+        .collect()
+}
+
+fn routine_fixers<'ws>(
+    workspace: &'ws Workspace,
+    paths_and_routines: Vec<(&Path, &Vec<Feature>)>,
+) -> Vec<FixRoutine<'ws>> {
+    paths_and_routines
+        .iter()
+        .copied()
+        .flat_map(|(path, features)| {
+            features
+                .into_iter()
+                .map(|ft| ft.name())
+                .filter_map(|ft_name| {
+                    FixRoutine::try_new(workspace, path, ft_name)
+                        .inspect_err(|e| {
+                            eprintln!("fails to make FixRoutine object with error: {:#?}", e)
+                        })
+                        .ok()
+                })
+        })
+        .collect()
+}
+
+async fn fixes<'ws>(
+    generators: &'ws Generators,
+    routine_fixers: &'ws mut Vec<FixRoutine<'ws>>,
+) -> Vec<(&'ws Path, &'ws str, Option<&'ws String>)> {
+    let mut fixes = Vec::new();
+    for fix_cursor in routine_fixers {
+        println!("fix routine");
+        if let Some(_) = fix_cursor
+            .side_effect(generators)
+            .await
+            .inspect_err(|e| {
+                eprintln!(
+                    "fails to execute side effects of the fixing routine cursor with error: {:#?}",
+                    e
+                )
+            })
+            .ok()
+        {
+            fixes.push((
+                fix_cursor.path(),
+                fix_cursor.feature().name(),
+                fix_cursor.fixed_routine_body().clone(),
+            ));
+        } else {
+            eprintln!("fails to wait for fix.")
+        }
+    }
+    fixes
+}
+
+fn print_fixes(fixes: Vec<(&Path, &str, Option<&String>)>) {
+    for (path, feature_name, maybe_fixed_body) in fixes {
+        println!(
+            "path: {:#?}\tfeature name: {:#?}\tfixed body: {:#?}",
+            path, feature_name, maybe_fixed_body
+        );
+    }
 }

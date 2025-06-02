@@ -388,7 +388,11 @@ impl Llm {
 
         info!(target: "llm", "request sent to llm:\t{:#?}", request);
 
+        eprintln!("request:{:#?}", request);
+
         let response = request.send().await?;
+
+        eprintln!("response:{:#?}", response);
 
         debug_assert!(response.status().is_success(), "{}", response.text().await?);
 

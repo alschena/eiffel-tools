@@ -11,10 +11,12 @@ pub enum VerificationResult {
 fn verification_result(verification_message: String) -> VerificationResult {
     if verification_message.contains("Verification failed") {
         info!(target:"llm", "AutoProof fails with message: {}", verification_message);
+        eprintln!("AutoProof fails with message: {}", verification_message);
         VerificationResult::Failure(verification_message)
     } else {
         info!(target: "llm",
         "Autoproof succedes.");
+        eprintln!("AutoProof succedes with message: {}", verification_message);
         VerificationResult::Success
     }
 }
