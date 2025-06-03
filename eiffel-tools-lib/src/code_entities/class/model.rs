@@ -188,12 +188,14 @@ impl ModelExtended {
 
         match self {
             ModelExtended::Terminal => {
-                text.push_str("is terminal, its behaviour is defined axiomatically in boogie.\n");
+                text.push_str(
+                    "which is model-wise terminal, its behaviour is defined axiomatically in boogie.\n",
+                );
             }
-            ModelExtended::Recursive => {
-                text.push_str("is recursive, thus any added information would be redundant.\n")
-            }
-            ModelExtended::IsEmpty => text.push_str("is empty.\n"),
+            ModelExtended::Recursive => text.push_str(
+                "which is model-wise recursive, thus any added information would be redundant.\n",
+            ),
+            ModelExtended::IsEmpty => text.push_str("which is model-wise empty.\n"),
             ModelExtended::Model {
                 names,
                 types,
@@ -359,7 +361,7 @@ mod tests {
         let model = client.model_extended(&system_classes);
         assert_eq!(
             format!("{model}"),
-            "has model: nested: NEW_INTEGER\n\thas model: value: INTEGER\n\t\tis terminal. No qualified call is allowed on this value.\n"
+            "has model: nested: NEW_INTEGER\n\thas model: value: INTEGER\n\t\twhich is model-wise terminal, its behaviour is defined axiomatically in boogie.\n"
         );
         Ok(())
     }

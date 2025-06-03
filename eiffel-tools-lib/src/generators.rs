@@ -1,6 +1,7 @@
 use crate::code_entities::prelude::*;
 use crate::parser::Parser;
 use crate::workspace::Workspace;
+use anyhow::Context;
 use anyhow::Result;
 use contract::RoutineSpecification;
 use std::path::Path;
@@ -33,11 +34,12 @@ impl Generators {
         path: &Path,
     ) -> Result<Vec<RoutineSpecification>> {
         let prompt =
-            prompt::FeaturePrompt::for_feature_specification(workspace, path, feature).await?;
+            prompt::FeaturePrompt::try_new_for_feature_specification(workspace, path, feature)
+                .await?;
 
         // Generate feature with specifications
         let completion_parameters = constructor_api::CompletionParameters {
-            messages: prompt.into_llm_chat_messages(),
+            messages: prompt.into(),
             n: Some(50),
             ..Default::default()
         };
@@ -90,9 +92,10 @@ impl Generators {
         feature: &Feature,
         error_message: String,
     ) -> Result<Option<String>> {
-        let prompt = prompt::FeaturePrompt::for_feature_fixes(feature, path, error_message)
-            .await?
-            .into_llm_chat_messages();
+        let prompt = prompt::FeaturePrompt::try_new_for_feature_fixes(path, feature, error_message)
+            .await
+            .with_context(|| format!("fails to make prompt to fix routine"))?
+            .into();
 
         // Generate feature with specifications
         let completion_parameters = constructor_api::CompletionParameters {

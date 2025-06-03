@@ -36,12 +36,7 @@ impl Parameters {
         format!("{self}")
             .lines()
             .zip(parameters_models)
-            .map(|(line, model)| {
-                format!(
-                    "Model of the argument {line}:\n{}",
-                    model.fmt_verbose_indented(1)
-                )
-            })
+            .map(|(line, model)| format!("The argument {line}\n{}", model.fmt_verbose_indented(1)))
             .collect()
     }
 }
@@ -116,7 +111,7 @@ end
         let p = new_integer_parameter("test".to_string());
         assert_eq!(
             format!("{}", p.formatted_model(&system_classes)),
-            "The argument test: NEW_INTEGER\n\thas model: value: INTEGER\n\t\tis terminal. No qualified call is allowed on this value.\n"
+            "The argument test: NEW_INTEGER\n\thas model: value: INTEGER\n\t\twhich is model-wise terminal, its behaviour is defined axiomatically in boogie.\n"
         );
 
         Ok(())
