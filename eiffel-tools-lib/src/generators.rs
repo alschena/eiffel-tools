@@ -218,13 +218,9 @@ mod class_wide {
         pub async fn class_wide_fixes(
             &self,
             workspace: &Workspace,
-            path: &Path,
+            class: &Class,
             error_message: String,
         ) -> Vec<(String, String)> {
-            let class = workspace
-                .class(path)
-                .unwrap_or_else(|| panic!("fails to find class at {:#?}", path));
-
             let prompt =
                 prompt::ClassPrompt::try_new_for_feature_fixes(workspace, class, error_message)
                     .await

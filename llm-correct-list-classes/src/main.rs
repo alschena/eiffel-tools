@@ -67,15 +67,9 @@ async fn class_by_class(
     let mut generators = Generators::default();
     generators.add_new().await;
 
-    let ws = workspace.read().await;
-
+    let mut ws = workspace.write().await;
     for class_name in &classes_names {
-        class_wide_feature_fixes::fix_class_in_place(
-            &generators,
-            &ws,
-            ws.class(ws.path(&class_name)).unwrap(),
-        )
-        .await;
+        class_wide_feature_fixes::fix_class_in_place(&generators, &mut ws, class_name).await;
     }
 }
 
