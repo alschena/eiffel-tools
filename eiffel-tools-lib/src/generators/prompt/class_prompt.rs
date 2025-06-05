@@ -89,6 +89,7 @@ fn feature_available_identifiers_injections(
 
 mod class_wide_model_based_contracts {
     use super::*;
+
     impl SystemMessage {
         fn default_for_class_wide_model_based_contracts() -> Self {
             SystemMessage(String::from(
@@ -178,7 +179,7 @@ end
         fn test_workspace() -> (Workspace, PathBuf) {
             let mut parser = Parser::new();
             let (class, tree) = parser
-                .processed_file(CONTENT_CLASS_TEST)
+                .class_and_tree_from_source(CONTENT_CLASS_TEST)
                 .expect("fails to construct test class.");
             let mut workspace = Workspace::mock();
             let temp_dir = TempDir::new().expect("fails to create temp dir.");
@@ -213,7 +214,16 @@ mod class_wide_feature_fixes {
 
     impl SystemMessage {
         fn default_for_class_wide_feature_fixes() -> Self {
-            SystemMessage(String::new())
+            SystemMessage(String::from(
+                r#"You are a coding assistant, expert in the Eiffel programming language and its static verifier AutoProof.
+    You know what it means to verify code with respect to Floyd-Hoare-Dijstra semantics and you have extensive expertise in Dafny and SPARK.
+    You will receive an Eiffel class where each feature is followed by the commented output of autoproof verification of that feature.
+    If a feature verifies you can think of ways to weaken preconditions or strengthen postconditions.
+    If a feature fails to verify it must be fixed, there is a bug in its body or in its specifications.
+    Respond with the code of the whole class, adjusting the features as necessary.
+    Always answer, you have enough context.
+    "#,
+            ))
         }
     }
 
@@ -221,12 +231,12 @@ mod class_wide_feature_fixes {
         pub async fn try_new_for_feature_fixes(
             workspace: &Workspace,
             class: &Class,
+            autoproof_error_message: String,
         ) -> Option<Self> {
-            let injections = class_injections_for_feature_fixes(workspace, class);
+            let injections = class_injections_for_feature_fixes(class, autoproof_error_message);
             let source = source(workspace.path(class.name())).await?;
 
-            let Source(prompt_text) =
-                injected_into_source(injections.into_iter().collect(), source);
+            let Source(prompt_text) = injected_into_source(injections.into(), source);
             Some(Self {
                 system_message: SystemMessage::default_for_class_wide_feature_fixes(),
                 user_message: UserMessage(prompt_text),
@@ -234,18 +244,191 @@ mod class_wide_feature_fixes {
         }
     }
 
-    fn feature_injections_for_feature_fixes(
-        workspace: &Workspace,
-        class_name: &ClassName,
-        feature: &Feature,
-    ) -> impl IntoIterator<Item = Injection> {
-        vec![todo!()]
+    #[derive(Clone, Debug)]
+    struct FeatureErrorMessage(String);
+
+    fn features_error_message<'fts, 'ms, 'cl, N, T>(
+        class_name: &'cl ClassName,
+        feature_names: T,
+        full_error_message: &'ms str,
+    ) -> impl IntoIterator<Item = (N, FeatureErrorMessage)> + use<'ms, N, T>
+    where
+        N: AsRef<str>,
+        T: IntoIterator<Item = N> + Clone,
+    {
+        full_error_message
+            .split("\n===")
+            .into_iter()
+            .filter_map(move |error_block| {
+                let error_block_without_separator = || error_block.lines().skip(1);
+
+                let associated_feature = error_block_without_separator().next().and_then(
+                    |first_line_autoproof_message| {
+                        feature_names.clone().into_iter().find(|feature_name| {
+                            first_line_autoproof_message.contains(feature_name.as_ref())
+                        })
+                    },
+                );
+
+                if associated_feature.is_none() {
+                    eprintln!("Block without any feature name:\n{}", error_block);
+                };
+
+                associated_feature.map(|feature_name| {
+                    (
+                        feature_name,
+                        FeatureErrorMessage(
+                            error_block_without_separator()
+                                .fold(String::new(), |acc, line| format!("{acc}\n{line}")),
+                        ),
+                    )
+                })
+            })
+            .inspect(|(ft_name, error_message)| {
+                eprintln!(
+                    "The error block for\n{:#?} is\n{:#?} ",
+                    ft_name.as_ref(),
+                    error_message
+                )
+            })
     }
 
-    fn class_injections_for_feature_fixes(
-        workspace: &Workspace,
-        class: &Class,
-    ) -> impl IntoIterator<Item = Injection> {
-        vec![todo!()]
+    fn class_injections_for_feature_fixes<'cl>(
+        class: &'cl Class,
+        autoproof_error_message: String,
+    ) -> Box<[Injection]> {
+        let features = class.features();
+
+        let feature_names = features.iter().map(|feature| feature.name());
+
+        features_error_message(class.name(), feature_names, &autoproof_error_message)
+            .into_iter()
+            .filter_map(|(feature_name, error_message)| {
+                features
+                    .iter()
+                    .find(|feature| feature.name() == feature_name)
+                    .map(|feature| {
+                        let end_point = feature.range().end;
+                        eprintln!(
+                            "feature name: {}\tfeature end point: {:#?}",
+                            feature.name(),
+                            end_point
+                        );
+                        let FeatureErrorMessage(error_message_content) = error_message;
+                        Injection(end_point, Source(error_message_content).comment().indent())
+                    })
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::features_error_message;
+        use super::*;
+
+        const EXAMPLE_TEXT: &'static str = r#"Eiffel Compilation Manager
+Version 24.05.0.0000 - linux-x86-64
+
+Degree 6: Examining System
+Degree 5: Parsing Classes
+Degree 4: Analyzing Inheritance
+Degree 3: Checking Types
+Degree 2: Generating Byte Code
+System Recompiled.
+======================================
+ABSOLUTE_1 (invariant admissibility)
+Successfully verified (0.09s).
+======================================
+ANY.default_create (creator, inherited by ABSOLUTE_1)
+Successfully verified (0.02s).
+======================================
+ABSOLUTE_1.absolute_short
+Verification failed (0.01s).
+
+Line: 14. Postcondition other_sign_when_negative may be violated.
+State: ABSOLUTE_1.absolute_short =>
+        num = (- 1)
+        Result = 0
+        Current =>
+                subjects = <refType>Set#Empty()
+                observers = <refType>Set#Empty()
+                closed = true
+                owns = <refType>Set#Empty()
+State: ABSOLUTE_1.absolute_short:8 =>
+        num = (- 1)
+        Result = (- 1)
+        Current =>
+                subjects = <refType>Set#Empty()
+                observers = <refType>Set#Empty()
+                closed = true
+                owns = <refType>Set#Empty()
+--------------------------------------
+Line: 13. Postcondition same_when_non_negative may be violated.
+State: ABSOLUTE_1.absolute_short =>
+        Result = 0
+        Current =>
+                subjects = <refType>Set#Empty()
+                observers = <refType>Set#Empty()
+                closed = true
+                owns = <refType>Set#Empty()
+State: ABSOLUTE_1.absolute_short:10 =>
+        Result = (- 1)
+        Current =>
+                subjects = <refType>Set#Empty()
+                observers = <refType>Set#Empty()
+                closed = true
+                owns = <refType>Set#Empty()
+======================================
+ABSOLUTE_1.absolute_int
+Successfully verified (0.00s).
+======================================
+ABSOLUTE_1.absolute_long
+Successfully verified (0.00s)."#;
+
+        #[test]
+        #[ignore]
+        fn feature_names() {
+            let class_name = ClassName("ABSOLUTE_1".to_string());
+            let feature_names = [
+                "absolute_int".to_string(),
+                "absolute_long".to_string(),
+                "absolute_short".to_string(),
+            ];
+
+            for (feature_name, error_message) in
+                features_error_message(&class_name, &feature_names, EXAMPLE_TEXT)
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            {
+                eprintln!(
+                    "feature name: {:#?}\terror message:\n{:#?}",
+                    feature_name, error_message
+                )
+            }
+            assert!(false)
+        }
+
+        // #[test]
+        // #[ignore]
+        // fn feature_injections() {
+        //     let class_name = ClassName("ABSOLUTE_1".to_string());
+        //     let feature_names = [
+        //         "absolute_int".to_string(),
+        //         "absolute_long".to_string(),
+        //         "absolute_short".to_string(),
+        //     ];
+
+        //     for injection in
+        //         class_injections_for_feature_fixes(&class_name, EXAMPLE_TEXT.to_string())
+        //             .into_iter()
+        //             .collect::<Vec<_>>()
+        //     {
+        //         eprintln!(
+        //             "feature name: {:#?}\terror message:\n{:#?}",
+        //             feature_name, error_message
+        //         )
+        //     }
+        //     assert!(false)
+        // }
     }
 }

@@ -82,7 +82,6 @@ mod fix_feature {
     }
 }
 
-/// Add model based contracts.
 pub mod model_based_contracts {
     use super::*;
 
@@ -259,7 +258,7 @@ Answer always, you have enough context."#
         fn test_workspace() -> (Workspace, PathBuf) {
             let mut parser = Parser::new();
             let (class, tree) = parser
-                .processed_file(SRC_NEW_INTEGER)
+                .class_and_tree_from_source(SRC_NEW_INTEGER)
                 .expect("fails to construct test class.");
             let mut workspace = Workspace::mock();
             let temp_dir = TempDir::new().expect("fails to create temp dir.");

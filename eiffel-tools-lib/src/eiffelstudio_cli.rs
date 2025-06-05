@@ -1,6 +1,5 @@
 use crate::code_entities::prelude::*;
-use anyhow::Context;
-use anyhow::Result;
+use std::process::Output;
 use tracing::info;
 
 pub enum VerificationResult {
@@ -21,50 +20,83 @@ fn verification_result(verification_message: String) -> VerificationResult {
     }
 }
 
-pub async fn autoproof(feature_name: &str, class_name: &ClassName) -> Result<VerificationResult> {
-    let upcase_class_name = class_name.to_string().to_uppercase();
+pub async fn verify_feature(
+    class_name: &ClassName,
+    feature_name: &str,
+) -> Option<VerificationResult> {
+    let output = autoproof(class_name, Some(feature_name)).await?;
+    format_output(output).map(|message| verification_result(message))
+}
 
-    let autoproof_cli = std::env::var("AP_COMMAND").with_context(
-        || "fails to find environment variable `AP_COMMAND` pointing to the AutoProof executable.",
-    )?;
+pub async fn verify_class(class_name: &ClassName) -> Option<VerificationResult> {
+    let output = autoproof(class_name, None).await?;
+    format_output(output).map(|message| verification_result(message))
+}
 
-    let autoproof = tokio::process::Command::new(autoproof_cli)
+async fn autoproof(class_name: &ClassName, feature_name: Option<&str>) -> Option<Output> {
+    let autoproof_cli = std::env::var("AP_COMMAND").inspect_err(
+        |e| eprintln!("fails to find environment variable `AP_COMMAND` pointing to the AutoProof executable with error {:#?}", e),
+    ).ok()?;
+
+    let cli_args = {
+        let upcase_classname = class_name.to_string().to_uppercase();
+        feature_name.map_or_else(
+            || format!("{}", upcase_classname),
+            |feature_name| format!("{}.{}", upcase_classname, feature_name),
+        )
+    };
+
+    tokio::process::Command::new(autoproof_cli)
         .arg("-autoproof")
-        .arg(format!("{}.{}", upcase_class_name, feature_name))
+        .arg(&cli_args)
         .output()
         .await
-        .with_context(|| {
-            format!(
-                "fails to run the autoproof command: `ec -autoproof {}.{}`",
-                upcase_class_name, feature_name
+        .inspect_err(|e| {
+            eprintln!(
+                "fails to run the autoproof command `ec -autoproof {}` with error {:#?}",
+                cli_args, e
             )
-        })?;
+        })
+        .ok()
+}
 
-    let stderr_autoproof = String::from_utf8(autoproof.stderr)?;
-    let stdout_autoproof = String::from_utf8(autoproof.stdout)?;
+fn format_output(autoproof_output: std::process::Output) -> Option<String> {
+    fn log_failure_converting_to_utf8(error: &std::string::FromUtf8Error) {
+        eprintln!(
+            "fails to convert stdout from autoproof command to UTF-8 string with error: {:#?}",
+            error
+        )
+    }
 
-    if !stderr_autoproof.is_empty() {
+    let to_stdout = String::from_utf8(autoproof_output.stdout)
+        .inspect_err(log_failure_converting_to_utf8)
+        .ok()?;
+
+    let to_stderr = String::from_utf8(autoproof_output.stderr)
+        .inspect_err(log_failure_converting_to_utf8)
+        .ok()?;
+
+    if !to_stderr.is_empty() {
         info!(
             target: "llm",
             "AutProof counterexample goes into stderr: {:#?}",
-            &stderr_autoproof
+            &to_stderr
         );
     }
 
-    if !stdout_autoproof.is_empty() {
+    if !to_stdout.is_empty() {
         info!(
             target: "llm",
             "AutProof counterexample goes into stdout: {:#?}",
-            &stdout_autoproof
+            &to_stdout
         );
     }
 
-    let message = format!(
+    Some(format!(
         r#"
-This is the counterexample AutoProof provides: 
-stdout:\t{stdout_autoproof}
-stderr:\t{stderr_autoproof}"#
-    );
-
-    Ok(verification_result(message))
+    This is the counterexample AutoProof provides: 
+    {}
+    {}"#,
+        to_stdout, to_stderr
+    ))
 }

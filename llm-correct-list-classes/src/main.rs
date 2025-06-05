@@ -4,6 +4,7 @@ use eiffel_tools_lib::config::System;
 use eiffel_tools_lib::generators::Generators;
 use eiffel_tools_lib::language_server_protocol::commands::Command;
 use eiffel_tools_lib::language_server_protocol::commands::FixRoutine;
+use eiffel_tools_lib::language_server_protocol::commands::class_wide_feature_fixes;
 use eiffel_tools_lib::workspace::Workspace;
 use std::path::Path;
 use std::sync::Arc;
@@ -20,45 +21,82 @@ struct Args {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    let Args {
+    // feature_by_feature(Args::parse()).await;
+    class_by_class(Args::parse()).await;
+
+    println!("DONE FIXING CLASSES.");
+}
+
+async fn feature_by_feature(
+    Args {
         config_file,
         classes_file,
-    } = Args::parse();
-
-    let system = match config_file.extension() {
-        Some(ext) if ext == "ecf" => System::parse_from_file(&config_file).unwrap_or_else(|| {
-            panic!("fails to parse eiffel system from ecf: {:#?}", &config_file)
-        }),
-        _ => panic!("the config file must be an eiffel `ecf` file"),
-    };
-
+    }: Args,
+) {
+    let system = system(&config_file);
     let workspace = Arc::new(RwLock::new(Workspace::default()));
 
-    let ws = workspace.clone();
+    load_workspace(system, workspace.clone()).await;
+
+    let classes_names = name_classes(&classes_file).await;
+
+    let mut generators = Generators::default();
+    generators.add_new().await;
+
+    let ws = workspace.read().await;
+
+    let paths_and_routines = paths_and_routines(&ws, classes_names);
+    let mut routine_fixers = routine_fixers(&ws, paths_and_routines);
+    let fixes = fixes(&generators, &mut routine_fixers).await;
+    print_fixes(fixes);
+}
+
+async fn class_by_class(
+    Args {
+        config_file,
+        classes_file,
+    }: Args,
+) {
+    let system = system(&config_file);
+    let workspace = Arc::new(RwLock::new(Workspace::default()));
+
+    load_workspace(system, workspace.clone()).await;
+
+    let classes_names = name_classes(&classes_file).await;
+
+    let mut generators = Generators::default();
+    generators.add_new().await;
+
+    let ws = workspace.read().await;
+
+    for class_name in &classes_names {
+        class_wide_feature_fixes::fix_class_in_place(
+            &generators,
+            &ws,
+            ws.class(ws.path(&class_name)).unwrap(),
+        )
+        .await;
+    }
+}
+
+async fn load_workspace(system: System, workspace: Arc<RwLock<Workspace>>) {
     let parsing_handle = tokio::spawn(async move {
-        let mut ws = ws.write().await;
+        let mut ws = workspace.write().await;
         ws.load_system(&system).await;
     });
 
     let _ = parsing_handle
         .await
         .inspect_err(|e| eprintln!("awaiting parsing fails with:{:#?} ", e));
+}
 
-    let classes_names = name_classes(&classes_file).await;
-
-    let ws = workspace.clone();
-
-    let mut generators = Generators::default();
-    generators.add_new().await;
-
-    let ws = ws.read().await;
-
-    let paths_and_routines = paths_and_routines(&ws, classes_names);
-    let mut routine_fixers = routine_fixers(&ws, paths_and_routines);
-    let fixes = fixes(&generators, &mut routine_fixers).await;
-    print_fixes(fixes);
-
-    println!("DONE FIXING CLASSES.");
+fn system(config_file: &Path) -> System {
+    match config_file.extension() {
+        Some(ext) if ext == "ecf" => System::parse_from_file(&config_file).unwrap_or_else(|| {
+            panic!("fails to parse eiffel system from ecf: {:#?}", &config_file)
+        }),
+        _ => panic!("the config file must be an eiffel `ecf` file"),
+    }
 }
 
 async fn name_classes(classes_file: &Path) -> Vec<ClassName> {

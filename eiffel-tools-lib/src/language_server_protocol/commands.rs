@@ -22,6 +22,8 @@ use add_daikon_instrumentation::DaikonInstrumenter;
 mod fix_routine;
 pub use fix_routine::FixRoutine;
 
+pub mod class_wide_feature_fixes;
+
 pub trait Command<'ws>: TryFrom<(&'ws Workspace, Vec<serde_json::Value>)> {
     const NAME: &'static str;
     const TITLE: &'static str;

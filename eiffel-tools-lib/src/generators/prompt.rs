@@ -72,7 +72,7 @@ impl Source {
 
         Self(format!(
             "Top level identifiers available in the pre-state of the postcondition: Current: {class_name}{formatted_current_model_in_prestate}{formatted_parameters_in_prestate}.\nIdentifiers available in the post-state for the postcondition: Current: {class_name}{formatted_current_model}{formatted_parameters}{formatted_return_type}."
-        ))
+        )).comment()
     }
 
     fn format_available_identifiers_in_feature_preconditon(
@@ -88,7 +88,7 @@ impl Source {
 
         Self(format!(
             "Top level identifiers available in the preconditions: Current: {class_name}{formatted_current_model}{formatted_parameters }.\n"
-        ))
+        )).comment()
     }
 
     fn format_model_of_class(workspace: &Workspace, class_name: &ClassName) -> Self {
@@ -107,14 +107,14 @@ impl Source {
     }
 
     fn format_model_of_parameters(workspace: &Workspace, parameters: &FeatureParameters) -> Self {
-        Self(parameters.formatted_model(workspace.system_classes()))
+        Self(parameters.formatted_model(workspace.system_classes())).comment()
     }
 
     fn format_parameters(parameters: &FeatureParameters) -> Self {
         if parameters.is_empty() {
             Source(String::new())
         } else {
-            Source(format!("{parameters}"))
+            Source(format!("{parameters}")).comment()
         }
     }
 
@@ -193,14 +193,27 @@ fn injected_into_source(mut injections: Vec<Injection>, source: Source) -> Sourc
     let Source(source_content) = source;
     let mut text = String::new();
     for (linenum, line) in source_content.lines().enumerate() {
+        eprintln!(
+            "linenum: {} length: {} content: {}",
+            linenum,
+            line.len(),
+            line
+        );
         // Select injections of current line;
         // Relies on ordering of injections;
-        let mut current_injections =
-            injections
-                .iter()
-                .filter_map(|&Injection(Point { row, column }, ref text)| {
-                    (row == linenum).then_some((column, text))
-                });
+        let mut current_injections = injections
+            .iter()
+            .filter_map(|&Injection(Point { row, column }, ref text)| {
+                (row == linenum).then_some((column, text))
+            })
+            .inspect(|inj| {
+                eprintln!(
+                    "Injection: linenum: {} length: {} injection: {:#?}",
+                    linenum,
+                    line.len(),
+                    inj
+                )
+            });
         // If there are no injections, add line to the text.
         let Some((mut oc, Source(oi))) = current_injections.next() else {
             text.push_str(line);
