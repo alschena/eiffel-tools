@@ -103,7 +103,7 @@ impl Model {
             .filter(|ft| {
                 names
                     .iter()
-                    .find(|&model_name| model_name == ft.name())
+                    .find(|&model_name| ft.name() == model_name)
                     .is_some()
             })
             .filter_map(|ft| ft.return_type())

@@ -86,7 +86,7 @@ impl Workspace {
 
         if let Some(source) = src {
             let mut parser = Parser::new();
-            match parser.processed_file(source) {
+            match parser.class_and_tree_from_source(source) {
                 Ok((class, tree)) => {
                     self.add_file((class, pathbuf, tree));
                 }
@@ -108,7 +108,7 @@ impl Workspace {
     fn parse_file(path: PathBuf, transmitter: UnboundedSender<(Class, PathBuf, Tree)>) {
         if let Ok(source) = std::fs::read(&path) {
             let mut parser = Parser::new();
-            match parser.processed_file(source) {
+            match parser.class_and_tree_from_source(source) {
                 Ok((class, tree)) => {
                     transmitter
                         .send((class, path, tree))
@@ -182,7 +182,7 @@ end
         let mut ws = Workspace::mock();
 
         let (cl, tr) = parser
-            .processed_file(source)
+            .class_and_tree_from_source(source)
             .expect("fails to process tmp file");
 
         ws.add_file((cl, file.to_path_buf(), tr));

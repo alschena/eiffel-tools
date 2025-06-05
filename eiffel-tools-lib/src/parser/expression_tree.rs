@@ -1,7 +1,8 @@
-use super::util;
-use super::util::Traversal;
 use super::Query;
 use super::TreeTraversal;
+use super::util;
+use super::util::Traversal;
+use crate::parser::FeatureName;
 use anyhow::Context;
 use anyhow::Result;
 use std::collections::HashSet;
@@ -21,7 +22,7 @@ pub trait ExpressionTree<'tree> {
         )
     }
 
-    fn top_level_calls_with_arguments(&mut self) -> Result<Vec<(String, Vec<String>)>>;
+    fn top_level_calls_with_arguments(&mut self) -> Result<Vec<(FeatureName, Vec<String>)>>;
 }
 
 impl<'tree> ExpressionTree<'tree> for TreeTraversal<'_, 'tree> {
@@ -34,7 +35,7 @@ impl<'tree> ExpressionTree<'tree> for TreeTraversal<'_, 'tree> {
             .collect::<Result<HashSet<_>>>()
     }
 
-    fn top_level_calls_with_arguments(&mut self) -> Result<Vec<(String, Vec<String>)>> {
+    fn top_level_calls_with_arguments(&mut self) -> Result<Vec<(FeatureName, Vec<String>)>> {
         let initial_node = self.current_node();
 
         self.set_query(<Self as ExpressionTree>::query_top_level_call_with_arguments());
@@ -71,7 +72,7 @@ impl<'tree> ExpressionTree<'tree> for TreeTraversal<'_, 'tree> {
                 })
                 .collect::<Result<Vec<_>>>()?;
 
-            top_level_calls.push((id, arguments));
+            top_level_calls.push((id.into(), arguments));
         }
         self.set_node(initial_node);
 

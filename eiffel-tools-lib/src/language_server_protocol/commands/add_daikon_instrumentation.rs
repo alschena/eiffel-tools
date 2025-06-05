@@ -359,7 +359,7 @@ impl<'ws> Command<'ws> for DaikonInstrumenter<'ws> {
             unreachable!("fails to serialize path: {:#?}", self.filepath)
         };
         let feature = self.feature;
-        let Ok(serialized_feature_name) = serde_json::to_value(feature.name()) else {
+        let Ok(serialized_feature_name) = serde_json::to_value(feature.name().as_ref()) else {
             unreachable!("fails to serialize name of feature: {feature:#?}")
         };
         vec![serialized_filepath, serialized_feature_name]
@@ -401,7 +401,7 @@ end
         file.write_str(source).expect("write to file");
 
         let (cl, tr) = parser
-            .processed_file(source)
+            .class_and_tree_from_source(source)
             .expect("fails to create processed file");
 
         (cl, file.to_path_buf(), tr)

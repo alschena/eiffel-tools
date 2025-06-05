@@ -68,7 +68,7 @@ impl<'ws> super::Command<'ws> for RoutineSpecificationGenerator<'ws> {
             unreachable!("fails to serialize path: {path:#?}")
         };
         let feature = self.feature;
-        let Ok(serialized_feature_name) = serde_json::to_value(feature.name()) else {
+        let Ok(serialized_feature_name) = serde_json::to_value(feature.name().as_ref()) else {
             unreachable!("fails to serialize name of feature: {feature:#?}")
         };
         vec![serialized_filepath, serialized_feature_name]

@@ -50,20 +50,17 @@ impl Parser {
         T: AsRef<[u8]> + ?Sized,
     {
         self.class_and_tree_from_source(source)
-            .map(|(_, class)| class)
+            .map(|(class, _)| class)
     }
 
-    #[cfg(test)]
-    pub fn class_and_tree_from_source<'source, T>(
-        &mut self,
-        source: &'source T,
-    ) -> anyhow::Result<(Tree, Class)>
+    #[instrument(skip_all)]
+    pub fn class_and_tree_from_source<S>(&mut self, source: S) -> Result<(Class, Tree)>
     where
-        T: AsRef<[u8]> + ?Sized,
+        S: AsRef<[u8]>,
     {
-        let parsed_source = self.parse(source)?;
+        let parsed_source = self.parse(source.as_ref())?;
         let mut traversal = parsed_source.class_tree_traversal()?;
-        traversal.class().map(|class| (parsed_source.tree, class))
+        traversal.class().map(|class| (class, parsed_source.tree))
     }
 
     pub fn feature_from_source<T>(&mut self, source: &T) -> Result<Feature>
@@ -77,17 +74,6 @@ impl Parser {
             || "fails to get a feature from a vector of alias features parsing source: {source}",
         )?;
         Ok(any_feature)
-    }
-
-    #[instrument(skip_all)]
-    pub fn processed_file<S: AsRef<[u8]>>(&mut self, source: S) -> Result<(Class, Tree)> {
-        let parsed_source = self.parse(source.as_ref())?;
-
-        let mut class_tree = parsed_source.class_tree_traversal()?;
-
-        let class = class_tree.class()?;
-
-        Ok((class, parsed_source.tree))
     }
 }
 
@@ -126,7 +112,7 @@ mod tests {
     #[tokio::test]
     async fn process_file() -> anyhow::Result<()> {
         let mut parser = Parser::new();
-        let (class, _tree) = parser.processed_file(EMPTY_CLASS)?;
+        let (class, _tree) = parser.class_and_tree_from_source(EMPTY_CLASS)?;
 
         assert_eq!(class.name(), "A", "class name: {:#?}", class.name());
         Ok(())

@@ -5,6 +5,7 @@ use contract::RoutineSpecification;
 use contract::{Block, Postcondition, Precondition};
 use std::borrow::Borrow;
 use std::fmt::Display;
+use std::ops::Deref;
 use std::path::Path;
 
 mod notes;
@@ -23,9 +24,59 @@ pub enum FeatureVisibility {
     Public,
 }
 
+#[derive(Debug, Eq, Clone, Hash)]
+pub struct FeatureName(String);
+
+impl FeatureName {
+    pub fn new<T: ToString>(name: T) -> Self {
+        FeatureName(name.to_string())
+    }
+}
+
+impl From<String> for FeatureName {
+    fn from(value: String) -> Self {
+        FeatureName(value)
+    }
+}
+
+impl Borrow<str> for &FeatureName {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for FeatureName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Deref for FeatureName {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> PartialEq<T> for FeatureName
+where
+    T: AsRef<str> + ?Sized,
+{
+    fn eq(&self, other: &T) -> bool {
+        self.0 == other.as_ref()
+    }
+}
+
+impl Display for FeatureName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Feature {
-    name: String,
+    name: FeatureName,
     parameters: Parameters,
     return_type: Option<EiffelType>,
     notes: Option<Notes>,
@@ -38,8 +89,8 @@ pub struct Feature {
 }
 
 impl Feature {
-    pub fn new(
-        name: String,
+    pub fn new<N>(
+        name: N,
         parameters: Parameters,
         return_type: Option<EiffelType>,
         notes: Option<Notes>,
@@ -48,9 +99,12 @@ impl Feature {
         body_range: Option<Range>,
         preconditions: Option<Block<Precondition>>,
         postconditions: Option<Block<Postcondition>>,
-    ) -> Self {
+    ) -> Self
+    where
+        N: ToString,
+    {
         Self {
-            name,
+            name: FeatureName(name.to_string()),
             parameters,
             return_type,
             notes,
@@ -75,11 +129,11 @@ impl Feature {
 
     pub fn clone_rename<T: ToString>(&self, name: T) -> Feature {
         let mut f = self.clone();
-        f.name = name.to_string();
+        f.name = FeatureName(name.to_string());
         f
     }
 
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &FeatureName {
         &self.name
     }
 
@@ -322,8 +376,10 @@ end"#;
             "MML_SEQUENCE [INTEGER]".to_string(),
             "MML_SEQUENCE".to_string(),
         );
-        assert!(eiffeltype
-            .class_name()
-            .is_ok_and(|name| name == *"MML_SEQUENCE"));
+        assert!(
+            eiffeltype
+                .class_name()
+                .is_ok_and(|name| name == *"MML_SEQUENCE")
+        );
     }
 }

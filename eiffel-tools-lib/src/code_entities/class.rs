@@ -187,7 +187,7 @@ impl Class {
                         match parent
                             .rename
                             .iter()
-                            .find(|(old_name, _)| old_name == feature.name())
+                            .find(|(old_name, _)| feature.name() == old_name)
                         {
                             Some((_, new_name)) => {
                                 Cow::Owned(feature.clone_rename(new_name.to_string()))

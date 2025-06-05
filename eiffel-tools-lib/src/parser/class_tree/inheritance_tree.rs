@@ -2,6 +2,7 @@ use anyhow::Context;
 use anyhow::Result;
 
 use crate::code_entities::prelude::ClassParent;
+use crate::code_entities::prelude::FeatureName;
 use crate::parser::Node;
 use crate::parser::Query;
 use crate::parser::util;
@@ -50,10 +51,10 @@ where
             .nodes_captures("rename_before")?
             .iter()
             .zip(self.nodes_captures("rename_after")?.iter())
-            .map(|(&before, &after)| -> Result<(String, String)> {
+            .map(|(&before, &after)| -> Result<_> {
                 Ok((
-                    self.node_content(before)?.to_string(),
-                    self.node_content(after)?.to_string(),
+                    FeatureName::new(self.node_content(before)?),
+                    FeatureName::new(self.node_content(after)?),
                 ))
             })
             .collect::<Result<Vec<_>, _>>()?;

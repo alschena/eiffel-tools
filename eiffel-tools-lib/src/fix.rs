@@ -117,12 +117,12 @@ impl<'system> Fix<'system, ClausePredicate> for Parser {
                 eprintln!(
                     "filter eval: {:#?} for pair {:#?}. args {:#?}",
                     !all_current_class_features_names_and_number_of_parameters
-                        .contains(&(id.as_str(), args.len())),
-                    &(id.as_str(), args.len()),
+                        .contains(&(id, args.len())),
+                    &(id, args.len()),
                     args
                 );
                 !all_current_class_features_names_and_number_of_parameters
-                    .contains(&(id.as_str(), args.len()))
+                    .contains(&(id, args.len()))
             })
             .inspect(|val| eprintln!("val:{val:#?}"))
             .collect::<Vec<_>>();
@@ -437,7 +437,7 @@ mod tests {
         let current_feature = current_class
             .features()
             .iter()
-            .find(|f| f.name() == "y".to_string())
+            .find(|f| f.name() == "y")
             .expect("parse feature y");
 
         let invalid_predicate = ClausePredicate::new("z");

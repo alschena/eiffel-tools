@@ -124,7 +124,7 @@ fn routine_fixers<'ws>(
 async fn fixes<'ws>(
     generators: &'ws Generators,
     routine_fixers: &'ws mut Vec<FixRoutine<'ws>>,
-) -> Vec<(&'ws Path, &'ws str, Option<&'ws String>)> {
+) -> Vec<(&'ws Path, &'ws FeatureName, Option<&'ws String>)> {
     let mut fixes = Vec::new();
     for fix_cursor in routine_fixers {
         println!("fix routine");
@@ -151,7 +151,7 @@ async fn fixes<'ws>(
     fixes
 }
 
-fn print_fixes(fixes: Vec<(&Path, &str, Option<&String>)>) {
+fn print_fixes(fixes: Vec<(&Path, &FeatureName, Option<&String>)>) {
     for (path, feature_name, maybe_fixed_body) in fixes {
         println!(
             "path: {:#?}\tfeature name: {:#?}\tfixed body: {:#?}",

@@ -13,9 +13,9 @@ pub mod prelude {
     pub use super::class::model::ModelNames;
     pub use super::contract;
     pub use super::feature::EiffelType;
-    pub use super::feature::Feature;
     pub use super::feature::FeatureVisibility;
     pub use super::feature::Notes as FeatureNotes;
     pub use super::feature::Parameters as FeatureParameters;
+    pub use super::feature::{Feature, FeatureName};
     pub use super::shared::{Location, Point, Range};
 }

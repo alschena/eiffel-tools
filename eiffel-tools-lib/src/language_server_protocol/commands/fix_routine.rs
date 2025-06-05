@@ -1,7 +1,7 @@
 use crate::code_entities::prelude::*;
 use crate::eiffel_source::EiffelSource;
 use crate::eiffelstudio_cli::VerificationResult;
-use crate::eiffelstudio_cli::autoproof;
+use crate::eiffelstudio_cli::verify_feature;
 use crate::generators::Generators;
 use crate::language_server_protocol::commands::fix_routine::path::PathBuf;
 use crate::workspace::Workspace;
@@ -82,7 +82,7 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
             unreachable!("fails to serialize path: {:#?}", self.path)
         };
         let feature = self.feature;
-        let Ok(serialized_feature_name) = serde_json::to_value(feature.name()) else {
+        let Ok(serialized_feature_name) = serde_json::to_value(feature.name().as_ref()) else {
             unreachable!("fails to serialize name of feature: {feature:#?}")
         };
         vec![serialized_filepath, serialized_feature_name]
@@ -143,7 +143,9 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
             let mut number_of_tries = 0;
             let mut feature_verified: Option<String> = None;
             while let VerificationResult::Failure(error_message) =
-                autoproof(feature.name(), &name_subclass(class.name())).await?
+                verify_feature(&name_subclass(class.name()), feature.name())
+                    .await
+                    .with_context(|| "fails to await for autoproof.")?
             {
                 if number_of_tries <= 5 {
                     number_of_tries += 1;
@@ -151,7 +153,7 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
                     break;
                 }
 
-                let maybe_candidate = generators.fix_routine(path, feature, error_message).await?;
+                let maybe_candidate = generators.fix_body(path, feature, error_message).await?;
 
                 // Write text edits to disk.
                 if let Some(candidate) = maybe_candidate {
@@ -163,7 +165,9 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
             }
 
             if let VerificationResult::Success =
-                autoproof(feature.name(), &name_subclass(class.name())).await?
+                verify_feature(&name_subclass(class.name()), feature.name())
+                    .await
+                    .with_context(|| "fails to await autoproof result.")?
             {
                 info!(
                 target: "llm",

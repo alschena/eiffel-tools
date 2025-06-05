@@ -1,12 +1,13 @@
 use crate::code_entities::prelude::Class;
+use crate::code_entities::prelude::FeatureName;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Parent {
     pub name: String,
-    pub select: Vec<String>,
-    pub rename: Vec<(String, String)>,
-    pub redefine: Vec<String>,
-    pub undefine: Vec<String>,
+    pub select: Vec<FeatureName>,
+    pub rename: Vec<(FeatureName, FeatureName)>,
+    pub redefine: Vec<FeatureName>,
+    pub undefine: Vec<FeatureName>,
 }
 impl Parent {
     pub fn class<'a>(&self, system_classes: &'a [Class]) -> Option<&'a Class> {

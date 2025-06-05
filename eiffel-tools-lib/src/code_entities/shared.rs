@@ -1,10 +1,10 @@
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use async_lsp::lsp_types;
 use serde::Deserialize;
 use std::cmp::{Ordering, PartialOrd};
 use std::ops::Sub;
 use std::path;
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Copy, Deserialize, Default)]
+#[derive(Debug, Ord, PartialEq, Eq, Clone, Hash, Copy, Deserialize, Default)]
 pub struct Point {
     pub row: usize,
     pub column: usize,
@@ -23,6 +23,7 @@ impl Point {
         self.column = 0;
     }
 }
+
 impl PartialOrd for Point {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match self.row.cmp(&other.row) {
@@ -32,6 +33,7 @@ impl PartialOrd for Point {
         }
     }
 }
+
 impl Sub for Point {
     type Output = Point;
 
