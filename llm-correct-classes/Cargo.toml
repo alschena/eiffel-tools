@@ -1,0 +1,13 @@
+[package]
+name = "llm-correct-classes"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eiffel-tools-lib = {version="*", path="../eiffel-tools-lib"}
+
+# Asyncronous runtime (framework for lsp is built upon this)
+tokio = { version = "1.27", features = ["full"] }
+
+# Parsing CLI arguments
+clap = { version = "4.5", features = ["derive"] }

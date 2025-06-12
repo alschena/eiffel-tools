@@ -193,27 +193,14 @@ fn injected_into_source(mut injections: Vec<Injection>, source: Source) -> Sourc
     let Source(source_content) = source;
     let mut text = String::new();
     for (linenum, line) in source_content.lines().enumerate() {
-        eprintln!(
-            "linenum: {} length: {} content: {}",
-            linenum,
-            line.len(),
-            line
-        );
         // Select injections of current line;
         // Relies on ordering of injections;
-        let mut current_injections = injections
-            .iter()
-            .filter_map(|&Injection(Point { row, column }, ref text)| {
-                (row == linenum).then_some((column, text))
-            })
-            .inspect(|inj| {
-                eprintln!(
-                    "Injection: linenum: {} length: {} injection: {:#?}",
-                    linenum,
-                    line.len(),
-                    inj
-                )
-            });
+        let mut current_injections =
+            injections
+                .iter()
+                .filter_map(|&Injection(Point { row, column }, ref text)| {
+                    (row == linenum).then_some((column, text))
+                });
         // If there are no injections, add line to the text.
         let Some((mut oc, Source(oi))) = current_injections.next() else {
             text.push_str(line);

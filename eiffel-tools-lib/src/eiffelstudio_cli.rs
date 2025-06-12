@@ -10,19 +10,16 @@ pub enum VerificationResult {
 fn verification_result(verification_message: String) -> VerificationResult {
     if verification_message.contains("Verification failed") {
         info!(target:"llm", "AutoProof fails with message: {}", verification_message);
-        eprintln!("AutoProof fails with message: {}", verification_message);
         VerificationResult::Failure(verification_message)
     } else {
-        info!(target: "llm",
-        "Autoproof succedes.");
-        eprintln!("AutoProof succedes with message: {}", verification_message);
+        info!(target: "llm", "Autoproof succedes.");
         VerificationResult::Success
     }
 }
 
 pub async fn verify_feature(
     class_name: &ClassName,
-    feature_name: &str,
+    feature_name: &FeatureName,
 ) -> Option<VerificationResult> {
     let output = autoproof(class_name, Some(feature_name)).await?;
     format_output(output).map(|message| verification_result(message))

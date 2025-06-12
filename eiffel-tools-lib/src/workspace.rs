@@ -48,7 +48,9 @@ impl Workspace {
     pub fn path(&self, classname: &ClassName) -> &Path {
         self.class_location
             .get(classname)
-            .unwrap_or_else(|| unreachable!("fails to find location of class {:#?}", classname))
+            .unwrap_or_else(||
+                unreachable!("fails to find location of class {:#?}\n\nClasses registered in the workspace:\n{:#?}", classname,self.system_classes().iter().map(|cl| cl.name()))
+            )
     }
 
     pub fn feature_around(&self, path: &Path, point: Point) -> Option<&Feature> {
@@ -113,14 +115,19 @@ impl Workspace {
                     transmitter
                         .send((class, path, tree))
                         .inspect_err(|e| warn!("fails to send parsed file with error: {:#?}", e))
+                        .inspect_err(|e| {
+                            eprintln!("fails to send parsed file with error: {:#?}", e)
+                        })
                         .ok();
                 }
                 Err(e) => {
                     warn!("fails to parse file with error {:#?}", e);
+                    eprintln!("fails to parse file with error {:#?}", e);
                 }
             }
         } else {
             warn!("fails to read file");
+            eprintln!("fails to read file");
         }
     }
 

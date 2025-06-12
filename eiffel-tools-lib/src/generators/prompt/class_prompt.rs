@@ -293,6 +293,51 @@ mod class_wide_feature_fixes {
             })
     }
 
+    fn error_message_injection(feature: &Feature, error_message: FeatureErrorMessage) -> Injection {
+        let end_point = feature.range().end;
+        eprintln!(
+            "feature name: {}\tfeature end point: {:#?}",
+            feature.name(),
+            end_point
+        );
+        let FeatureErrorMessage(error_message_content) = error_message;
+        Injection(end_point, Source(error_message_content).comment().indent())
+    }
+
+    fn task_injection(feature: &Feature, error_message: &FeatureErrorMessage) -> Injection {
+        let start_point = feature.range().start;
+
+        let FeatureErrorMessage(content) = error_message;
+        if content.contains("Successfully verified") {
+            Injection (start_point, Source("This feature verifies, you can rely on its contracts while correcting the others.\nYou might strengthen its contracts.".to_string()).comment().indent())
+        } else {
+            Injection(
+                start_point,
+                Source("This feature fails to verify, correct it.\nAfter the code you will find a comment containing the error message from the verifier AutoProof.".to_string())
+                    .comment()
+                    .indent(),
+            )
+        }
+    }
+
+    fn feature_injections_for_feature_fix(
+        existing_features: &[Feature],
+        feature_name: &FeatureName,
+        error_message: FeatureErrorMessage,
+    ) -> impl IntoIterator<Item = Injection> {
+        existing_features
+            .iter()
+            .find(|feature| feature.name() == feature_name)
+            .map(|feature| {
+                [
+                    task_injection(feature, &error_message),
+                    error_message_injection(feature, error_message),
+                ]
+            })
+            .into_iter()
+            .flatten()
+    }
+
     fn class_injections_for_feature_fixes<'cl>(
         class: &'cl Class,
         autoproof_error_message: String,
@@ -303,20 +348,8 @@ mod class_wide_feature_fixes {
 
         features_error_message(class.name(), feature_names, &autoproof_error_message)
             .into_iter()
-            .filter_map(|(feature_name, error_message)| {
-                features
-                    .iter()
-                    .find(|feature| feature.name() == feature_name)
-                    .map(|feature| {
-                        let end_point = feature.range().end;
-                        eprintln!(
-                            "feature name: {}\tfeature end point: {:#?}",
-                            feature.name(),
-                            end_point
-                        );
-                        let FeatureErrorMessage(error_message_content) = error_message;
-                        Injection(end_point, Source(error_message_content).comment().indent())
-                    })
+            .flat_map(|(feature_name, error_message)| {
+                feature_injections_for_feature_fix(features, feature_name, error_message)
             })
             .collect()
     }

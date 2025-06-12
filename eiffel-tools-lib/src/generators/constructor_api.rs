@@ -199,7 +199,7 @@ pub struct CompletionParameters {
     pub response_format: Option<OpenAIResponseFormat>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub(super) struct MessageReceived {
     pub(super) role: String,
     pub(super) content: String,
@@ -207,21 +207,21 @@ pub(super) struct MessageReceived {
     pub(super) tool_calls: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub(super) struct CompletionChoice {
     pub(super) index: usize,
     pub(super) message: MessageReceived,
     pub(super) finish_reason: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub(super) struct CompletionTokenUsage {
     pub(super) prompt_tokens: i32,
     pub(super) completion_tokens: i32,
     pub(super) total_tokens: i32,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CompletionResponse {
     pub(super) id: String,
     /// Response schema. Currently only "chat.completion" is allowed.
@@ -237,22 +237,44 @@ impl CompletionResponse {
         self.choices.iter().map(|c| c.message.content.as_str())
     }
 
+    fn remove_quotes_around_markdown_code_block(content: &str) -> String {
+        content
+            .lines()
+            .skip_while(|&line| {
+                let line = line.trim_start();
+                line.is_empty() || line.starts_with(r#"```"#)
+            })
+            .map_while(|line| (line.trim_end() != r#"```"#).then_some(line))
+            .fold(String::new(), |mut acc, line| {
+                acc.push_str(line);
+                acc.push('\n');
+                acc
+            })
+    }
+
+    fn first_code_block_in_markdown(content: &str) -> String {
+        Self::remove_quotes_around_markdown_code_block(
+            content
+                .lines()
+                .skip_while(|&line| !line.trim_start().starts_with(r#"```"#))
+                .fold(String::new(), |mut acc, line| {
+                    acc.push_str(line);
+                    acc.push('\n');
+                    acc
+                })
+                .as_str(),
+        )
+    }
+
     pub fn extract_multiline_code(&self) -> Vec<String> {
         self.contents()
-            .map(|content| {
-                content
-                    .lines()
-                    .skip_while(|&line| {
-                        let line = line.trim_start();
-                        line.is_empty() || line.starts_with(r#"```"#)
-                    })
-                    .map_while(|line| (line.trim_end() != r#"```"#).then_some(line))
-                    .fold(String::new(), |mut acc, line| {
-                        acc.push_str(line);
-                        acc.push('\n');
-                        acc
-                    })
-            })
+            .map(Self::remove_quotes_around_markdown_code_block)
+            .collect()
+    }
+
+    pub fn retry_extract_multiline_code(&self) -> Vec<String> {
+        self.contents()
+            .map(Self::first_code_block_in_markdown)
             .collect()
     }
 }
@@ -386,13 +408,7 @@ impl Llm {
             .json(&parameters)
             .headers(self.headers.clone());
 
-        info!(target: "llm", "request sent to llm:\t{:#?}", request);
-
-        eprintln!("request:{:#?}", request);
-
         let response = request.send().await?;
-
-        eprintln!("response:{:#?}", response);
 
         debug_assert!(response.status().is_success(), "{}", response.text().await?);
 

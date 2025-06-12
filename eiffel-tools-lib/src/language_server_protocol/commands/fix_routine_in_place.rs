@@ -1,53 +1,90 @@
 use crate::code_entities::prelude::*;
 use crate::eiffelstudio_cli::VerificationResult;
-use crate::eiffelstudio_cli::verify_class;
+use crate::eiffelstudio_cli::verify_feature;
 use crate::generators::Generators;
 use crate::parser::Parser;
 use crate::workspace::Workspace;
 use std::path::Path;
 
-pub async fn fix_class_in_place(
+pub async fn fix_routine_in_place(
     generators: &Generators,
     workspace: &mut Workspace,
     class_name: &ClassName,
+    feature: &Feature,
 ) {
-    println!("fix class in place {class_name}");
+    let path = workspace.path(class_name).to_path_buf();
 
     let max_number_of_tries = 10;
     let mut number_of_tries = 0;
+    let mut last_valid_code = tokio::fs::read(&path)
+        .await
+        .unwrap_or_else(|e| panic!("fails to read at path {:#?} with {:#?}", &path, e));
+
     loop {
-        match verify_class(class_name).await {
+        let classname = class_name.to_owned();
+        let featurename = feature.name().to_owned();
+        let verification_handle = tokio::spawn(tokio::time::timeout(
+            tokio::time::Duration::from_secs(180),
+            async move { verify_feature(&classname, &featurename).await },
+        ))
+        .await;
+
+        let verification = match verification_handle {
+            Ok(Ok(result)) => {
+                last_valid_code = tokio::fs::read(&path)
+                    .await
+                    .unwrap_or_else(|e| panic!("fails to read {:#?} because {:#?}", &path, e));
+
+                result
+            }
+            Ok(Err(_timeout_elapsed)) => {
+                eprintln!("AutoProof times out.");
+                tokio::fs::write(&path, &last_valid_code)
+                    .await
+                    .unwrap_or_else(|e| panic!("fails to read at path {:#?} with {:#?}", &path, e));
+                continue;
+            }
+            Err(_fails_to_complete_task) => {
+                eprintln!(
+                    "AutoProof fails either for the logic in the function `verify_class` or because of an internal processing error of AutoProof."
+                );
+
+                tokio::fs::write(&path, &last_valid_code)
+                    .await
+                    .unwrap_or_else(|e| panic!("fails to read at path {:#?} with {:#?}", &path, e));
+                continue;
+            }
+        };
+
+        match verification {
             Some(VerificationResult::Success) => {
                 println!(
-                    "The class {} successfully verifies at try #{}.",
-                    class_name, number_of_tries
+                    "The feature {}.{} verifies successfully at try #{}.",
+                    class_name,
+                    feature.name(),
+                    number_of_tries
                 );
                 break;
             }
             Some(VerificationResult::Failure(error_message))
                 if number_of_tries < max_number_of_tries =>
             {
-                println!("The class did not verify at try #{number_of_tries}");
-
                 number_of_tries += 1;
 
-                let path = workspace.path(class_name).to_path_buf();
+                let Some((feature_name, candidate_body)) = generators
+                    .routine_fixes(&path, feature, error_message)
+                    .await
+                else {
+                    continue;
+                };
 
-                workspace.reload(path.clone()).await;
+                rewrite_feature(&path, (feature_name, &candidate_body)).await;
 
-                let class = workspace
-                    .class(&path)
-                    .expect("fails to get reloaded class.");
-
-                let feature_candidates = generators
-                    .class_wide_fixes(workspace, class, error_message)
-                    .await;
-
-                rewrite_features(workspace.path(class_name), feature_candidates).await;
+                workspace.reload(path.to_path_buf()).await;
             }
             Some(VerificationResult::Failure(error_message)) => {
                 eprintln!(
-                    "After {max_number_of_tries} tries, {class_name} still fails to verify. The last error message follows:\n{error_message}"
+                    "After {max_number_of_tries} tries, {class_name} still fails to verify. The last error message follows:\n{error_message}."
                 );
                 break;
             }
@@ -61,7 +98,7 @@ pub async fn fix_class_in_place(
     }
 }
 
-async fn rewrite_features(path: &Path, features: Vec<(FeatureName, String)>) {
+async fn rewrite_feature(path: &Path, new_feature: (&FeatureName, &str)) {
     let Ok(current_file) = tokio::fs::read(path)
         .await
         .inspect_err(|e| eprintln!("fails to read {path:#?} with {e:#?}"))
@@ -108,9 +145,8 @@ async fn rewrite_features(path: &Path, features: Vec<(FeatureName, String)>) {
     };
 
     let matching_new_feature = |&feature_name| {
-        features
-            .iter()
-            .find(|(name_of_new, _)| feature_name == name_of_new)
+        let (ft_name, _) = new_feature;
+        (ft_name == feature_name).then_some(new_feature)
     };
 
     let on_starting_feature = |acc: &mut String, linenum, line: &str| {

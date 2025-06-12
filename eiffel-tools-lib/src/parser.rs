@@ -22,6 +22,12 @@ pub use util::TreeTraversal;
 
 pub struct Parser(TreeSitterParser);
 
+#[derive(Debug, Clone)]
+pub enum Parsed<T> {
+    Correct(T),
+    HasErrorNodes(Tree, Vec<u8>),
+}
+
 impl Parser {
     pub fn new() -> Self {
         let mut parser = tree_sitter::Parser::new();
@@ -63,17 +69,25 @@ impl Parser {
         traversal.class().map(|class| (class, parsed_source.tree))
     }
 
-    pub fn feature_from_source<T>(&mut self, source: &T) -> Result<Feature>
+    pub fn to_feature<T>(&mut self, source: &T) -> Result<Parsed<Feature>>
     where
         T: AsRef<[u8]> + ?Sized,
     {
         let parsed_source = self.parse(source)?;
-        let mut feature_tree_traversal = parsed_source.feature_tree_traversal()?;
-        let mut alias_features = feature_tree_traversal.feature()?;
-        let any_feature = alias_features.pop().with_context(
-            || "fails to get a feature from a vector of alias features parsing source: {source}",
-        )?;
-        Ok(any_feature)
+
+        if parsed_source.tree.root_node().has_error() {
+            Ok(Parsed::HasErrorNodes(
+                parsed_source.tree,
+                source.as_ref().to_owned(),
+            ))
+        } else {
+            let mut feature_tree_traversal = parsed_source.feature_tree_traversal()?;
+            let mut alias_features = feature_tree_traversal.feature()?;
+            let any_feature = alias_features.pop().with_context(
+                || "fails to get a feature from a vector of alias features parsing source: {source}",
+            )?;
+            Ok(Parsed::Correct(any_feature))
+        }
     }
 }
 

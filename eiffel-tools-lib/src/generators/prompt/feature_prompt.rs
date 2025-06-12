@@ -51,14 +51,19 @@ mod fix_feature {
         feature: &Feature,
         error_message: String,
     ) -> impl IntoIterator<Item = Injection> {
-        let message = Source(error_message);
+        let message = Source(
+            error_message
+                .lines()
+                .filter(|line| !line.is_empty())
+                .fold(String::new(), |acc, line| format!("{acc}\n{line}")),
+        );
         let Range { start, end } = feature.range();
         [
 
                 Injection(*end - *start, Source(message.to_string()).comment()),
             Injection(
                     Point { row: 0, column: 0 },
-                    Source("The following feature does not verify, there is a bug in the body in its body. Fix the body of following feature. After the code you will find a comment with the error message from AutoProof.".to_string()).comment(),
+                    Source("Rewrite the following feature to make it verify. After the code you will find a comment with the error message from static verifier AutoProof.".to_string()).comment(),
                 ),
         ]
     }

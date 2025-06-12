@@ -26,10 +26,30 @@ impl Generators {
         };
         self.llms.push(Arc::new(llm));
     }
+
+    async fn complete(
+        &self,
+        parameters: constructor_api::CompletionParameters,
+    ) -> impl IntoIterator<Item = constructor_api::CompletionResponse> {
+        info!(target:"llm", "{parameters:#?}");
+
+        let mut tasks = tokio::task::JoinSet::new();
+        for llm in self.llms.iter().cloned() {
+            let completion_parameters = parameters.clone();
+            tasks.spawn(async move { llm.model_complete(&completion_parameters).await });
+        }
+        let completion_response = tasks.join_all().await;
+
+        completion_response.into_iter().filter_map(|rs| {
+            rs.inspect_err(|e| warn!(target:"llm", "An LLM request has returned the error: {e:#?}"))
+                .ok()
+        })
+    }
 }
 
 mod feature_focused {
     use super::*;
+    use crate::parser::Parsed;
 
     impl Generators {
         pub async fn more_routine_specifications(
@@ -43,30 +63,16 @@ mod feature_focused {
                     .await?;
 
             // Generate feature with specifications
-            let completion_parameters = constructor_api::CompletionParameters {
-                messages: prompt.into(),
-                n: Some(50),
-                ..Default::default()
-            };
-
-            info!(target:"llm", "{completion_parameters:#?}");
-
-            let mut tasks = tokio::task::JoinSet::new();
-            for llm in self.llms.iter().cloned() {
-                let completion_parameters = completion_parameters.clone();
-                tasks.spawn(async move { llm.model_complete(&completion_parameters).await });
-            }
-            let completion_response = tasks.join_all().await;
+            let completion_response = self
+                .complete(constructor_api::CompletionParameters {
+                    messages: prompt.into(),
+                    n: Some(50),
+                    ..Default::default()
+                })
+                .await
+                .into_iter();
 
             let completion_response_processed = completion_response
-            .iter()
-            .filter_map(|rs| match rs {
-                Err(e) => {
-                    warn!(target:"llm", "An LLM request has returned the error: {e:#?}");
-                    None
-                }
-                Ok(reply) => Some(reply),
-            })
             .flat_map(|reply| {
                 reply
                     .extract_multiline_code()
@@ -74,13 +80,17 @@ mod feature_focused {
                     .filter_map(|candidate| {
                         info!(target:"llm", "candidate:\t{candidate}");
                         let mut parser = Parser::new();
-                        parser.feature_from_source(&candidate).map_or_else(
-                            |e| {
-                                warn!(target:"llm", "fail to parse generated output with error: {e:#?}");
+
+                        match parser.to_feature(&candidate) {
+                            Ok(Parsed::Correct(ft))=> {Some(ft.routine_specification())}
+                            Ok(Parsed::HasErrorNodes(_,_))=> {warn!(target: "llm", "The parsed candidate contains error nodes, currently, we ignore that candidate."); None}
+
+                            Err(e) =>  {
+                                
+                                warn!(target:"llm", "Fails to parse generated output with error: {e:#?}");
                                 None
-                            },
-                            |ft| Some(ft.routine_specification()),
-                        )
+                            }
+                        }
                     })
             })
             .collect();
@@ -103,34 +113,16 @@ mod feature_focused {
                     .into();
 
             // Generate feature with specifications
-            let completion_parameters = constructor_api::CompletionParameters {
-                messages: prompt,
-                n: Some(5),
-                ..Default::default()
-            };
-
-            info!(target: "llm", "completion parameters: {:#?}", completion_parameters);
-
-            let mut tasks = tokio::task::JoinSet::new();
-            for llm in self.llms.iter().cloned() {
-                let completion_parameters = completion_parameters.clone();
-                tasks.spawn(async move { llm.model_complete(&completion_parameters).await });
-            }
-            let completion_response = tasks.join_all().await;
+            let completion_response = self
+                .complete(constructor_api::CompletionParameters {
+                    messages: prompt,
+                    n: Some(5),
+                    ..Default::default()
+                })
+                .await
+                .into_iter();
 
             let completion_response_processed: Option<String> = completion_response
-                .iter()
-                .filter_map(|maybe_response| {
-                    maybe_response.as_ref()
-                        .inspect_err(|e| {
-                            warn!(
-                                target = "llm",
-                                "An LLM processing the feature fix has returned the error: {:#?}",
-                                e
-                            )
-                        })
-                        .ok()
-                })
                 .flat_map(|response| response.extract_multiline_code().into_iter())
                 .inspect(|candidate| {
                     info!(target: "llm", "candidate:\t{candidate}");
@@ -138,17 +130,22 @@ mod feature_focused {
                 .filter_map(|candidate| {
                     let mut parser = Parser::new();
 
-                    let ft = parser
-                        .feature_from_source(&candidate)
-                        .inspect_err(|e| {
+                    match parser
+                        .to_feature(&candidate) {
+                        Ok(Parsed::Correct(ft)) => {
+                            info!(target: "llm", "candidate of correct body:\t{:#?}", candidate);
+                            ft.body_source_unchecked(candidate).inspect_err(|e| info!(target: "llm", "fails to extract body of candidate feature with error: {:#?}", e)).ok()
+                        },
+                        Ok(Parsed::HasErrorNodes(tree,_)) => {
+                            eprintln!("the LLM candidate parses with errors nodes.\nAST:\n{:#?}",tree);
+                            None
+                            
+                        },
+                        Err(e) => {
                             info!(target: "llm", "fails to parse LLM generated feature with error: {e:#?}");
-                        })
-                        .ok()?;
-
-                    ft.body_source_unchecked(candidate).inspect_err(|e| info!(target: "llm", "fails to extract body of candidate feature with error: {:#?}", e)).ok()
-                })
-                .inspect(|filtered_candidate| {
-                    info!(target: "llm", "candidate of correct body:\t{:#?}", filtered_candidate);
+                            None
+                        }
+                    }
                 })
                 .next();
 
@@ -157,6 +154,61 @@ mod feature_focused {
             }
 
             Ok(completion_response_processed)
+        }
+
+        pub async fn routine_fixes<'slf, 'ft: 'slf>(
+            &'slf self,
+            path: &Path,
+            routine: &'ft Feature,
+            error_message: String,
+        ) -> Option<(&'ft FeatureName, String)> {
+            let prompt =
+                prompt::FeaturePrompt::try_new_for_feature_fixes(path, routine, error_message)
+                    .await?
+                    .into();
+
+            eprintln!("PROMPT IN MESSAGES:\n{:#?}\n\n", prompt);
+
+            let completion_response = self
+                .complete(constructor_api::CompletionParameters {
+                    messages: prompt,
+                    n: Some(5),
+                    ..Default::default()
+                })
+                .await
+                .into_iter().collect::<Vec<_>>();
+
+            let filter_unparsable = |candidate| {
+                    match Parser::new().to_feature(&candidate) {
+                        Err(e) => {
+                            info!(target: "llm", "Fails to parse LLM generated feature with error: {e:#?}");
+                            None
+                            
+                        },
+                        Ok(Parsed::Correct(_)) => {
+                                println!("Candidate of correct feature:\t{:#?}",candidate);
+                                info!(target: "llm", "Candidate of correct feature:\t{:#?}", candidate);
+                                Some(candidate)
+                            },
+                        Ok(Parsed::HasErrorNodes(_,_ )) => {todo!()}}
+                }; 
+
+            let maybe_extraction_from_markdown = completion_response.clone().into_iter()
+                .flat_map(|response| response.extract_multiline_code())
+                .inspect(|candidate| {
+                    info!(target: "llm", "candidate after basic multiline code extraction:\t{candidate}");
+                })
+            ;
+
+            let retry_extraction_from_markdown = completion_response.into_iter().flat_map(|response| response.retry_extract_multiline_code()).inspect(|candidate|
+                    {info!(target: "llm", "candidate after retry multiline code extraction:\t{candidate}");}
+            );
+
+            let proposed_feature = maybe_extraction_from_markdown
+                .filter_map(filter_unparsable)
+                .next().or_else(|| retry_extraction_from_markdown.filter_map(filter_unparsable).next());
+
+            proposed_feature.map(|candidate| (routine.name(), candidate))
         }
     }
 }
@@ -177,30 +229,16 @@ mod class_wide {
                 .unwrap();
 
             // Generate feature with specifications
-            let completion_parameters = constructor_api::CompletionParameters {
-                messages: prompt.into(),
-                n: Some(5),
-                ..Default::default()
-            };
-
-            info!(target:"llm", "{completion_parameters:#?}");
-
-            let mut tasks = tokio::task::JoinSet::new();
-            for llm in self.llms.iter().cloned() {
-                let completion_parameters = completion_parameters.clone();
-                tasks.spawn(async move { llm.model_complete(&completion_parameters).await });
-            }
-            let completion_response = tasks.join_all().await;
+            let completion_response = self
+                .complete(constructor_api::CompletionParameters {
+                    messages: prompt.into(),
+                    n: Some(5),
+                    ..Default::default()
+                })
+                .await
+                .into_iter();
 
             let completion_response_processed = completion_response
-                .iter()
-                .filter_map(|rs| match rs {
-                    Err(e) => {
-                        warn!(target:"llm", "An LLM request has returned the error: {e:#?}");
-                        None
-                    }
-                    Ok(reply) => Some(reply),
-                })
                 .flat_map(|reply| {
                     reply.extract_multiline_code().into_iter()
                     // TODO generate routine specs for each feature
@@ -220,40 +258,27 @@ mod class_wide {
             workspace: &Workspace,
             class: &Class,
             error_message: String,
-        ) -> Vec<(String, String)> {
+        ) -> Vec<(FeatureName, String)> {
             let prompt =
                 prompt::ClassPrompt::try_new_for_feature_fixes(workspace, class, error_message)
                     .await
                     .expect("fails to produce prompt for class-wide fixes.");
 
-            let completion_parameters = constructor_api::CompletionParameters {
-                messages: prompt.into(),
-                n: Some(5),
-                ..Default::default()
-            };
-
-            println!(
-                "completion parameters for class-wide fixes: {:#?}",
-                completion_parameters
-            );
-
-            let mut tasks = tokio::task::JoinSet::new();
-            for llm in self.llms.iter().cloned() {
-                let completion_parameters = completion_parameters.clone();
-                tasks.spawn(async move { llm.model_complete(&completion_parameters).await });
-            }
-            let completion_response = tasks.join_all().await;
-
-            let first_parsable_response = completion_response
-                .into_iter()
-                .filter_map(|response| {
-                    response
-                        .inspect_err(|e| eprintln!("One llm returns  {:#?}", e))
-                        .ok()
+            let completion_response: Vec<_> = self
+                .complete(constructor_api::CompletionParameters {
+                    messages: prompt.into(),
+                    n: Some(5),
+                    ..Default::default()
                 })
-                .flat_map(|response| response.extract_multiline_code())
-                .inspect(|candidate| println!("unfiltered candidate class: {:#?}", candidate))
-                .filter_map(|candidate| {
+                .await.into_iter().collect();
+
+            let responses_maybe_from_markdown = completion_response.clone().into_iter()
+                .flat_map(|response| response.extract_multiline_code());
+
+            let retry_responses_maybe_from_markdown = completion_response.into_iter()
+                .flat_map(|response| response.retry_extract_multiline_code());
+
+            let retain_only_parsable = |candidate| {
                     let mut parser = Parser::new();
                     parser
                         .class_and_tree_from_source(&candidate)
@@ -264,34 +289,32 @@ mod class_wide {
                         })
                         .ok()
                         .map(|(class, _)| (class, candidate))
-                })
-                .map(|(class, candidate_class_text)| {
-                    class
+                };
+
+            
+
+            fn extract_features(class: &Class, candidate_class_text: &str) -> Vec<(FeatureName, String)> {
+                class
                         .features()
                         .into_iter()
-                        .map(|ft| (ft.name(), ft.range()))
-                        .inspect(|(name, range)| {
-                            eprintln!("name: {name:#?}");
-                            eprintln!("range: {range:#?}");
-                            eprintln!(
-                                "extraction: {:#?}",
-                                extract_text_within_range(&candidate_class_text, range)
-                            );
-                        })
-                        .map(|(name, range)| {
+                        .map(|ft|{
                             (
-                                name.to_string(),
-                                extract_text_within_range(&candidate_class_text, range)
+                                ft.name().to_owned(),
+                                extract_text_within_range(candidate_class_text, ft.range())
                                     .trim_end()
                                     .to_string(),
                             )
                         })
-                        .inspect(|(name, possible_content)| {
-                            eprintln!("candidates: name: {name}, {possible_content:#?}")
-                        })
                         .collect::<Vec<_>>()
-                })
-                .next();
+            }
+                            
+            
+            let first_parsable_response = responses_maybe_from_markdown
+                .filter_map(retain_only_parsable)
+                .map(|(ref class, ref candidate_class_text)| extract_features(class, candidate_class_text))
+                .next().or_else(|| retry_responses_maybe_from_markdown.filter_map(retain_only_parsable)
+                .map(|(ref class, ref candidate_class_text)| extract_features(class, candidate_class_text)).next()
+                );
 
             first_parsable_response.unwrap_or_default()
         }
@@ -311,17 +334,10 @@ mod class_wide {
                 },
         } = range;
 
-        candidate .lines()
+        candidate
+            .lines()
             .skip(start_row)
             .enumerate()
-            .inspect(|(linenum, line_candidate)| {
-                eprintln!(
-                    "linenum: {linenum}\nline_candidate: {line_candidate}"
-                );
-                eprintln!(
-                    "start row: {start_row}\nstart column: {start_column}\nend row: {end_row}\nend column: {end_column}"
-                );
-            })
             .map_while(|(linenum, line)| match linenum {
                 0 => Some(&line[start_column..]),
                 n if n < end_row - start_row => Some(line),
