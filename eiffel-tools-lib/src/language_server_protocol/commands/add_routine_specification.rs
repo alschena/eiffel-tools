@@ -222,7 +222,6 @@ impl<'ws> RoutineSpecificationGenerator<'ws> {
         let class = self.class();
         let feature = self.feature;
 
-        let mut parser = Parser::new();
         let fixing_context = FeaturePositionInSystem::new(system_classes, class, feature);
 
         let specs = routine_specifications
@@ -234,6 +233,7 @@ impl<'ws> RoutineSpecificationGenerator<'ws> {
             });
 
         specs.and_then(|spec| {
+            let mut parser = Parser::new();
             parser
                 .fix(spec, &fixing_context)
                 .inspect_err(|e| info!("fix refuses routine specification with error: {e:#?}"))

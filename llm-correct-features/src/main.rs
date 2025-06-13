@@ -3,6 +3,8 @@ use eiffel_tools_lib::code_entities::prelude::*;
 use eiffel_tools_lib::config::System;
 use eiffel_tools_lib::generators::Generators;
 use eiffel_tools_lib::language_server_protocol::commands::fix_routine_in_place;
+use eiffel_tools_lib::tracing::info;
+use eiffel_tools_lib::tracing::warn;
 use eiffel_tools_lib::tracing_subscriber::filter;
 use eiffel_tools_lib::tracing_subscriber::fmt;
 use eiffel_tools_lib::tracing_subscriber::fmt::format::FmtSpan;
@@ -26,7 +28,7 @@ struct Args {
 async fn main() {
     feature_by_feature(Args::parse()).await;
 
-    println!("DONE FIXING CLASSES.");
+    info!("DONE FIXING CLASSES.");
 }
 
 async fn feature_by_feature(
@@ -107,7 +109,7 @@ async fn load_workspace(system: System, workspace: Arc<RwLock<Workspace>>) {
 
     let _ = parsing_handle
         .await
-        .inspect_err(|e| eprintln!("awaiting parsing fails with:{:#?} ", e));
+        .inspect_err(|e| warn!("Parsing fails to return with:{:#?} ", e));
 }
 
 fn system(config_file: &Path) -> System {
@@ -122,12 +124,12 @@ fn system(config_file: &Path) -> System {
 async fn name_classes(classes_file: &Path) -> Vec<ClassName> {
     tokio::fs::read(classes_file)
         .await
-        .inspect_err(|e| eprintln!("fails to read classes_file with error: {:#?}", e))
+        .inspect_err(|e| warn!("fails to read classes_file with error: {:#?}", e))
         .ok()
         .and_then(|text| {
             String::from_utf8(text)
                 .inspect_err(|e| {
-                    eprintln!(
+                    warn!(
                         "fails to convert content of classes file to UFT8 string with error: {:#?}",
                         e
                     )
@@ -137,7 +139,7 @@ async fn name_classes(classes_file: &Path) -> Vec<ClassName> {
         .map(|text| {
             text.lines()
                 .flat_map(|name| (!name.is_empty()).then_some(ClassName(name.to_uppercase())))
-                .inspect(|name| println!("Class name read: {}", name))
+                .inspect(|name| info!("Class name read: {}", name))
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default()

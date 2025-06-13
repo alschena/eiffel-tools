@@ -22,10 +22,24 @@ pub use util::TreeTraversal;
 
 pub struct Parser(TreeSitterParser);
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Parsed<T> {
     Correct(T),
     HasErrorNodes(Tree, Vec<u8>),
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for Parsed<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Parsed::Correct(val) => write!(f, "Parsed correctly: {:#?}", val),
+            Parsed::HasErrorNodes(tree, items) => write!(
+                f,
+                "Parses code:\n{:#?}\n\nTo the AST:\n{:#?}",
+                String::from_utf8(items.to_owned()),
+                tree.root_node().to_sexp()
+            ),
+        }
+    }
 }
 
 impl Parser {
@@ -73,7 +87,13 @@ impl Parser {
     where
         T: AsRef<[u8]> + ?Sized,
     {
-        let parsed_source = self.parse(source)?;
+        let prepended_source = {
+            let mut prefix: Vec<u8> = "[FEATURE]\n".into();
+            prefix.extend_from_slice(source.as_ref());
+            prefix
+        };
+
+        let parsed_source = self.parse(&prepended_source)?;
 
         if parsed_source.tree.root_node().has_error() {
             Ok(Parsed::HasErrorNodes(
@@ -120,6 +140,8 @@ impl ParsedSource<'_> {
 
 #[cfg(test)]
 mod tests {
+    use crate::code_entities::contract::{Clause, Postcondition};
+
     use super::*;
     pub const EMPTY_CLASS: &str = r#"class A end"#;
 
@@ -130,5 +152,75 @@ mod tests {
 
         assert_eq!(class.name(), "A", "class name: {:#?}", class.name());
         Ok(())
+    }
+
+    #[test]
+    fn predicate_identifiers() {
+        let mut parser = Parser::new();
+        let parsed_source = parser
+            .parse("[EXPRESSION]\nx < y.z.w")
+            .expect("fails to parse expression");
+        let mut tree = parsed_source
+            .expression_tree_traversal()
+            .expect("fails to create expression tree traversal.");
+
+        let ids = tree
+            .top_level_identifiers()
+            .expect("fails to get top level identifiers");
+
+        assert!(ids.contains("x"));
+        assert!(ids.contains("y"));
+        assert!(ids.len() == 2);
+    }
+
+    #[test]
+    fn predicate_identifiers_unqualified_calls() {
+        let mut parser = Parser::new();
+        let parsed_source = parser
+            .parse("[EXPRESSION]\nx (y) < y (l).z.w")
+            .expect("fails to parse expression");
+        let mut tree = parsed_source
+            .expression_tree_traversal()
+            .expect("fails to create expression tree traversal.");
+
+        let ids = tree
+            .top_level_identifiers()
+            .expect("fails to get top level identifiers");
+
+        eprintln!("{ids:?}");
+        assert!(ids.contains("x"));
+        assert!(ids.contains("y"));
+        assert!(ids.contains("l"));
+        assert!(ids.len() == 3);
+    }
+
+    #[test]
+    fn parse_feature() {
+        let mut parser = Parser::new();
+        let parsed_feature = parser
+            .to_feature(
+                r#"absolute_short (num: INTEGER_16): INTEGER_16
+		do
+			if 0 > num then
+				Result := -num
+			else
+				Result := num
+			end
+		ensure
+			same_when_non_negative: 0 <= num implies Result = num
+			other_sign_when_negative: num < 0 implies Result = - num
+		end
+"#,
+            )
+            .expect("fails to parse feature");
+
+        match parsed_feature {
+            Parsed::Correct(val) => {
+                assert_eq!(val.name(), "absolute_short");
+            }
+            Parsed::HasErrorNodes(ref tree, ref _items) => {
+                assert!(!tree.root_node().has_error(), "{:#?}", &parsed_feature);
+            }
+        }
     }
 }

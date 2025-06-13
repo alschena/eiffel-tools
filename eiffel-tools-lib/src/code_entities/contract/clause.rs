@@ -1,12 +1,7 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fmt::Display;
-use streaming_iterator::StreamingIterator;
-use tree_sitter::Query;
-use tree_sitter::QueryCursor;
-use tree_sitter::Tree;
 
 #[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema)]
 #[schemars(deny_unknown_fields)]
@@ -112,41 +107,6 @@ impl Predicate {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-
-    fn parse(&self) -> Option<Tree> {
-        let text: &str = self.as_str();
-        let lang = tree_sitter_eiffel::LANGUAGE.into();
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&lang)
-            .expect("parser must load grammar.");
-        parser.parse(text, None)
-    }
-
-    pub fn top_level_identifiers(&self) -> HashSet<&str> {
-        let tree = self.parse().expect("fails to parse predicate.");
-        let lang = tree_sitter_eiffel::LANGUAGE.into();
-        let text = self.as_str();
-
-        let query_id = Query::new(&lang, "(call (unqualified_call (identifier) @id) !target)")
-            .expect("Fails to construct query for top-level identifiers (names of unqualified features and targets) in predicate: {self}");
-
-        let mut query_cursor = QueryCursor::new();
-
-        let mut matches = query_cursor.matches(&query_id, tree.root_node(), text.as_bytes());
-
-        let mut ids = HashSet::new();
-        while let Some(mat) = matches.next() {
-            for cap in mat.captures.iter() {
-                let id = cap
-                    .node
-                    .utf8_text(text.as_bytes())
-                    .expect("The capture must contain valid text.");
-                ids.insert(id);
-            }
-        }
-        ids
-    }
 }
 
 impl Default for Predicate {
@@ -158,30 +118,5 @@ impl Default for Predicate {
 impl Display for Predicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn predicate_identifiers() {
-        let p = Predicate("x < y.z.w".to_string());
-        let ids = p.top_level_identifiers();
-        assert!(ids.contains("x"));
-        assert!(ids.contains("y"));
-        assert!(ids.len() == 2);
-    }
-
-    #[test]
-    fn predicate_identifiers_unqualified_calls() {
-        let p = Predicate("x (y) < y (l).z.w".to_string());
-        let ids = p.top_level_identifiers();
-        eprintln!("{ids:?}");
-        assert!(ids.contains("x"));
-        assert!(ids.contains("y"));
-        assert!(ids.contains("l"));
-        assert!(ids.len() == 3);
     }
 }

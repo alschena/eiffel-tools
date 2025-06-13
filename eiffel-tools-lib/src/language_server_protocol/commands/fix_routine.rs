@@ -153,7 +153,9 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
                     break;
                 }
 
-                let maybe_candidate = generators.fix_body(path, feature, error_message).await?;
+                let maybe_candidate = generators
+                    .fix_body(workspace, path, feature, error_message)
+                    .await?;
 
                 // Write text edits to disk.
                 if let Some(candidate) = maybe_candidate {

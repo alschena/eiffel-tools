@@ -49,7 +49,7 @@ impl Workspace {
         self.class_location
             .get(classname)
             .unwrap_or_else(||
-                unreachable!("fails to find location of class {:#?}\n\nClasses registered in the workspace:\n{:#?}", classname,self.system_classes().iter().map(|cl| cl.name()))
+                unreachable!("fails to find location of class {:#?}\n\nClasses registered in the workspace:\n{:#?}", classname,self.system_classes().iter().map(|cl| cl.name()).collect::<Vec<_>>())
             )
     }
 
@@ -121,13 +121,13 @@ impl Workspace {
                         .ok();
                 }
                 Err(e) => {
-                    warn!("fails to parse file with error {:#?}", e);
-                    eprintln!("fails to parse file with error {:#?}", e);
+                    warn!("fails to parse {:#?} with error {:#?}", path, e);
+                    eprintln!("fails to parse {:#?} with error {:#?}", path, e);
                 }
             }
         } else {
-            warn!("fails to read file");
-            eprintln!("fails to read file");
+            warn!("fails to read {:#?}", path);
+            eprintln!("fails to read {:#?}", path);
         }
     }
 

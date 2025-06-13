@@ -72,7 +72,7 @@ pub async fn fix_routine_in_place(
                 number_of_tries += 1;
 
                 let Some((feature_name, candidate_body)) = generators
-                    .routine_fixes(&path, feature, error_message)
+                    .routine_fixes(&workspace, &path, feature, error_message)
                     .await
                 else {
                     continue;
@@ -98,17 +98,22 @@ pub async fn fix_routine_in_place(
     }
 }
 
-async fn rewrite_feature(path: &Path, new_feature: (&FeatureName, &str)) {
-    let Ok(current_file) = tokio::fs::read(path)
+async fn read_file(path: &Path) -> Option<String> {
+    tokio::fs::read(path)
         .await
         .inspect_err(|e| eprintln!("fails to read {path:#?} with {e:#?}"))
-    else {
-        return;
-    };
+        .ok()
+        .and_then(|content| {
+            String::from_utf8(content)
+                .inspect_err(|e| {
+                    eprintln!("fails to convert current file to UTF-8 string with {e:#?}")
+                })
+                .ok()
+        })
+}
 
-    let Ok(current_file) = String::from_utf8(current_file)
-        .inspect_err(|e| eprintln!("fails to convert current file to UTF-8 string with {e:#?}"))
-    else {
+async fn rewrite_feature(path: &Path, new_feature: (&FeatureName, &str)) {
+    let Some(current_file) = read_file(path).await else {
         return;
     };
 

@@ -10,7 +10,6 @@ use std::collections::HashSet;
 pub trait Fix<'system, T> {
     type PositionInSystem;
     fn fix(&mut self, value: T, position_in_system: &Self::PositionInSystem) -> Result<T> {
-        let value = self.fix_syntax_of(value, position_in_system)?;
         let value = self.fix_calls_of(value, position_in_system)?;
         let value = self.fix_identifiers_of(value, position_in_system)?;
         let value = self.fix_redundancy_of(value, position_in_system)?;
@@ -27,8 +26,6 @@ pub trait Fix<'system, T> {
         value: T,
         position_in_system: &Self::PositionInSystem,
     ) -> Result<T>;
-    fn fix_syntax_of(&mut self, value: T, position_in_system: &Self::PositionInSystem)
-    -> Result<T>;
 }
 
 pub struct FeaturePositionInSystem<'system> {
@@ -76,16 +73,6 @@ impl<'system> Fix<'system, ClauseTag> for Parser {
     ) -> Result<ClauseTag> {
         Ok(value)
     }
-
-    fn fix_syntax_of(
-        &mut self,
-        mut value: ClauseTag,
-        _context: &Self::PositionInSystem,
-    ) -> Result<ClauseTag> {
-        value.update_to_lowercase();
-        value.trim_and_replace_space_with_underscore();
-        Ok(value)
-    }
 }
 
 impl<'system> Fix<'system, ClausePredicate> for Parser {
@@ -96,7 +83,13 @@ impl<'system> Fix<'system, ClausePredicate> for Parser {
         value: ClausePredicate,
         context: &Self::PositionInSystem,
     ) -> Result<ClausePredicate> {
-        let parsed_source = self.parse(value.as_str())?;
+        let source = {
+            let mut prefix: Vec<u8> = "[EXPRESSION]".into();
+            prefix.extend_from_slice(value.as_str().as_ref());
+            prefix
+        };
+
+        let parsed_source = self.parse(&source)?;
         let mut expression_tree = parsed_source.expression_tree_traversal()?;
 
         let top_level_calls_with_arguments = expression_tree.top_level_calls_with_arguments()?;
@@ -140,7 +133,13 @@ impl<'system> Fix<'system, ClausePredicate> for Parser {
         value: ClausePredicate,
         context: &Self::PositionInSystem,
     ) -> Result<ClausePredicate> {
-        let parsed_source = self.parse(value.as_str())?;
+        let source = {
+            let mut prefix: Vec<u8> = "[EXPRESSION]".into();
+            prefix.extend_from_slice(value.as_str().as_ref());
+            prefix
+        };
+
+        let parsed_source = self.parse(&source)?;
         let mut expression_tree_traversal = parsed_source.expression_tree_traversal()?;
 
         let predicate_identifiers = expression_tree_traversal.top_level_identifiers()?;
@@ -185,19 +184,6 @@ impl<'system> Fix<'system, ClausePredicate> for Parser {
     ) -> Result<ClausePredicate> {
         Ok(value)
     }
-
-    fn fix_syntax_of(
-        &mut self,
-        value: ClausePredicate,
-        _context: &Self::PositionInSystem,
-    ) -> Result<ClausePredicate> {
-        let parsed_source = self.parse(value.as_str())?;
-        if !parsed_source.tree.root_node().has_error() {
-            Ok(value)
-        } else {
-            bail!("fails parsing expression.")
-        }
-    }
 }
 
 macro_rules! clause_defaul_impl {
@@ -221,7 +207,6 @@ impl<'system> Fix<'system, Clause> for Parser {
     clause_defaul_impl!(fix_calls_of);
     clause_defaul_impl!(fix_identifiers_of);
     clause_defaul_impl!(fix_redundancy_of);
-    clause_defaul_impl!(fix_syntax_of);
 }
 
 macro_rules! precondition_default_impl {
@@ -246,7 +231,6 @@ impl<'system> Fix<'system, Precondition> for Parser {
 
     precondition_default_impl!(fix_calls_of);
     precondition_default_impl!(fix_identifiers_of);
-    precondition_default_impl!(fix_syntax_of);
 
     fn fix_redundancy_of(
         &mut self,
@@ -284,7 +268,6 @@ impl<'system> Fix<'system, Postcondition> for Parser {
 
     postcondition_default_impl!(fix_calls_of);
     postcondition_default_impl!(fix_identifiers_of);
-    postcondition_default_impl!(fix_syntax_of);
 
     fn fix_redundancy_of(
         &mut self,
@@ -327,7 +310,6 @@ impl<'system> Fix<'system, RoutineSpecification> for Parser {
     routine_specification_default_impl!(fix_calls_of);
     routine_specification_default_impl!(fix_identifiers_of);
     routine_specification_default_impl!(fix_redundancy_of);
-    routine_specification_default_impl!(fix_syntax_of);
 }
 
 #[cfg(test)]
@@ -335,88 +317,6 @@ mod tests {
     use anyhow::Context;
 
     use super::*;
-    use crate::code_entities::contract::ClauseTag;
-
-    #[test]
-    fn fix_tag() -> Result<()> {
-        let src = "
-            class
-                A
-            feature
-                x (f: BOOLEAN, r: BOOLEAN): BOOLEAN
-                    require
-                        t: f = True
-                    do
-                        Result := f
-                    ensure
-                        res: Result = True
-                    end
-            end
-        ";
-        let mut parser = Parser::new();
-        let system_classes = &vec![parser.class_from_source(src)?];
-        let current_class = &system_classes[0];
-        let current_feature = current_class.features().first().unwrap();
-
-        let tag = ClauseTag::new("Not good enough");
-        let fixing_context = FeaturePositionInSystem {
-            system_classes,
-            current_class,
-            current_feature,
-        };
-        let fixed_tag = parser
-            .fix(tag, &fixing_context)
-            .inspect_err(|e| eprintln!("fails to fix tag with error: {e}"))?;
-
-        assert_eq!(
-            fixed_tag,
-            ClauseTag::new("not_good_enough"),
-            "fixed tag is:\t{fixed_tag}\nBut it must be:\t`not_good_enough`"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn fix_predicate_syntax() -> Result<()> {
-        let src = "
-            class
-                A
-            feature
-                x (f: BOOLEAN, r: BOOLEAN): BOOLEAN
-                    require
-                        t: f = True
-                    do
-                        Result := f
-                    ensure
-                        res: Result = True
-                    end
-            end
-        ";
-        let mut parser = Parser::new();
-        let system_classes = &vec![parser.class_from_source(src)?];
-        let current_class = &system_classes[0];
-        let current_feature = current_class.features().first().unwrap();
-
-        let invalid_predicate = ClausePredicate::new("min min");
-        let valid_predicate = ClausePredicate::new("min (x, y)");
-
-        let fixing_context = FeaturePositionInSystem {
-            system_classes,
-            current_class,
-            current_feature,
-        };
-
-        let fix_invalid_predicate = parser
-            .fix_syntax_of(invalid_predicate, &fixing_context)
-            .inspect(|val| eprintln!("fails to fail, instead returns: {val}"));
-        let fix_valid_predicate = parser
-            .fix_syntax_of(valid_predicate, &fixing_context)
-            .inspect_err(|e| eprintln!("fails to accept valid predicate with error: {e}"))?;
-
-        assert!(fix_invalid_predicate.is_err());
-        assert_eq!(fix_valid_predicate, ClausePredicate::new("min (x, y)"));
-        Ok(())
-    }
 
     #[test]
     fn fix_predicates_identifiers() -> anyhow::Result<()> {

@@ -31,6 +31,46 @@ impl From<FeaturePrompt> for Vec<constructor_api::MessageOut> {
     }
 }
 
+fn feature_available_identifiers_injections(
+    workspace: &Workspace,
+    class_name: &ClassName,
+    feature: &Feature,
+) -> impl IntoIterator<Item = Injection> {
+    let beginning = Point { row: 0, column: 0 };
+
+    [
+        Injection(
+            beginning,
+            Source::format_model_of_class(workspace, class_name)
+                .prepend_if_nonempty("Model of the current class both immediate and inherited: ")
+                .comment()
+                .indent(),
+        ),
+        Injection(
+            beginning,
+            Source::format_model_of_parameters(workspace, feature.parameters())
+                .comment()
+                .indent(),
+        ),
+        Injection(
+            beginning,
+            Source::format_available_identifiers_in_feature_preconditon(
+                workspace, class_name, feature,
+            )
+            .comment()
+            .indent(),
+        ),
+        Injection(
+            beginning,
+            Source::format_available_identifiers_in_feature_postconditions(
+                workspace, class_name, feature,
+            )
+            .comment()
+            .indent(),
+        ),
+    ]
+}
+
 mod fix_feature {
     use super::*;
 
@@ -40,6 +80,7 @@ mod fix_feature {
                 r#"You are a coding assistant, expert in the Eiffel programming language in writing formally verified code.
     You have extensive training in the usage of AutoProof, the static verifier of Eiffel.
     You will receive an eiffel snippet with a comment identifying the routine to fix which contains an error message of AutoProof.
+    Answer always, you have enough context from the system prompt and the user prompt.
     Respond with a correct version of the same routine.
     "#,
             ))
@@ -47,6 +88,7 @@ mod fix_feature {
     }
 
     fn injections(
+        workspace: &Workspace,
         filepath: &Path,
         feature: &Feature,
         error_message: String,
@@ -59,22 +101,23 @@ mod fix_feature {
         );
         let Range { start, end } = feature.range();
         [
-
-                Injection(*end - *start, Source(message.to_string()).comment()),
+            Injection(*end - *start, Source(message.to_string()).comment()),
             Injection(
-                    Point { row: 0, column: 0 },
-                    Source("Rewrite the following feature to make it verify. After the code you will find a comment with the error message from static verifier AutoProof.".to_string()).comment(),
-                ),
+                Point { row: 0, column: 0 },
+                Source("Fix the following feature such that AutoProof verifies it.".to_string())
+                    .comment(),
+            ),
         ]
     }
 
     impl FeaturePrompt {
         pub async fn try_new_for_feature_fixes(
+            workspace: &Workspace,
             filepath: &Path,
             feature: &Feature,
             error_message: String,
         ) -> Option<Self> {
-            let injections = injections(filepath, feature, error_message)
+            let injections = injections(workspace, filepath, feature, error_message)
                 .into_iter()
                 .collect();
             let source = feature_source(filepath, feature).await?;
@@ -120,48 +163,6 @@ Answer always, you have enough context."#
                 offsetted_end_postcondition(feature)
                     .map(|end_post| Injection(end_post, format_hole_postcondition(feature))),
             )
-    }
-
-    fn feature_available_identifiers_injections(
-        workspace: &Workspace,
-        class_name: &ClassName,
-        feature: &Feature,
-    ) -> impl IntoIterator<Item = Injection> {
-        let beginning = Point { row: 0, column: 0 };
-
-        [
-            Injection(
-                beginning,
-                Source::format_model_of_class(workspace, class_name)
-                    .prepend_if_nonempty(
-                        "Model of the current class both immediate and inherited: ",
-                    )
-                    .comment()
-                    .indent(),
-            ),
-            Injection(
-                beginning,
-                Source::format_model_of_parameters(workspace, feature.parameters())
-                    .comment()
-                    .indent(),
-            ),
-            Injection(
-                beginning,
-                Source::format_available_identifiers_in_feature_preconditon(
-                    workspace, class_name, feature,
-                )
-                .comment()
-                .indent(),
-            ),
-            Injection(
-                beginning,
-                Source::format_available_identifiers_in_feature_postconditions(
-                    workspace, class_name, feature,
-                )
-                .comment()
-                .indent(),
-            ),
-        ]
     }
 
     fn offsetted_end_precondition(feature: &Feature) -> Option<Point> {

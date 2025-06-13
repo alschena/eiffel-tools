@@ -102,12 +102,13 @@ mod feature_focused {
 
         pub async fn fix_body(
             &self,
+            workspace: &Workspace,
             path: &Path,
             feature: &Feature,
             error_message: String,
         ) -> Result<Option<String>> {
             let prompt =
-                prompt::FeaturePrompt::try_new_for_feature_fixes(path, feature, error_message)
+                prompt::FeaturePrompt::try_new_for_feature_fixes(workspace,path, feature, error_message)
                     .await
                     .with_context(|| format!("fails to make prompt to fix routine"))?
                     .into();
@@ -158,12 +159,13 @@ mod feature_focused {
 
         pub async fn routine_fixes<'slf, 'ft: 'slf>(
             &'slf self,
+            workspace: &Workspace,
             path: &Path,
             routine: &'ft Feature,
             error_message: String,
         ) -> Option<(&'ft FeatureName, String)> {
             let prompt =
-                prompt::FeaturePrompt::try_new_for_feature_fixes(path, routine, error_message)
+                prompt::FeaturePrompt::try_new_for_feature_fixes(workspace, path, routine, error_message)
                     .await?
                     .into();
 
@@ -186,11 +188,10 @@ mod feature_focused {
                             
                         },
                         Ok(Parsed::Correct(_)) => {
-                                println!("Candidate of correct feature:\t{:#?}",candidate);
                                 info!(target: "llm", "Candidate of correct feature:\t{:#?}", candidate);
                                 Some(candidate)
                             },
-                        Ok(Parsed::HasErrorNodes(_,_ )) => {todo!()}}
+                        Ok(Parsed::HasErrorNodes(_,candidate )) => {info!(target: "llm", "Candidate has error nodes:\n {:#?}", String::from_utf8(candidate)); None}}
                 }; 
 
             let maybe_extraction_from_markdown = completion_response.clone().into_iter()

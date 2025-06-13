@@ -1,7 +1,7 @@
 pub use async_lsp;
 pub use tower;
+pub use tracing;
 pub use tracing_subscriber;
-
 pub mod code_entities;
 pub mod config;
 pub mod eiffel_source;

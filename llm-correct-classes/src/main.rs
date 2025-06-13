@@ -19,7 +19,6 @@ struct Args {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    // feature_by_feature(Args::parse()).await;
     class_by_class(Args::parse()).await;
 
     println!("DONE FIXING CLASSES.");
