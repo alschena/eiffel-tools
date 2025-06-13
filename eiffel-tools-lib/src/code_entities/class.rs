@@ -1,3 +1,4 @@
+use super::contract::*;
 use super::prelude::*;
 use anyhow::Result;
 use async_lsp::lsp_types;
@@ -98,6 +99,7 @@ pub struct Class {
     pub model: Model,
     pub features: Vec<Feature>,
     pub parents: Vec<Parent>,
+    pub invariant: Vec<Clause>,
     pub range: Range,
 }
 
@@ -220,6 +222,7 @@ impl Class {
             model: Model::default(),
             features: Vec::new(),
             parents: Vec::new(),
+            invariant: Vec::new(),
             range,
         }
     }

@@ -7,6 +7,7 @@ mod contract_tree;
 mod eiffel_type;
 mod feature_tree;
 
+use contract_tree::ContractTree;
 use feature_tree::FeatureClauseTree;
 pub use feature_tree::FeatureTree;
 
@@ -25,6 +26,7 @@ pub(super) fn query() -> Query {
                 (class_name) @name
                 (inheritance (parent)* @parent)* @inheritance
                 (feature_clause)* @feature_clause
+                (invariant)? @class_invariant
                 (notes)? @notes
             )@class
             "#,
@@ -37,6 +39,7 @@ struct ClassDeclarationNodes<'tree> {
     // TODO: change to inheritance nodes and capture non-confomance
     parents_nodes: Vec<Node<'tree>>,
     feature_clause_nodes: Vec<Node<'tree>>,
+    invariant: Option<Node<'tree>>,
     class_node: Node<'tree>,
 }
 
@@ -84,6 +87,16 @@ impl<'tree> TreeTraversal<'_, 'tree> {
         Ok(model_names)
     }
 
+    fn class_invariant(&mut self, nodes: &ClassDeclarationNodes<'tree>) -> Result<Vec<Clause>> {
+        match nodes.invariant {
+            Some(node) => {
+                self.goto_contract_tree(node);
+                self.clauses()
+            }
+            None => Ok(Vec::new()),
+        }
+    }
+
     #[instrument(skip_all)]
     pub(super) fn class(&mut self) -> Result<Class> {
         let nodes: ClassDeclarationNodes<'tree> = self.try_into()?;
@@ -100,6 +113,7 @@ impl<'tree> TreeTraversal<'_, 'tree> {
             self.class_model_names(&nodes)?,
             &features,
         )?;
+        let invariant = self.class_invariant(&nodes)?;
         let parents = self.class_parents(&nodes)?;
         let range = nodes.range();
         Ok(Class {
@@ -107,6 +121,7 @@ impl<'tree> TreeTraversal<'_, 'tree> {
             model,
             features,
             parents,
+            invariant,
             range,
         })
     }
@@ -127,6 +142,7 @@ impl<'source, 'tree> TryFrom<&mut TreeTraversal<'source, 'tree>> for ClassDeclar
             .with_context(|| "fails to get class name node")?;
         let parents_nodes = value.nodes_captures("parent")?;
         let feature_clause_nodes = value.nodes_captures("feature_clause")?;
+        let invariant_node = value.nodes_captures("class_invariant")?.first().copied();
         let class_node = *value
             .nodes_captures("class")?
             .first()
@@ -137,6 +153,7 @@ impl<'source, 'tree> TryFrom<&mut TreeTraversal<'source, 'tree>> for ClassDeclar
             name_node,
             parents_nodes,
             feature_clause_nodes,
+            invariant: invariant_node,
             class_node,
         })
     }
@@ -226,6 +243,7 @@ end"#;
             name_node,
             parents_nodes,
             feature_clause_nodes,
+            invariant: invariant_node,
             class_node: _,
         } = (&mut class_tree).try_into()?;
 
@@ -251,6 +269,7 @@ end"#;
             "fails to parse the single feature clause, i.e. feature visibility block."
         );
         assert!(parents_nodes.is_empty());
+        assert!(invariant_node.is_none());
         Ok(())
     }
 

@@ -9,6 +9,7 @@ use ::tree_sitter::Query;
 use ::tree_sitter::QueryCursor;
 pub use ::tree_sitter::Tree;
 
+use super::code_entities::contract::*;
 use super::code_entities::prelude::*;
 
 mod class_tree;
