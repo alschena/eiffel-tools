@@ -46,6 +46,17 @@ impl Source {
         }))
     }
 
+    fn class_invariant(class: &Class) -> Self {
+        Self(
+            class
+                .invariant
+                .iter()
+                .fold(String::new(), |acc, clause| format!("{acc}{clause}\n"))
+                .trim()
+                .to_string(),
+        )
+    }
+
     fn format_available_identifiers_in_feature_postconditions(
         workspace: &Workspace,
         class_name: &ClassName,

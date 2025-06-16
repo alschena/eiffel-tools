@@ -31,7 +31,7 @@ impl From<FeaturePrompt> for Vec<constructor_api::MessageOut> {
     }
 }
 
-fn feature_available_identifiers_injections(
+fn feature_model_identifiers_injections(
     workspace: &Workspace,
     class_name: &ClassName,
     feature: &Feature,
@@ -52,6 +52,17 @@ fn feature_available_identifiers_injections(
                 .comment()
                 .indent(),
         ),
+    ]
+}
+
+fn feature_identifiers_injections(
+    workspace: &Workspace,
+    class_name: &ClassName,
+    feature: &Feature,
+) -> impl IntoIterator<Item = Injection> {
+    let beginning = Point { row: 0, column: 0 };
+
+    [
         Injection(
             beginning,
             Source::format_available_identifiers_in_feature_preconditon(
@@ -89,7 +100,7 @@ mod fix_feature {
 
     fn injections(
         workspace: &Workspace,
-        filepath: &Path,
+        class: &Class,
         feature: &Feature,
         error_message: String,
     ) -> impl IntoIterator<Item = Injection> {
@@ -97,17 +108,23 @@ mod fix_feature {
             error_message
                 .lines()
                 .filter(|line| !line.is_empty())
-                .fold(String::new(), |acc, line| format!("{acc}\n{line}")),
+                .fold(String::new(), |acc, line| format!("{acc}{line}\n"))
+                .trim_end()
+                .to_string(),
         );
         let Range { start, end } = feature.range();
         [
             Injection(*end - *start, Source(message.to_string()).comment()),
             Injection(
                 Point { row: 0, column: 0 },
-                Source("Fix the following feature such that AutoProof verifies it.".to_string())
+                Source("The following feature does not verify.\nPlease, rewrite it such that the class will verify".to_string())
                     .comment(),
             ),
-        ]
+            Injection(
+                Point { row: 0, column: 0 },
+                Source::class_invariant(class).indent().prepend_if_nonempty("This is the current class' immediate class invariant:\n").comment(),
+            ),
+        ].into_iter().chain(feature_identifiers_injections(workspace, class.name(), feature))
     }
 
     impl FeaturePrompt {
@@ -117,7 +134,11 @@ mod fix_feature {
             feature: &Feature,
             error_message: String,
         ) -> Option<Self> {
-            let injections = injections(workspace, filepath, feature, error_message)
+            let Some(class) = workspace.class(filepath) else {
+                warn!("There is no class at {filepath:#?}");
+                return None;
+            };
+            let injections = injections(workspace, class, feature, error_message)
                 .into_iter()
                 .collect();
             let source = feature_source(filepath, feature).await?;
@@ -150,7 +171,10 @@ Answer always, you have enough context."#
                 .comment()
                 .indent(),
             )))
-            .chain(feature_available_identifiers_injections(
+            .chain(feature_model_identifiers_injections(
+                workspace, class_name, feature,
+            ))
+            .chain(feature_identifiers_injections(
                 workspace, class_name, feature,
             ))
     }
