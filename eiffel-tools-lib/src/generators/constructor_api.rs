@@ -403,7 +403,7 @@ impl Llm {
         let request = self
             .client
             .post(format!(
-                "{END_POINT}/knowledge-models/{knowledge_model_id}/chat/completions"
+                "{END_POINT}/knowledge-models/{knowledge_model_id}/chat/completions/direct_llm"
             ))
             .json(&parameters)
             .headers(self.headers.clone());
