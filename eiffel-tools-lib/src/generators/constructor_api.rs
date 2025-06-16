@@ -18,16 +18,16 @@ struct ModelProvider {
 pub enum EnumLanguageModel {
     #[serde(rename = "gemini-2.0-flash-001")]
     GeminiFlash,
-    #[default]
     #[serde(rename = "gemini-1.5-pro")]
     GeminiPro,
     #[serde(rename = "learnlm-1.5-pro-experimental")]
     LearnlmProExperimental,
-    #[serde(rename = "claude-3-opus-20240229")]
+    #[serde(rename = "claude-opus-4-0")]
     ClaudeOpus,
     #[serde(rename = "claude-3-5-haiku-20241022")]
     ClaudeHaiku,
-    #[serde(rename = "claude-3-7-sonnet-20250219")]
+    #[default]
+    #[serde(rename = "claude-sonnet-4-0")]
     ClaudeSonnet,
     #[serde(rename = "deepseek/deepseek-chat")]
     DeepSeekChat,
@@ -41,6 +41,12 @@ pub enum EnumLanguageModel {
     O1,
     #[serde(rename = "o3-mini")]
     O3Mini,
+    #[serde(rename = "o3")]
+    O3,
+    #[serde(rename = "o4-mini")]
+    O4Mini,
+    #[serde(rename = "qwen/qwen3-235b-a22b")]
+    Qwen3,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
