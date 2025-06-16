@@ -1,7 +1,7 @@
 use crate::code_entities::prelude::*;
 use crate::eiffel_source::EiffelSource;
 use crate::eiffelstudio_cli::VerificationResult;
-use crate::eiffelstudio_cli::verify_feature;
+use crate::eiffelstudio_cli::autoproof;
 use crate::generators::Generators;
 use crate::language_server_protocol::commands::fix_routine::path::PathBuf;
 use crate::workspace::Workspace;
@@ -143,7 +143,7 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
             let mut number_of_tries = 0;
             let mut feature_verified: Option<String> = None;
             while let VerificationResult::Failure(error_message) =
-                verify_feature(&name_subclass(class.name()), feature.name())
+                autoproof(&name_subclass(class.name()), Some(feature.name()))
                     .await
                     .with_context(|| "fails to await for autoproof.")?
             {
@@ -167,7 +167,7 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
             }
 
             if let VerificationResult::Success =
-                verify_feature(&name_subclass(class.name()), feature.name())
+                autoproof(&name_subclass(class.name()), Some(feature.name()))
                     .await
                     .with_context(|| "fails to await autoproof result.")?
             {

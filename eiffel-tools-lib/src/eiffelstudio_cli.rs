@@ -17,20 +17,10 @@ fn verification_result(verification_message: String) -> VerificationResult {
     }
 }
 
-pub async fn verify_feature(
+pub async fn autoproof(
     class_name: &ClassName,
-    feature_name: &FeatureName,
+    feature_name: Option<&FeatureName>,
 ) -> Option<VerificationResult> {
-    let output = autoproof(class_name, Some(feature_name)).await?;
-    format_output(output).map(|message| verification_result(message))
-}
-
-pub async fn verify_class(class_name: &ClassName) -> Option<VerificationResult> {
-    let output = autoproof(class_name, None).await?;
-    format_output(output).map(|message| verification_result(message))
-}
-
-async fn autoproof(class_name: &ClassName, feature_name: Option<&str>) -> Option<Output> {
     let autoproof_cli = std::env::var("AP_COMMAND").inspect_err(
         |e| eprintln!("fails to find environment variable `AP_COMMAND` pointing to the AutoProof executable with error {:#?}", e),
     ).ok()?;
@@ -55,6 +45,8 @@ async fn autoproof(class_name: &ClassName, feature_name: Option<&str>) -> Option
             )
         })
         .ok()
+        .and_then(format_output)
+        .map(|message| verification_result(message))
 }
 
 fn format_output(autoproof_output: std::process::Output) -> Option<String> {
