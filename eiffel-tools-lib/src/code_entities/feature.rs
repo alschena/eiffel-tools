@@ -241,14 +241,6 @@ impl Feature {
             .lines()
             .skip(start_row)
             .enumerate()
-            .inspect(|(linenum, line)| {
-                if *linenum == 0 {
-                    warn!("line lenght: {}, start column: {}", line, start_column)
-                }
-                if *linenum == end_row - start_row {
-                    warn!("line lenght: {}, end column: {}", line, end_column)
-                }
-            })
             .map_while(|(linenum, line)| match linenum {
                 0 => Some(&line[start_column..]),
                 n if n < end_row - start_row => Some(line),

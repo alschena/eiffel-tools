@@ -30,6 +30,8 @@ async fn class_by_class(
         classes_file,
     }: Args,
 ) {
+    // TODO: add logging
+
     let system = system(&config_file);
     let workspace = Arc::new(RwLock::new(Workspace::default()));
 

@@ -10,10 +10,10 @@ pub enum VerificationResult {
 
 fn verification_result(verification_message: String) -> VerificationResult {
     if verification_message.contains("Verification failed") {
-        info!(target:"llm", "AutoProof fails with message: {}", verification_message);
+        info!(target:"autoproof", "AutoProof fails with message: {}", verification_message);
         VerificationResult::Failure(verification_message)
     } else {
-        info!(target: "llm", "Autoproof succedes.");
+        info!(target: "autoproof", "Autoproof succedes.");
         VerificationResult::Success
     }
 }
@@ -68,7 +68,7 @@ fn format_output(autoproof_output: std::process::Output) -> Option<String> {
 
     if !to_stderr.is_empty() {
         info!(
-            target: "llm",
+            target: "autoproof",
             "AutProof counterexample goes into stderr: {:#?}",
             &to_stderr
         );
@@ -76,7 +76,7 @@ fn format_output(autoproof_output: std::process::Output) -> Option<String> {
 
     if !to_stdout.is_empty() {
         info!(
-            target: "llm",
+            target: "autoproof",
             "AutProof counterexample goes into stdout: {:#?}",
             &to_stdout
         );

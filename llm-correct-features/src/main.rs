@@ -58,6 +58,13 @@ async fn feature_by_feature(
         .open(log_directory_path.join("llm.log"))
         .expect("Fails to create `llm.log`");
 
+    let autoproof_log_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(log_directory_path.join("autoproof.log"))
+        .expect("Fails to create autoproof log file.");
+
     let default_layer = fmt::layer()
         .with_span_events(FmtSpan::CLOSE)
         .with_ansi(false)
@@ -74,9 +81,18 @@ async fn feature_by_feature(
         .with_writer(llm_log_file)
         .with_filter(filter::Targets::default().with_target("llm", filter::LevelFilter::INFO));
 
+    let autoproof_layer = fmt::layer()
+        .with_span_events(FmtSpan::CLOSE)
+        .with_ansi(false)
+        .with_writer(autoproof_log_file)
+        .with_filter(
+            filter::Targets::default().with_target("autoproof", filter::LevelFilter::INFO),
+        );
+
     Registry::default()
         .with(default_layer)
         .with(llm_layer)
+        .with(autoproof_layer)
         .init();
 
     let system = system(&config_file);

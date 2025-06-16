@@ -49,6 +49,12 @@ async fn main() -> anyhow::Result<()> {
         .truncate(true)
         .open(log_directory_path.join("llm.log"))?;
 
+    let autoproof_log_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(log_directory_path.join("autoproof.log"))?;
+
     let default_layer = fmt::layer()
         .with_span_events(FmtSpan::CLOSE)
         .with_ansi(false)
@@ -65,9 +71,18 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(llm_log_file)
         .with_filter(filter::Targets::default().with_target("llm", filter::LevelFilter::INFO));
 
+    let autoproof_layer = fmt::layer()
+        .with_span_events(FmtSpan::CLOSE)
+        .with_ansi(false)
+        .with_writer(autoproof_log_file)
+        .with_filter(
+            filter::Targets::default().with_target("autoproof", filter::LevelFilter::INFO),
+        );
+
     Registry::default()
         .with(default_layer)
         .with(llm_layer)
+        .with(autoproof_layer)
         .init();
 
     // Prefer truly asynchronous piped stdin/stdout without blocking tasks.

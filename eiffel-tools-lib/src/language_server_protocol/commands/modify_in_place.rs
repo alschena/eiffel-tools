@@ -22,27 +22,28 @@ pub async fn failsafe_verification(
             last_valid_code.clone_from(
                 &tokio::fs::read(&path)
                     .await
-                    .unwrap_or_else(|e| panic!("fails to read {:#?} because {:#?}", &path, e)),
+                    .unwrap_or_else(|e| panic!("fails to read {path:#?} because {e:#?}")),
             );
 
             std::ops::ControlFlow::Continue(result)
         }
         Ok(Err(_timeout_elapsed)) => {
-            warn!("AutoProof times out.");
+            warn!(target: "autoproof", "AutoProof times out try #{number_of_tries} of {path:#?}.");
             tokio::fs::write(&path, &last_valid_code)
                 .await
-                .unwrap_or_else(|e| panic!("fails to read at path {:#?} with {:#?}", &path, e));
+                .unwrap_or_else(|e| panic!("fails to read at path {path:#?} with {e:#?}"));
             *number_of_tries += 1;
             std::ops::ControlFlow::Break(())
         }
         Err(_fails_to_complete_task) => {
             warn!(
+                target: "autoproof",
                 "AutoProof fails either for the logic in the function `verify_class` or because of an internal processing error of AutoProof."
             );
 
             tokio::fs::write(&path, &last_valid_code)
                 .await
-                .unwrap_or_else(|e| panic!("fails to read at path {:#?} with {:#?}", &path, e));
+                .unwrap_or_else(|e| panic!("fails to read {path:#?} because {e:#?}"));
             *number_of_tries += 1;
             std::ops::ControlFlow::Break(())
         }
