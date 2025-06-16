@@ -271,7 +271,7 @@ mod class_wide_feature_fixes {
                 );
 
                 if associated_feature.is_none() {
-                    eprintln!("Block without any feature name:\n{}", error_block);
+                    warn!("Block without any feature name:\n{}", error_block);
                 };
 
                 associated_feature.map(|feature_name| {
@@ -285,7 +285,7 @@ mod class_wide_feature_fixes {
                 })
             })
             .inspect(|(ft_name, error_message)| {
-                eprintln!(
+                warn!(
                     "The error block for\n{:#?} is\n{:#?} ",
                     ft_name.as_ref(),
                     error_message
@@ -295,7 +295,7 @@ mod class_wide_feature_fixes {
 
     fn error_message_injection(feature: &Feature, error_message: FeatureErrorMessage) -> Injection {
         let end_point = feature.range().end;
-        eprintln!(
+        warn!(
             "feature name: {}\tfeature end point: {:#?}",
             feature.name(),
             end_point

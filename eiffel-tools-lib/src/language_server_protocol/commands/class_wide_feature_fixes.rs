@@ -1,4 +1,3 @@
-use super::modify_in_place::failsafe_verification;
 use crate::code_entities::prelude::*;
 use crate::eiffelstudio_cli::VerificationResult;
 use crate::generators::Generators;
@@ -7,6 +6,7 @@ use crate::workspace::Workspace;
 use std::ops::ControlFlow::Break;
 use std::ops::ControlFlow::Continue;
 use std::path::Path;
+use tracing::warn;
 
 pub async fn fix_class_in_place(
     generators: &Generators,
@@ -61,13 +61,13 @@ pub async fn fix_class_in_place(
                 rewrite_features(workspace.path(class_name), feature_candidates).await;
             }
             Continue(Some(VerificationResult::Failure(error_message))) => {
-                eprintln!(
+                warn!(
                     "After {max_number_of_tries} tries, {class_name} still fails to verify. The last error message follows:\n{error_message}"
                 );
                 break;
             }
             Continue(None) => {
-                eprintln!(
+                warn!(
                     "AutoProof fails either for the logic in the function `verify_class` or because of an internal processing error of AutoProof."
                 );
                 break;
@@ -80,13 +80,13 @@ pub async fn fix_class_in_place(
 async fn rewrite_features(path: &Path, features: Vec<(FeatureName, String)>) {
     let Ok(current_file) = tokio::fs::read(path)
         .await
-        .inspect_err(|e| eprintln!("fails to read {path:#?} with {e:#?}"))
+        .inspect_err(|e| warn!("fails to read {path:#?} with {e:#?}"))
     else {
         return;
     };
 
     let Ok(current_file) = String::from_utf8(current_file)
-        .inspect_err(|e| eprintln!("fails to convert current file to UTF-8 string with {e:#?}"))
+        .inspect_err(|e| warn!("fails to convert current file to UTF-8 string with {e:#?}"))
     else {
         return;
     };
@@ -94,7 +94,7 @@ async fn rewrite_features(path: &Path, features: Vec<(FeatureName, String)>) {
     let mut parser = Parser::new();
     let Ok((class, _)) = parser
         .class_and_tree_from_source(&current_file)
-        .inspect_err(|e| eprintln!("fails to parse current file {path:#?} with {e:#?}"))
+        .inspect_err(|e| warn!("fails to parse current file {path:#?} with {e:#?}"))
     else {
         return;
     };
@@ -181,9 +181,7 @@ async fn rewrite_features(path: &Path, features: Vec<(FeatureName, String)>) {
     if !new_file.is_empty() {
         let _ = tokio::fs::write(path, new_file)
             .await
-            .inspect_err(|e| {
-                eprintln!("fails to await for rewriting file at {path:#?} with {e:#?}")
-            })
+            .inspect_err(|e| warn!("fails to await for rewriting file at {path:#?} with {e:#?}"))
             .ok();
     }
 }

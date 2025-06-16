@@ -2,10 +2,10 @@ use crate::code_entities::prelude::*;
 use crate::parser::ExpressionTree;
 use crate::parser::Parser;
 use anyhow::Result;
-use anyhow::bail;
 use anyhow::ensure;
 use contract::*;
 use std::collections::HashSet;
+use tracing::warn;
 
 pub trait Fix<'system, T> {
     type PositionInSystem;
@@ -107,7 +107,7 @@ impl<'system> Fix<'system, ClausePredicate> for Parser {
         let invalid_top_level_call_identifiers = top_level_calls_with_arguments
             .iter()
             .filter(|&(id, args)| {
-                eprintln!(
+                warn!(
                     "filter eval: {:#?} for pair {:#?}. args {:#?}",
                     !all_current_class_features_names_and_number_of_parameters
                         .contains(&(id, args.len())),
@@ -117,7 +117,7 @@ impl<'system> Fix<'system, ClausePredicate> for Parser {
                 !all_current_class_features_names_and_number_of_parameters
                     .contains(&(id, args.len()))
             })
-            .inspect(|val| eprintln!("val:{val:#?}"))
+            .inspect(|val| warn!("val:{val:#?}"))
             .collect::<Vec<_>>();
 
         ensure!(

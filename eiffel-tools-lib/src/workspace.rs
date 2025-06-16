@@ -115,19 +115,14 @@ impl Workspace {
                     transmitter
                         .send((class, path, tree))
                         .inspect_err(|e| warn!("fails to send parsed file with error: {:#?}", e))
-                        .inspect_err(|e| {
-                            eprintln!("fails to send parsed file with error: {:#?}", e)
-                        })
                         .ok();
                 }
                 Err(e) => {
                     warn!("fails to parse {:#?} with error {:#?}", path, e);
-                    eprintln!("fails to parse {:#?} with error {:#?}", path, e);
                 }
             }
         } else {
             warn!("fails to read {:#?}", path);
-            eprintln!("fails to read {:#?}", path);
         }
     }
 

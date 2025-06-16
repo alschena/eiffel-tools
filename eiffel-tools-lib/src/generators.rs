@@ -21,7 +21,7 @@ pub struct Generators {
 impl Generators {
     pub async fn add_new(&mut self) {
         let Ok(llm) = constructor_api::Llm::try_new().await else {
-            info!("fail to create LLM via constructor API");
+            warn!("fail to create LLM via constructor API");
             return;
         };
         self.llms.push(Arc::new(llm));
@@ -138,12 +138,12 @@ mod feature_focused {
                             ft.body_source_unchecked(candidate).inspect_err(|e| info!(target: "llm", "fails to extract body of candidate feature with error: {:#?}", e)).ok()
                         },
                         Ok(Parsed::HasErrorNodes(tree,_)) => {
-                            eprintln!("the LLM candidate parses with errors nodes.\nAST:\n{:#?}",tree);
+                            warn!("the LLM candidate parses with errors nodes.\nAST:\n{:#?}",tree);
                             None
                             
                         },
                         Err(e) => {
-                            info!(target: "llm", "fails to parse LLM generated feature with error: {e:#?}");
+                            warn!(target: "llm", "fails to parse LLM generated feature with error: {e:#?}");
                             None
                         }
                     }
@@ -168,8 +168,6 @@ mod feature_focused {
                 prompt::FeaturePrompt::try_new_for_feature_fixes(workspace, path, routine, error_message)
                     .await?
                     .into();
-
-            eprintln!("PROMPT IN MESSAGES:\n{:#?}\n\n", prompt);
 
             let completion_response = self
                 .complete(constructor_api::CompletionParameters {
@@ -246,9 +244,6 @@ mod class_wide {
                 })
                 .collect();
 
-            println!("completions:\t{completion_response_processed:#?}");
-            // info!("completions:\t{completion_response_processed:#?}");
-
             Ok(completion_response_processed)
         }
 
@@ -284,7 +279,7 @@ mod class_wide {
                     parser
                         .class_and_tree_from_source(&candidate)
                         .inspect_err(|e| {
-                            eprintln!(
+                            warn!(
                                 "fails to parse generated class:\n{candidate}\nbecause {e:#?}"
                             )
                         })

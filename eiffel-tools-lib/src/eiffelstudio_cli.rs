@@ -1,6 +1,7 @@
 use crate::code_entities::prelude::*;
 use std::process::Output;
 use tracing::info;
+use tracing::warn;
 
 pub enum VerificationResult {
     Success,
@@ -22,7 +23,7 @@ pub async fn autoproof(
     feature_name: Option<&FeatureName>,
 ) -> Option<VerificationResult> {
     let autoproof_cli = std::env::var("AP_COMMAND").inspect_err(
-        |e| eprintln!("fails to find environment variable `AP_COMMAND` pointing to the AutoProof executable with error {:#?}", e),
+        |e| warn!("fails to find environment variable `AP_COMMAND` pointing to the AutoProof executable with error {:#?}", e),
     ).ok()?;
 
     let cli_args = {
@@ -39,7 +40,7 @@ pub async fn autoproof(
         .output()
         .await
         .inspect_err(|e| {
-            eprintln!(
+            warn!(
                 "fails to run the autoproof command `ec -autoproof {}` with error {:#?}",
                 cli_args, e
             )
@@ -51,7 +52,7 @@ pub async fn autoproof(
 
 fn format_output(autoproof_output: std::process::Output) -> Option<String> {
     fn log_failure_converting_to_utf8(error: &std::string::FromUtf8Error) {
-        eprintln!(
+        warn!(
             "fails to convert stdout from autoproof command to UTF-8 string with error: {:#?}",
             error
         )
