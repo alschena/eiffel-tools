@@ -3,11 +3,11 @@ use crate::eiffelstudio_cli::VerificationResult;
 use crate::generators::Generators;
 use crate::parser::Parser;
 use crate::workspace::Workspace;
-use std::ops::ControlFlow::Break;
-use std::ops::ControlFlow::Continue;
 use std::path::Path;
 use tracing::info;
 use tracing::warn;
+
+use super::modify_in_place::ModifyInPlaceErrors;
 
 pub async fn fix_routine_in_place(
     generators: &Generators,
@@ -16,61 +16,43 @@ pub async fn fix_routine_in_place(
     feature: &Feature,
 ) {
     let path = workspace.path(class_name).to_path_buf();
-
-    let max_number_of_tries = 10;
-    let mut number_of_tries = 0;
     let mut last_valid_code = tokio::fs::read(&path)
         .await
         .unwrap_or_else(|e| panic!("fails to read at path {:#?} with {:#?}", &path, e));
 
-    loop {
+    for number_of_tries in 0..10 {
+        let feature_name = feature.name().to_owned();
         let verification = super::modify_in_place::failsafe_verification(
-            &path,
-            &mut number_of_tries,
-            &mut last_valid_code,
+            workspace,
             class_name.to_owned(),
-            Some(feature.name().to_owned()),
+            Some(feature_name.clone()),
+            &mut last_valid_code,
         )
         .await;
 
         match verification {
-            Continue(None) => {
-                warn!(
-                    "AutoProof fails either for the logic in the function `verify_class` or because of an internal processing error of AutoProof."
-                );
-                break;
-            }
-            Continue(Some(VerificationResult::Success)) => {
+            Ok(VerificationResult::Success) => {
                 info!(
                     "The feature {}.{} verifies successfully at try #{}.",
-                    class_name,
-                    feature.name(),
-                    number_of_tries
+                    class_name, feature_name, number_of_tries
                 );
                 break;
             }
-            Continue(Some(VerificationResult::Failure(error_message)))
-                if number_of_tries < max_number_of_tries =>
-            {
-                number_of_tries += 1;
-                workspace.reload(path.to_path_buf()).await;
-
-                let Some((feature_name, candidate_body)) = generators
-                    .routine_fixes(&workspace, &path, feature, error_message)
+            Ok(VerificationResult::Failure(error_message)) => {
+                if let Some((ft_name, body)) = generators
+                    .routine_fixes(&workspace, &path, &feature_name, error_message)
                     .await
-                else {
-                    continue;
-                };
-
-                rewrite_feature(&path, (feature_name, &candidate_body)).await;
+                {
+                    rewrite_feature(&path, (ft_name, &body)).await;
+                }
             }
-            Continue(Some(VerificationResult::Failure(error_message))) => {
-                warn!(
-                    "After {max_number_of_tries} tries, {class_name} still fails to verify. The last error message follows:\n{error_message}."
-                );
+            Err(err @ ModifyInPlaceErrors::RunAutoProofCommand) => {
+                err.log();
                 break;
             }
-            Break(_) => continue,
+            Err(e) => {
+                e.log();
+            }
         }
     }
 }

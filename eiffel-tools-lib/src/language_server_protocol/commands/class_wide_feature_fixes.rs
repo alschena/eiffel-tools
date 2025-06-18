@@ -3,76 +3,50 @@ use crate::eiffelstudio_cli::VerificationResult;
 use crate::generators::Generators;
 use crate::parser::Parser;
 use crate::workspace::Workspace;
-use std::ops::ControlFlow::Break;
-use std::ops::ControlFlow::Continue;
 use std::path::Path;
+use tracing::info;
 use tracing::warn;
+
+use super::modify_in_place::ModifyInPlaceErrors;
 
 pub async fn fix_class_in_place(
     generators: &Generators,
     workspace: &mut Workspace,
     class_name: &ClassName,
 ) {
-    println!("fix class in place {class_name}");
-    let path = workspace.path(class_name);
-
-    let max_number_of_tries = 10;
-    let mut number_of_tries = 0;
-    let mut last_valid_code = tokio::fs::read(path)
+    let path = workspace.path(class_name).to_path_buf();
+    let mut last_valid_code = tokio::fs::read(&path)
         .await
-        .unwrap_or_else(|e| panic!("fails to read at path {:#?} with {:#?}", path, e));
+        .unwrap_or_else(|e| panic!("fails to read at path {path:#?} with {e:#?}"));
 
-    loop {
+    for number_of_tries in 0..10 {
         let verification = super::modify_in_place::failsafe_verification(
-            workspace.path(class_name),
-            &mut number_of_tries,
-            &mut last_valid_code,
+            workspace,
             class_name.to_owned(),
             None,
+            &mut last_valid_code,
         )
         .await;
+
         match verification {
-            Continue(Some(VerificationResult::Success)) => {
-                println!(
-                    "The class {} successfully verifies at try #{}.",
-                    class_name, number_of_tries
-                );
+            Ok(VerificationResult::Success) => {
+                info!("The class {class_name} successfully verifies at try #{number_of_tries}.");
                 break;
             }
-            Continue(Some(VerificationResult::Failure(error_message)))
-                if number_of_tries < max_number_of_tries =>
-            {
-                println!("The class did not verify at try #{number_of_tries}");
-
-                number_of_tries += 1;
-
-                let path = workspace.path(class_name).to_path_buf();
-
-                workspace.reload(path.clone()).await;
-
-                let class = workspace
-                    .class(&path)
-                    .expect("fails to get reloaded class.");
-
+            Ok(VerificationResult::Failure(error_message)) => {
                 let feature_candidates = generators
-                    .class_wide_fixes(workspace, class, error_message)
+                    .class_wide_fixes(workspace, &path, error_message)
                     .await;
 
                 rewrite_features(workspace.path(class_name), feature_candidates).await;
             }
-            Continue(Some(VerificationResult::Failure(error_message))) => {
-                warn!(
-                    "After {max_number_of_tries} tries, {class_name} still fails to verify. The last error message follows:\n{error_message}"
-                );
+            Err(err @ ModifyInPlaceErrors::RunAutoProofCommand) => {
+                err.log();
                 break;
             }
-            Continue(None) => {
-                warn!(
-                    "AutoProof fails either for the logic in the function `verify_class` or because of an internal processing error of AutoProof."
-                );
-                break;
+            Err(e) => {
+                e.log();
             }
-            Break(_) => continue,
         }
     }
 }

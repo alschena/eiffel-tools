@@ -154,7 +154,7 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
                 }
 
                 let maybe_candidate = generators
-                    .fix_body(workspace, path, feature, error_message)
+                    .fix_body(workspace, path, feature.name(), error_message)
                     .await?;
 
                 // Write text edits to disk.

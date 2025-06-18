@@ -131,11 +131,18 @@ mod fix_feature {
         pub async fn try_new_for_feature_fixes(
             workspace: &Workspace,
             filepath: &Path,
-            feature: &Feature,
+            feature_name: &FeatureName,
             error_message: String,
         ) -> Option<Self> {
             let Some(class) = workspace.class(filepath) else {
                 warn!("There is no class at {filepath:#?}");
+                return None;
+            };
+            let Some(feature) = class.features().iter().find(|ft| ft.name() == feature_name) else {
+                warn!(
+                    "There is no feature called {feature_name} in {}",
+                    class.name()
+                );
                 return None;
             };
             let injections = injections(workspace, class, feature, error_message)

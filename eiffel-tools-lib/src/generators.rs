@@ -104,11 +104,11 @@ mod feature_focused {
             &self,
             workspace: &Workspace,
             path: &Path,
-            feature: &Feature,
+            feature_name: &FeatureName,
             error_message: String,
         ) -> Result<Option<String>> {
             let prompt =
-                prompt::FeaturePrompt::try_new_for_feature_fixes(workspace,path, feature, error_message)
+                prompt::FeaturePrompt::try_new_for_feature_fixes(workspace,path, feature_name, error_message)
                     .await
                     .with_context(|| format!("fails to make prompt to fix routine"))?
                     .into();
@@ -161,11 +161,11 @@ mod feature_focused {
             &'slf self,
             workspace: &Workspace,
             path: &Path,
-            routine: &'ft Feature,
+            name_routine: &'ft FeatureName,
             error_message: String,
         ) -> Option<(&'ft FeatureName, String)> {
             let prompt =
-                prompt::FeaturePrompt::try_new_for_feature_fixes(workspace, path, routine, error_message)
+                prompt::FeaturePrompt::try_new_for_feature_fixes(workspace, path, name_routine, error_message)
                     .await?
                     .into();
 
@@ -207,7 +207,7 @@ mod feature_focused {
                 .filter_map(filter_unparsable)
                 .next().or_else(|| retry_extraction_from_markdown.filter_map(filter_unparsable).next());
 
-            proposed_feature.map(|candidate| (routine.name(), candidate))
+            proposed_feature.map(|candidate| (name_routine, candidate))
         }
     }
 }
@@ -252,9 +252,11 @@ mod class_wide {
         pub async fn class_wide_fixes(
             &self,
             workspace: &Workspace,
-            class: &Class,
+            path: &Path,
             error_message: String,
         ) -> Vec<(FeatureName, String)> {
+            let Some(class) = workspace.class(path) else {warn!("fails to find class at {path:#?}"); return Vec::new()};
+
             let prompt =
                 prompt::ClassPrompt::try_new_for_feature_fixes(workspace, class, error_message)
                     .await
