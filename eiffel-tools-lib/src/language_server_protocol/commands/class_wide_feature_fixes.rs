@@ -7,8 +7,6 @@ use std::path::Path;
 use tracing::info;
 use tracing::warn;
 
-use super::modify_in_place::ModifyInPlaceErrors;
-
 pub async fn fix_class_in_place(
     generators: &Generators,
     workspace: &mut Workspace,
@@ -40,13 +38,7 @@ pub async fn fix_class_in_place(
 
                 rewrite_features(workspace.path(class_name), feature_candidates).await;
             }
-            Err(err @ ModifyInPlaceErrors::RunAutoProofCommand) => {
-                err.log();
-                break;
-            }
-            Err(e) => {
-                e.log();
-            }
+            Err(e) => e.log(),
         }
     }
 }

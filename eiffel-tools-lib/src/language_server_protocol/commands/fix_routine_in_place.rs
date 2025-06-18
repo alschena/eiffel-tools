@@ -7,8 +7,6 @@ use std::path::Path;
 use tracing::info;
 use tracing::warn;
 
-use super::modify_in_place::ModifyInPlaceErrors;
-
 pub async fn fix_routine_in_place(
     generators: &Generators,
     workspace: &mut Workspace,
@@ -21,11 +19,11 @@ pub async fn fix_routine_in_place(
         .unwrap_or_else(|e| panic!("fails to read at path {:#?} with {:#?}", &path, e));
 
     for number_of_tries in 0..10 {
-        let feature_name = feature.name().to_owned();
+        let feature_name = feature.name();
         let verification = super::modify_in_place::failsafe_verification(
             workspace,
             class_name.to_owned(),
-            Some(feature_name.clone()),
+            Some(feature_name.to_owned()),
             &mut last_valid_code,
         )
         .await;
@@ -46,13 +44,7 @@ pub async fn fix_routine_in_place(
                     rewrite_feature(&path, (ft_name, &body)).await;
                 }
             }
-            Err(err @ ModifyInPlaceErrors::RunAutoProofCommand) => {
-                err.log();
-                break;
-            }
-            Err(e) => {
-                e.log();
-            }
+            Err(e) => e.log(),
         }
     }
 }

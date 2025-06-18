@@ -1,14 +1,9 @@
 use crate::code_entities::prelude::*;
 use crate::eiffelstudio_cli::VerificationResult;
 use crate::eiffelstudio_cli::autoproof;
-use crate::generators::Generators;
 use crate::workspace::Workspace;
 use std::error::Error;
-use std::ops::ControlFlow::Break;
-use std::ops::ControlFlow::Continue;
-use std::path::Path;
 use std::path::PathBuf;
-use tracing::info;
 use tracing::warn;
 
 pub enum ModifyInPlaceErrors {
