@@ -1,12 +1,9 @@
+use super::modify_in_place;
 use crate::code_entities::prelude::*;
-use crate::eiffelstudio_cli::VerificationResult;
 use crate::generators::Generators;
-use crate::parser::Parser;
 use crate::workspace::Workspace;
 use std::ops::ControlFlow;
-use std::path::Path;
 use tracing::info;
-use tracing::warn;
 
 pub async fn fix_routine_in_place(
     generators: &Generators,
@@ -22,7 +19,7 @@ pub async fn fix_routine_in_place(
     for number_of_tries in 0..10 {
         let feature_name = feature.name();
 
-        let verification = super::modify_in_place::verification(
+        let verification = modify_in_place::verification(
             class_name,
             Some(feature_name),
             workspace,
@@ -37,7 +34,7 @@ pub async fn fix_routine_in_place(
                     .routine_fixes(&workspace, &path, feature_name, error_message)
                     .await
                 {
-                    rewrite_feature(&path, (ft_name, &body)).await;
+                    modify_in_place::rewrite_features(&path, &[(ft_name.to_owned(), body)]).await;
                 }
             }
             ControlFlow::Continue(None) => {}
@@ -45,116 +42,5 @@ pub async fn fix_routine_in_place(
                 break;
             }
         }
-    }
-}
-
-async fn read_file(path: &Path) -> Option<String> {
-    tokio::fs::read(path)
-        .await
-        .inspect_err(|e| warn!("fails to read {path:#?} with {e:#?}"))
-        .ok()
-        .and_then(|content| {
-            String::from_utf8(content)
-                .inspect_err(|e| warn!("fails to convert current file to UTF-8 string with {e:#?}"))
-                .ok()
-        })
-}
-
-async fn rewrite_feature(path: &Path, new_feature: (&FeatureName, &str)) {
-    let Some(current_file) = read_file(path).await else {
-        return;
-    };
-
-    let mut parser = Parser::new();
-    let Ok((class, _)) = parser
-        .class_and_tree_from_source(&current_file)
-        .inspect_err(|e| warn!("fails to parse current file {path:#?} with {e:#?}"))
-    else {
-        return;
-    };
-
-    let current_features: Vec<_> = class
-        .features()
-        .iter()
-        .map(|ft| (ft.name(), ft.range()))
-        .collect();
-
-    let starting_current_feature = |linenum| {
-        current_features
-            .iter()
-            .find(|(_, range)| range.start.row == linenum)
-    };
-
-    let surrounding_current_feature = |linenum| {
-        current_features
-            .iter()
-            .find(|(_, range)| (range.start.row < linenum && linenum < range.end.row))
-    };
-
-    let ending_current_feature = |linenum| {
-        current_features
-            .iter()
-            .find(|(_, range)| range.end.row == linenum)
-    };
-
-    let matching_new_feature = |&feature_name| {
-        let (ft_name, _) = new_feature;
-        (ft_name == feature_name).then_some(new_feature)
-    };
-
-    let on_starting_feature = |acc: &mut String, linenum, line: &str| {
-        starting_current_feature(linenum).and_then(|(name, range)| {
-            matching_new_feature(name).map(|(_, content)| {
-                if range.end.row != range.start.row {
-                    format!("{}{}{}\n", acc, &line[..range.start.column], content.trim())
-                } else {
-                    format!(
-                        "{}{}{}{}\n",
-                        acc,
-                        &line[..range.start.column],
-                        content,
-                        &line[range.end.column..]
-                    )
-                }
-            })
-        })
-    };
-
-    let on_surrounding_feature = |acc: &mut String, linenum, line: &str| {
-        surrounding_current_feature(linenum).map(|(name, _)| {
-            if matching_new_feature(name).is_some() {
-                format!("{}", acc)
-            } else {
-                format!("{}{}\n", acc, line)
-            }
-        })
-    };
-
-    let on_ending_feature = |acc: &mut String, linenum, line: &str| {
-        ending_current_feature(linenum).map(|(name, range)| {
-            if matching_new_feature(name).is_some() {
-                format!("{}{}\n", acc, &line[range.end.column..])
-            } else {
-                format!("{}{}\n", acc, line)
-            }
-        })
-    };
-
-    let new_file =
-        current_file
-            .lines()
-            .enumerate()
-            .fold(String::new(), |mut acc, (linenum, line)| {
-                on_starting_feature(&mut acc, linenum, line)
-                    .or_else(|| on_surrounding_feature(&mut acc, linenum, line))
-                    .or_else(|| on_ending_feature(&mut acc, linenum, line))
-                    .unwrap_or_else(|| format!("{}{}\n", acc, line))
-            });
-
-    if !new_file.is_empty() {
-        let _ = tokio::fs::write(path, new_file)
-            .await
-            .inspect_err(|e| warn!("fails to await for rewriting file at {path:#?} with {e:#?}"))
-            .ok();
     }
 }

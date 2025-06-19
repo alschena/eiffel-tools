@@ -4,6 +4,7 @@ use crate::eiffelstudio_cli::verify;
 use crate::workspace::Workspace;
 use std::error::Error;
 use std::ops::ControlFlow;
+use std::path::Path;
 use std::path::PathBuf;
 use tracing::info;
 use tracing::warn;
@@ -122,4 +123,173 @@ pub async fn verification(
             ControlFlow::Continue(None)
         }
     }
+}
+
+pub async fn rewrite_features<'ft, B, I>(path: &Path, features: I)
+where
+    B: AsRef<str> + 'ft,
+    I: IntoIterator<Item = &'ft (FeatureName, B)> + Copy,
+{
+    if let Some(content) = rewriting_features(path, features).await {
+        let _ = tokio::fs::write(path, content)
+            .await
+            .inspect_err(|e| warn!("Fails to await rewriting file at {path:#?} with {e:#?}"))
+            .ok();
+    }
+}
+
+async fn rewriting_features<'ft, B, I>(path: &Path, features: I) -> Option<String>
+where
+    B: AsRef<str> + 'ft,
+    I: IntoIterator<Item = &'ft (FeatureName, B)> + Copy,
+{
+    tokio::fs::read(path)
+        .await
+        .inspect_err(|e| warn!("Fails to read {path:#?} because {e:#?}"))
+        .ok()
+        .and_then(|file_content| {
+            String::from_utf8(file_content)
+                .inspect_err(|e| {
+                    warn!("Fails to convert file at {path:#?} to UFT-8 string because {e:#?}")
+                })
+                .ok()
+        })
+        .and_then(|file_content| {
+            let mut parser = crate::parser::Parser::new();
+            parser
+                .class_and_tree_from_source(&file_content)
+                .inspect_err(|e| warn!("Fails to parse file at {path:#?} because {e:#?}"))
+                .ok()
+                .map(|(cl, _)| (file_content, cl))
+        })
+        .map(|(file_content, class)| {
+            let current_features = class.features();
+            file_content
+                .lines()
+                .enumerate()
+                .fold(String::new(), |mut acc, (linenum, line)| {
+                    on_starting_feature::<B, I>(current_features, features, linenum, line, &mut acc)
+                        .or_else(|| {
+                            on_surrounding_feature(
+                                current_features,
+                                features,
+                                linenum,
+                                line,
+                                &mut acc,
+                            )
+                        })
+                        .or_else(|| {
+                            on_ending_feature(current_features, features, linenum, line, &mut acc)
+                        })
+                        .unwrap_or_else(|| format!("{acc}{line}\n"))
+                })
+        })
+}
+
+fn on_starting_feature<'fts, B, I>(
+    features: &[Feature],
+    new_features: I,
+    linenum: usize,
+    line: &str,
+    acc: &mut String,
+) -> Option<String>
+where
+    B: AsRef<str> + 'fts,
+    I: IntoIterator<Item = &'fts (FeatureName, B)>,
+{
+    features
+        .into_iter()
+        .find(|ft| ft.range().start.row == linenum)
+        .and_then(|ft| {
+            matching_new_feature(ft.name(), new_features).map(|(_, new_content)| {
+                let range = ft.range();
+                let indented_new_content =
+                    new_content
+                        .as_ref()
+                        .lines()
+                        .fold(String::new(), |mut acc, line| {
+                            if !acc.is_empty() {
+                                acc.push('\t');
+                            }
+                            acc.push_str(line);
+                            acc.push('\n');
+                            acc
+                        });
+                let indented_new_content = indented_new_content.trim_end();
+                if range.end.row != range.start.row {
+                    format!(
+                        "{}{}{}",
+                        acc,
+                        &line[..range.start.column],
+                        indented_new_content
+                    )
+                } else {
+                    format!(
+                        "{}{}{}{}",
+                        acc,
+                        &line[..range.start.column],
+                        indented_new_content,
+                        &line[range.end.column..]
+                    )
+                }
+            })
+        })
+}
+
+fn on_surrounding_feature<'fts, B>(
+    features: &[Feature],
+    new_features: impl IntoIterator<Item = &'fts (FeatureName, B)>,
+    linenum: usize,
+    line: &str,
+    acc: &mut String,
+) -> std::option::Option<std::string::String>
+where
+    B: AsRef<str> + 'fts,
+{
+    features
+        .into_iter()
+        .find(|ft| {
+            let range = ft.range();
+            range.start.row < linenum && linenum < range.end.row
+        })
+        .map(|ft| {
+            if matching_new_feature(ft.name(), new_features).is_some() {
+                format!("{}", acc)
+            } else {
+                format!("{}{}\n", acc, line)
+            }
+        })
+}
+
+fn on_ending_feature<'fts, B>(
+    features: &[Feature],
+    new_features: impl IntoIterator<Item = &'fts (FeatureName, B)>,
+    linenum: usize,
+    line: &str,
+    acc: &mut String,
+) -> std::option::Option<std::string::String>
+where
+    B: AsRef<str> + 'fts,
+{
+    features
+        .into_iter()
+        .find(|ft| ft.range().end.row == linenum)
+        .map(|ft| {
+            if matching_new_feature(ft.name(), new_features).is_some() {
+                let range = ft.range();
+                format!("{}{}\n", acc, &line[range.end.column..])
+            } else {
+                format!("{}{}\n", acc, line)
+            }
+        })
+}
+
+fn matching_new_feature<'ft, B>(
+    name: &FeatureName,
+    features: impl IntoIterator<Item = &'ft (FeatureName, B)>,
+) -> Option<&'ft (FeatureName, B)>
+where
+    B: AsRef<str> + 'ft,
+{
+    features.into_iter().find(|(ft_name, _)| *ft_name == name)
 }
