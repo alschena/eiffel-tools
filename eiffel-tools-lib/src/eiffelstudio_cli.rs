@@ -18,7 +18,7 @@ fn verification_result(verification_message: String) -> VerificationResult {
     }
 }
 
-pub async fn autoproof(
+async fn autoproof(
     class_name: &ClassName,
     feature_name: Option<&FeatureName>,
 ) -> Option<VerificationResult> {
@@ -48,6 +48,17 @@ pub async fn autoproof(
         .ok()
         .and_then(format_output)
         .map(|message| verification_result(message))
+}
+
+pub fn verify(
+    class_name: ClassName,
+    feature_name: Option<FeatureName>,
+    max_secs: u64,
+) -> tokio::task::JoinHandle<Result<Option<VerificationResult>, tokio::time::error::Elapsed>> {
+    tokio::spawn(tokio::time::timeout(
+        tokio::time::Duration::from_secs(max_secs),
+        async move { autoproof(&class_name, feature_name.as_ref()).await },
+    ))
 }
 
 fn format_output(autoproof_output: std::process::Output) -> Option<String> {

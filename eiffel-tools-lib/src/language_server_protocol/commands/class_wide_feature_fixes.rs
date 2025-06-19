@@ -3,6 +3,7 @@ use crate::eiffelstudio_cli::VerificationResult;
 use crate::generators::Generators;
 use crate::parser::Parser;
 use crate::workspace::Workspace;
+use std::ops::ControlFlow;
 use std::path::Path;
 use tracing::info;
 use tracing::warn;
@@ -18,27 +19,24 @@ pub async fn fix_class_in_place(
         .unwrap_or_else(|e| panic!("fails to read at path {path:#?} with {e:#?}"));
 
     for number_of_tries in 0..10 {
-        let verification = super::modify_in_place::failsafe_verification(
-            workspace,
-            class_name.to_owned(),
-            None,
-            &mut last_valid_code,
-        )
-        .await;
+        let verification =
+            super::modify_in_place::verification(class_name, None, workspace, &mut last_valid_code)
+                .await;
 
         match verification {
-            Ok(VerificationResult::Success) => {
-                info!("The class {class_name} successfully verifies at try #{number_of_tries}.");
+            ControlFlow::Break(_) => {
                 break;
             }
-            Ok(VerificationResult::Failure(error_message)) => {
+            ControlFlow::Continue(Some(error_message)) => {
+                info!("Try #{number_of_tries} fails to fix {class_name}");
+
                 let feature_candidates = generators
                     .class_wide_fixes(workspace, &path, error_message)
                     .await;
 
                 rewrite_features(workspace.path(class_name), feature_candidates).await;
             }
-            Err(e) => e.log(),
+            ControlFlow::Continue(None) => {}
         }
     }
 }

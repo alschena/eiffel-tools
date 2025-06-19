@@ -3,6 +3,7 @@ use crate::eiffelstudio_cli::VerificationResult;
 use crate::generators::Generators;
 use crate::parser::Parser;
 use crate::workspace::Workspace;
+use std::ops::ControlFlow;
 use std::path::Path;
 use tracing::info;
 use tracing::warn;
@@ -20,31 +21,29 @@ pub async fn fix_routine_in_place(
 
     for number_of_tries in 0..10 {
         let feature_name = feature.name();
-        let verification = super::modify_in_place::failsafe_verification(
+
+        let verification = super::modify_in_place::verification(
+            class_name,
+            Some(feature_name),
             workspace,
-            class_name.to_owned(),
-            Some(feature_name.to_owned()),
             &mut last_valid_code,
         )
         .await;
 
         match verification {
-            Ok(VerificationResult::Success) => {
-                info!(
-                    "The feature {}.{} verifies successfully at try #{}.",
-                    class_name, feature_name, number_of_tries
-                );
-                break;
-            }
-            Ok(VerificationResult::Failure(error_message)) => {
+            ControlFlow::Continue(Some(error_message)) => {
+                info!("Fix #{number_of_tries} of {class_name}.{feature_name} fails.");
                 if let Some((ft_name, body)) = generators
-                    .routine_fixes(&workspace, &path, &feature_name, error_message)
+                    .routine_fixes(&workspace, &path, feature_name, error_message)
                     .await
                 {
                     rewrite_feature(&path, (ft_name, &body)).await;
                 }
             }
-            Err(e) => e.log(),
+            ControlFlow::Continue(None) => {}
+            ControlFlow::Break(_) => {
+                break;
+            }
         }
     }
 }

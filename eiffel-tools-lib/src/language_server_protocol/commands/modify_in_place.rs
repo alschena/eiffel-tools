@@ -1,9 +1,11 @@
 use crate::code_entities::prelude::*;
 use crate::eiffelstudio_cli::VerificationResult;
-use crate::eiffelstudio_cli::autoproof;
+use crate::eiffelstudio_cli::verify;
 use crate::workspace::Workspace;
 use std::error::Error;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
+use tracing::info;
 use tracing::warn;
 
 pub enum ModifyInPlaceErrors {
@@ -62,24 +64,13 @@ async fn reset_source(workspace: &mut Workspace, path: PathBuf, last_valid_code:
     workspace.reload(path).await
 }
 
-fn timebound_verification(
-    class_name: ClassName,
-    feature_name: Option<FeatureName>,
-) -> tokio::task::JoinHandle<Result<Option<VerificationResult>, tokio::time::error::Elapsed>> {
-    tokio::spawn(tokio::time::timeout(
-        tokio::time::Duration::from_secs(60),
-        async move { autoproof(&class_name, feature_name.as_ref()).await },
-    ))
-}
-
-pub async fn failsafe_verification(
+async fn failsafe_verification(
+    class_name: &ClassName,
+    feature_name: Option<&FeatureName>,
     workspace: &mut Workspace,
-    class_name: ClassName,
-    feature_name: Option<FeatureName>,
     last_valid_code: &mut Vec<u8>,
 ) -> Result<VerificationResult, ModifyInPlaceErrors> {
-    let verification_handle =
-        timebound_verification(class_name.clone(), feature_name.clone()).await;
+    let verification_handle = verify(class_name.clone(), feature_name.cloned(), 60).await;
 
     let path = workspace.path(&class_name);
     match verification_handle {
@@ -91,8 +82,8 @@ pub async fn failsafe_verification(
         Ok(Err(timeout)) => {
             reset_source(workspace, path.to_path_buf(), last_valid_code).await;
             Err(ModifyInPlaceErrors::TimeoutAutoProof {
-                class_name,
-                feature_name,
+                class_name: class_name.clone(),
+                feature_name: feature_name.cloned(),
                 error: Box::new(timeout),
             })
         }
@@ -101,6 +92,34 @@ pub async fn failsafe_verification(
             Err(ModifyInPlaceErrors::TaskJoinError {
                 error: Box::new(fails_to_complete_task),
             })
+        }
+    }
+}
+
+pub async fn verification(
+    class_name: &ClassName,
+    feature_name: Option<&FeatureName>,
+    workspace: &mut Workspace,
+    last_valid_code: &mut Vec<u8>,
+) -> ControlFlow<(), Option<String>> {
+    let verification =
+        failsafe_verification(class_name, feature_name, workspace, last_valid_code).await;
+    match verification {
+        Ok(VerificationResult::Success) => {
+            let success_message = feature_name.map_or_else(
+                || format!("The class {class_name} verifies successfully."),
+                |name| format!("The feature {class_name}.{name} verifies successfully."),
+            );
+            info!("{success_message}");
+
+            ControlFlow::Break(())
+        }
+        Ok(VerificationResult::Failure(error_message)) => {
+            ControlFlow::Continue(Some(error_message))
+        }
+        Err(e) => {
+            e.log();
+            ControlFlow::Continue(None)
         }
     }
 }
