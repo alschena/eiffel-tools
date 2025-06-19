@@ -111,7 +111,7 @@ pub async fn verification(
                 || format!("The class {class_name} verifies successfully."),
                 |name| format!("The feature {class_name}.{name} verifies successfully."),
             );
-            info!("{success_message}");
+            info!(target:"autoproof", "{success_message}");
 
             ControlFlow::Break(())
         }

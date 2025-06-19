@@ -29,7 +29,7 @@ pub async fn fix_routine_in_place(
 
         match verification {
             ControlFlow::Continue(Some(error_message)) => {
-                info!("Fix #{number_of_tries} of {class_name}.{feature_name} fails.");
+                info!(target:"autoproof", "Fix #{number_of_tries} of {class_name}.{feature_name} fails.");
                 if let Some((ft_name, body)) = generators
                     .routine_fixes(&workspace, &path, feature_name, error_message)
                     .await
