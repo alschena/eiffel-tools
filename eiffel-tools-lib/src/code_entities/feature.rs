@@ -7,7 +7,6 @@ use std::borrow::Borrow;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::path::Path;
-use tracing::warn;
 
 mod notes;
 pub use notes::Notes;

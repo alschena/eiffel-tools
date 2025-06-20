@@ -1,5 +1,4 @@
 use super::*;
-use crate::code_entities::prelude::contract::*;
 use crate::parser::class_tree::contract_tree::ContractTree;
 use crate::parser::class_tree::eiffel_type::EiffelTypeTree;
 use crate::parser::class_tree::notes_tree::NotesTree;

@@ -141,8 +141,6 @@ impl ParsedSource<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::code_entities::contract::{Clause, Postcondition};
-
     use super::*;
     pub const EMPTY_CLASS: &str = r#"class A end"#;
 
