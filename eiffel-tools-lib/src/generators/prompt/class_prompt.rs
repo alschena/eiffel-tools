@@ -181,7 +181,7 @@ end
             let (class, tree) = parser
                 .class_and_tree_from_source(CONTENT_CLASS_TEST)
                 .expect("fails to construct test class.");
-            let mut workspace = Workspace::mock();
+            let mut workspace = Workspace::new();
             let temp_dir = TempDir::new().expect("fails to create temp dir.");
             workspace.add_file((class.clone(), temp_dir.path().to_path_buf(), tree));
             (workspace, temp_dir.to_path_buf())
@@ -309,6 +309,7 @@ mod class_wide_feature_fixes {
 
         let FeatureErrorMessage(content) = error_message;
         if content.contains("Successfully verified") {
+            // Remove this injection
             Injection (start_point, Source("This feature verifies, you can rely on its contracts while correcting the others.\nYou might strengthen its contracts.".to_string()).comment().indent())
         } else {
             Injection(

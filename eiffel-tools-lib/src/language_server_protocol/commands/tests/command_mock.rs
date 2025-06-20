@@ -22,7 +22,7 @@ impl<'ws> MockCommand<'ws> {
 
 impl<'ws> From<(&'ws Workspace, Vec<serde_json::Value>)> for MockCommand<'ws> {
     fn from(value: (&'ws Workspace, Vec<serde_json::Value>)) -> Self {
-        assert!(value.0.is_mock());
+        assert!(value.0.system_classes().is_empty());
         assert!(value.1.is_empty());
         Self {
             _workspace: value.0,

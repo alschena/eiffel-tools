@@ -431,7 +431,7 @@ end
 
     #[tokio::test]
     async fn declaration_file() -> Result<()> {
-        let ws = &mut Workspace::mock();
+        let ws = &mut Workspace::new();
         let daikon_instrumenter = DaikonInstrumenter::mock(ws).await?;
 
         assert_eq!(
@@ -453,7 +453,7 @@ end
 
     #[tokio::test]
     async fn instrument_body_start_and_end() -> Result<()> {
-        let mut ws = Workspace::mock();
+        let mut ws = Workspace::new();
         let daikon_instrumenter = DaikonInstrumenter::mock(&mut ws).await?;
 
         let [start_edit, end_edit] = daikon_instrumenter.instrument_body_start_and_end()?;
@@ -538,7 +538,7 @@ end
 
     #[tokio::test]
     async fn daikon_declarations() -> Result<()> {
-        let mut ws = Workspace::mock();
+        let mut ws = Workspace::new();
         let daikon_instrumenter = DaikonInstrumenter::mock(&mut ws).await?;
 
         let declarations = daikon_instrumenter.feature_declaration()?;
@@ -577,7 +577,7 @@ variable return
 
     #[tokio::test]
     async fn instrumented_redefinition_body() -> Result<()> {
-        let mut ws = Workspace::mock();
+        let mut ws = Workspace::new();
         let dkn = DaikonInstrumenter::mock(&mut ws).await?;
         let res = dkn.redefined_current_feature_body();
         let instrumentation_body_start = dkn.feature_instrumentation_at(DaikonPosition::Enter);

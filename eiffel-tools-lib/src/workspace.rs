@@ -158,15 +158,6 @@ pub mod tests {
     use assert_fs::prelude::*;
     use assert_fs::{TempDir, fixture::FileWriteStr};
 
-    impl Workspace {
-        pub fn mock() -> Self {
-            Self::default()
-        }
-        pub fn is_mock(&self) -> bool {
-            self.classes.is_empty()
-        }
-    }
-
     #[tokio::test]
     async fn reload() {
         let mut parser = Parser::new();
@@ -181,7 +172,7 @@ end
         file.write_str(source).expect("write to file");
         assert!(file.exists());
 
-        let mut ws = Workspace::mock();
+        let mut ws = Workspace::new();
 
         let (cl, tr) = parser
             .class_and_tree_from_source(source)

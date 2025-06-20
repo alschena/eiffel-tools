@@ -302,7 +302,7 @@ mod tests {
 
     #[test]
     fn command_enum_command() {
-        let ws = Workspace::mock();
+        let ws = Workspace::new();
         let commands = CommandsTest::MockCommand(MockCommand::new(&ws));
 
         let command = commands.command();
@@ -315,7 +315,7 @@ mod tests {
 
     #[tokio::test]
     async fn enum_command_generate_edits() {
-        let ws = Workspace::mock();
+        let ws = Workspace::new();
         let commands = CommandsTest::MockCommand(MockCommand::new(&ws));
 
         let generators = Generators::mock();
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn constructor_command_enum() -> anyhow::Result<()> {
-        let ws = Workspace::mock();
+        let ws = Workspace::new();
         let params = lsp_types::ExecuteCommandParams {
             command: "mock".to_string(),
             arguments: Vec::new(),
@@ -344,7 +344,7 @@ mod tests {
     #[test]
     /// The real test is the correct compilation of `test_function_with_arg`
     fn command_enum_function_with_params() {
-        let ws = Workspace::mock();
+        let ws = Workspace::new();
         CommandsTest::MockCommand(MockCommand::new(&ws))
             .test_function_with_arg(String::from("Test"));
     }

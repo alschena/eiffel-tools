@@ -297,7 +297,7 @@ Answer always, you have enough context."#
             let (class, tree) = parser
                 .class_and_tree_from_source(SRC_NEW_INTEGER)
                 .expect("fails to construct test class.");
-            let mut workspace = Workspace::mock();
+            let mut workspace = Workspace::new();
             let temp_dir = TempDir::new().expect("fails to create temp dir.");
             workspace.add_file((class.clone(), temp_dir.to_path_buf(), tree));
             (workspace, temp_dir.to_path_buf())
