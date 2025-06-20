@@ -2,48 +2,11 @@ use crate::code_entities::prelude::*;
 use crate::eiffelstudio_cli::VerificationResult;
 use crate::eiffelstudio_cli::verify;
 use crate::workspace::Workspace;
-use std::error::Error;
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::path::PathBuf;
 use tracing::info;
 use tracing::warn;
-
-pub enum ModifyInPlaceErrors {
-    TimeoutAutoProof {
-        class_name: ClassName,
-        feature_name: Option<FeatureName>,
-        error: Box<dyn Error>,
-    },
-    TaskJoinError {
-        error: Box<dyn Error>,
-    },
-    RunAutoProofCommand,
-}
-
-impl ModifyInPlaceErrors {
-    pub fn log(&self) {
-        match self {
-            ModifyInPlaceErrors::TimeoutAutoProof {
-                class_name,
-                feature_name,
-                ..
-            } => {
-                let name_entity_under_verification = feature_name.as_ref().map_or_else(
-                    || format!("{class_name}"),
-                    |name| format!("{class_name}.{name}"),
-                );
-                warn!(target: "autoproof", "AutoProof times out verifying {name_entity_under_verification}.");
-            }
-            ModifyInPlaceErrors::TaskJoinError { error } => {
-                warn!("Fails to await for AutoProof task because {error:#?}");
-            }
-            ModifyInPlaceErrors::RunAutoProofCommand => {
-                warn!("The LSP fails to run the AutoProof CLI.");
-            }
-        }
-    }
-}
 
 async fn update_last_valid_source(
     workspace: &mut Workspace,
@@ -65,61 +28,44 @@ async fn reset_source(workspace: &mut Workspace, path: PathBuf, last_valid_code:
     workspace.reload(path).await
 }
 
-async fn failsafe_verification(
-    class_name: &ClassName,
-    feature_name: Option<&FeatureName>,
-    workspace: &mut Workspace,
-    last_valid_code: &mut Vec<u8>,
-) -> Result<VerificationResult, ModifyInPlaceErrors> {
-    let verification_handle = verify(class_name.clone(), feature_name.cloned(), 60).await;
-
-    let path = workspace.path(&class_name);
-    match verification_handle {
-        Ok(Ok(Some(verification_result))) => {
-            update_last_valid_source(workspace, path.to_path_buf(), last_valid_code).await;
-            Ok(verification_result)
-        }
-        Ok(Ok(None)) => Err(ModifyInPlaceErrors::RunAutoProofCommand),
-        Ok(Err(timeout)) => {
-            reset_source(workspace, path.to_path_buf(), last_valid_code).await;
-            Err(ModifyInPlaceErrors::TimeoutAutoProof {
-                class_name: class_name.clone(),
-                feature_name: feature_name.cloned(),
-                error: Box::new(timeout),
-            })
-        }
-        Err(fails_to_complete_task) => {
-            reset_source(workspace, path.to_path_buf(), last_valid_code).await;
-            Err(ModifyInPlaceErrors::TaskJoinError {
-                error: Box::new(fails_to_complete_task),
-            })
-        }
-    }
-}
-
 pub async fn verification(
     class_name: &ClassName,
     feature_name: Option<&FeatureName>,
     workspace: &mut Workspace,
     last_valid_code: &mut Vec<u8>,
 ) -> ControlFlow<(), Option<String>> {
-    let verification =
-        failsafe_verification(class_name, feature_name, workspace, last_valid_code).await;
-    match verification {
-        Ok(VerificationResult::Success) => {
-            let success_message = feature_name.map_or_else(
-                || format!("The class {class_name} verifies successfully."),
-                |name| format!("The feature {class_name}.{name} verifies successfully."),
-            );
-            info!(target:"autoproof", "{success_message}");
+    let path = workspace.path(&class_name);
+    let entity_under_verification = feature_name.map_or_else(
+        || format!("{class_name}"),
+        |name| format!("{class_name}.{name}"),
+    );
+
+    let verification_handle = verify(class_name.clone(), feature_name.cloned(), 60).await;
+
+    match verification_handle {
+        Ok(Ok(Some(VerificationResult::Success))) => {
+            update_last_valid_source(workspace, path.to_path_buf(), last_valid_code).await;
+            info!(target:"autoproof", "AutoProof verifies {entity_under_verification} successfully.");
 
             ControlFlow::Break(())
         }
-        Ok(VerificationResult::Failure(error_message)) => {
+        Ok(Ok(Some(VerificationResult::Failure(error_message)))) => {
+            reset_source(workspace, path.to_path_buf(), last_valid_code).await;
+            info!(target: "autoproof", "AutoProof fails to verify {entity_under_verification}.");
             ControlFlow::Continue(Some(error_message))
         }
-        Err(e) => {
-            e.log();
+        Ok(Ok(None)) => {
+            warn!("The LSP fails to run the AutoProof CLI.");
+            ControlFlow::Break(())
+        }
+        Ok(Err(_timeout)) => {
+            reset_source(workspace, path.to_path_buf(), last_valid_code).await;
+            warn!(target: "autoproof", "AutoProof times out verifying {entity_under_verification}.");
+            ControlFlow::Continue(None)
+        }
+        Err(fails_to_complete_task) => {
+            reset_source(workspace, path.to_path_buf(), last_valid_code).await;
+            warn!("Fails to await for AutoProof task because {fails_to_complete_task:#?}");
             ControlFlow::Continue(None)
         }
     }
@@ -292,4 +238,88 @@ where
     B: AsRef<str> + 'ft,
 {
     features.into_iter().find(|(ft_name, _)| *ft_name == name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::language_server_protocol::commands::modify_in_place::reset_source;
+    use crate::parser::Parser;
+    use crate::workspace::Workspace;
+    use assert_fs::TempDir;
+    use assert_fs::fixture::ChildPath;
+    use assert_fs::prelude::*;
+
+    const OLDTEXT: &'static str = r#"
+class A
+feature
+  x: INTEGER
+end
+            "#;
+
+    const NEWTEXT: &'static str = r#"
+class A
+feature
+  x: INTEGER
+  y: INTEGER
+end
+            "#;
+
+    fn initialize_file_with_oldtext(file: &ChildPath) -> Workspace {
+        file.write_str(OLDTEXT)
+            .expect("Fails to initialize temporary file for testing.");
+
+        let mut parser = Parser::new();
+        let (cl, tr) = parser
+            .class_and_tree_from_source(OLDTEXT)
+            .expect(stringify!("Fails to parse test class at {}", file!()));
+        let mut ws = Workspace::new();
+        ws.add_file((cl, file.to_path_buf(), tr));
+
+        ws
+    }
+
+    #[tokio::test]
+    async fn test_update_last_valid_source() {
+        let tmp_dir = TempDir::new().expect(stringify!(
+            "Fails to create temporary directory for testing. {} {}:{}",
+            file!(),
+            line!(),
+            column!()
+        ));
+        let file = tmp_dir.child("to_update_last_valid_source");
+
+        let mut ws = initialize_file_with_oldtext(&file);
+
+        file.write_str(NEWTEXT)
+            .expect("fails to write `NEWTEXT` on file");
+        let mut last_valid_code = OLDTEXT.as_bytes().to_owned();
+
+        update_last_valid_source(&mut ws, file.to_path_buf(), &mut last_valid_code).await;
+
+        assert_eq!(ws.class(file.path()).map(|cl| cl.features().len()), Some(2));
+        assert_eq!(last_valid_code, NEWTEXT.as_bytes().to_owned());
+    }
+
+    #[tokio::test]
+    async fn test_reset_source() {
+        let tmp_dir = TempDir::new().expect(stringify!(
+            "Fails to create temporary directory for testing. {} {}:{}",
+            file!(),
+            line!(),
+            column!()
+        ));
+        let file = tmp_dir.child("to_reset_source");
+
+        let mut ws = initialize_file_with_oldtext(&file);
+
+        file.write_str(NEWTEXT)
+            .expect("fails to write `NEWTEXT` on file");
+        let mut last_valid_code = OLDTEXT.as_bytes().to_owned();
+
+        reset_source(&mut ws, file.to_path_buf(), &mut last_valid_code).await;
+
+        assert_eq!(ws.class(file.path()).map(|cl| cl.features().len()), Some(1));
+        assert_eq!(last_valid_code, OLDTEXT.as_bytes().to_owned());
+    }
 }
