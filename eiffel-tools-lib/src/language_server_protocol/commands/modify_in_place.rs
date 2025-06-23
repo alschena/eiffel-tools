@@ -1,10 +1,12 @@
 use crate::code_entities::prelude::*;
 use crate::eiffelstudio_cli::VerificationResult;
 use crate::eiffelstudio_cli::verify;
+use crate::parser;
 use crate::workspace::Workspace;
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::path::PathBuf;
+use streaming_iterator::StreamingIterator;
 use tracing::info;
 use tracing::warn;
 
@@ -101,7 +103,7 @@ where
                 .ok()
         })
         .and_then(|file_content| {
-            let mut parser = crate::parser::Parser::new();
+            let mut parser = parser::Parser::new();
             parser
                 .class_and_tree_from_source(&file_content)
                 .inspect_err(|e| warn!("Fails to parse file at {path:#?} because {e:#?}"))
@@ -240,10 +242,97 @@ where
     features.into_iter().find(|(ft_name, _)| *ft_name == name)
 }
 
+pub async fn clear_comments(path: &Path) {
+    match tokio::fs::read(path).await {
+        Ok(mut content) => {
+            remove_comments(&mut content);
+            match tokio::fs::write(path, content).await {
+                Ok(_) => {}
+                Err(e) => {
+                    warn!("Fails to write to {path:#?} because {e:#?}");
+                }
+            }
+        }
+        Err(e) => {
+            warn!("Fails to read {path:#?} because {e:#?}");
+        }
+    }
+}
+
+fn ordered_comment_ranges<S: AsRef<[u8]>>(content: &S) -> Vec<tree_sitter::Range> {
+    let mut parser = parser::Parser::new();
+    let parsed_source = parser
+        .parse(content.as_ref())
+        .unwrap_or_else(|_| panic!("Should parse file to extract comments."));
+
+    let query = tree_sitter::Query::new(
+        &tree_sitter_eiffel::LANGUAGE.into(),
+        "[(comment) (header_comment)] @comment",
+    )
+    .unwrap_or_else(|e| {
+        panic!("Should create the query for comment nodes, instead fails with {e:#?}.")
+    });
+
+    let capture_index = query
+        .capture_index_for_name("comment")
+        .unwrap_or_else(|| panic!("Should capture nodes of `comment` type."));
+
+    let mut query_cursor = tree_sitter::QueryCursor::new();
+
+    let comments_matches = query_cursor.matches(
+        &query,
+        parsed_source.tree().root_node(),
+        parsed_source.source(),
+    );
+
+    let mut comment_ranges = comments_matches.fold(Vec::new(), |mut acc, mtc| {
+        acc.extend(
+            mtc.nodes_for_capture_index(capture_index)
+                .map(|node| node.range()),
+        );
+        acc
+    });
+
+    comment_ranges.sort_by(|lhs, rhs| lhs.start_byte.cmp(&rhs.start_byte));
+    comment_ranges
+}
+
+fn remove_comments(content: &mut Vec<u8>) {
+    let mut negative_offset = 0;
+    for range in ordered_comment_ranges(&content) {
+        let mut start = range.start_byte - negative_offset;
+        let end = range.end_byte - negative_offset;
+
+        content.drain(start..end);
+
+        let (maybe_num_bytes_to_trim_from_end, should_add_newline) = content[0..start]
+            .iter()
+            .rev()
+            .enumerate()
+            .skip_while(|(_, char)| **char == b' ' || **char == b'\t')
+            .next()
+            .map_or_else(
+                || (None, false),
+                |(back_index, char)| (Some(back_index), *char != b'\n'),
+            );
+
+        if let Some(offset_back_start) = maybe_num_bytes_to_trim_from_end {
+            content.drain(start - offset_back_start..start);
+            start -= offset_back_start;
+        }
+
+        if should_add_newline {
+            content.insert(start, b'\n');
+            start += 1;
+        }
+
+        negative_offset += end - start;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::language_server_protocol::commands::modify_in_place::reset_source;
     use crate::parser::Parser;
     use crate::workspace::Workspace;
     use assert_fs::TempDir;
@@ -263,6 +352,19 @@ feature
   x: INTEGER
   y: INTEGER
 end
+            "#;
+
+    const COMMENTED_NEWTEXT: &'static str = r#"
+    -- This is a comment
+class A -- This is a comment
+    -- This is a comment
+feature -- This is a comment
+    -- This is a comment
+  x: INTEGER -- This is a comment
+  -- This is a comment
+  y: INTEGER -- This is a comment
+  -- This is a comment
+end -- This is a comment 
             "#;
 
     fn initialize_file_with_oldtext(file: &ChildPath) -> Workspace {
@@ -321,5 +423,22 @@ end
 
         assert_eq!(ws.class(file.path()).map(|cl| cl.features().len()), Some(1));
         assert_eq!(last_valid_code, OLDTEXT.as_bytes().to_owned());
+    }
+
+    #[tokio::test]
+    async fn test_remove_comments() {
+        let mut text: Vec<u8> = COMMENTED_NEWTEXT.as_bytes().to_vec();
+        super::remove_comments(&mut text);
+        let human_readable_output = str::from_utf8(&text).expect("Should convert text to UFT-8");
+
+        let equal_upto_trimming_lines = human_readable_output
+            .lines()
+            .zip(NEWTEXT.lines())
+            .all(|(output, oracle)| output.trim() == oracle.trim());
+
+        assert!(
+            equal_upto_trimming_lines,
+            "OUTPUT: {human_readable_output}\nORACLE: {NEWTEXT}"
+        );
     }
 }

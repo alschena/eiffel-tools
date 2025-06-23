@@ -114,10 +114,18 @@ impl Parser {
 
 pub struct ParsedSource<'source> {
     source: &'source [u8],
-    pub tree: Tree,
+    tree: Tree,
 }
 
 impl ParsedSource<'_> {
+    pub fn tree(&self) -> &Tree {
+        &self.tree
+    }
+
+    pub fn source(&self) -> &[u8] {
+        self.source
+    }
+
     fn class_tree_traversal(&self) -> Result<TreeTraversal<'_, '_>> {
         TreeTraversal::try_new(self.source, self.tree.root_node(), class_tree::query())
     }
