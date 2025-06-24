@@ -35,17 +35,18 @@ impl<'source, 'tree, T: FeatureTree<'source, 'tree>> FeatureClauseTree<'source, 
     fn features(&mut self) -> Result<Vec<Feature>, Self::Error> {
         let feature_declaration = self.nodes_captures("feature")?;
 
-        let features: Vec<Feature> =
-            feature_declaration
-                .iter()
-                .filter_map(|feature_declaration_node| {
-                    self.goto_feature_tree(*feature_declaration_node);
-                    self.feature().inspect_err(|e| {
-                    warn!("fails to parse feature clause at node: {feature_declaration_node:#?} with error: {e:#?}")
-                }).ok()
-                }).fold(Vec::new(),|mut acc, mut features|
-                {acc.append(&mut features); acc});
-
+        let mut features = Vec::new();
+        for feature_declaration_node in feature_declaration {
+            self.goto_feature_tree(feature_declaration_node);
+            match self.feature() {
+                Ok(features_in_clause) => features.extend(features_in_clause),
+                Err(e) => {
+                    warn!(
+                        "fails to parse feature clause at node: {feature_declaration_node:#?} with error: {e:#?}"
+                    )
+                }
+            }
+        }
         Ok(features)
     }
 }
@@ -69,220 +70,332 @@ pub trait FeatureTree<'source, 'tree>: Traversal<'source, 'tree> {
 
     fn goto_feature_tree(&mut self, feature_declaration_node: Node<'tree>);
 
-    fn feature(&mut self) -> Result<Vec<Feature>>;
+    fn feature(&mut self) -> Result<impl IntoIterator<Item = Feature>>;
 
-    fn feature_names(&mut self) -> Result<Vec<String>>;
+    fn feature_names(&mut self, feature_nodes: &FeatureNodes<'tree>) -> Result<Vec<String>>;
 
-    fn feature_parameters(&mut self) -> Result<FeatureParameters>;
+    fn feature_parameters(
+        &mut self,
+        feature_nodes: &FeatureNodes<'tree>,
+    ) -> Result<FeatureParameters>;
 
-    fn feature_return_type(&mut self) -> Result<Option<EiffelType>>;
+    fn feature_return_type(
+        &mut self,
+        feature_nodes: &FeatureNodes<'tree>,
+    ) -> Result<Option<EiffelType>>;
 
-    fn feature_precondition(&mut self) -> Result<Option<Block<Precondition>>>;
+    fn feature_precondition(
+        &mut self,
+        feature_nodes: &FeatureNodes<'tree>,
+    ) -> Result<Option<Block<Precondition>>>;
 
-    fn feature_postcondition(&mut self) -> Result<Option<Block<Postcondition>>>;
+    fn feature_postcondition(
+        &mut self,
+        feature_nodes: &FeatureNodes<'tree>,
+    ) -> Result<Option<Block<Postcondition>>>;
 
-    fn feature_notes(&mut self) -> Result<Option<FeatureNotes>>;
+    fn feature_notes(
+        &mut self,
+        feature_nodes: &FeatureNodes<'tree>,
+    ) -> Result<Option<FeatureNotes>>;
+}
 
-    fn feature_range(&mut self) -> Result<Range>;
+pub struct FeatureNodes<'tree> {
+    names: Vec<Node<'tree>>,
+    parameters: Option<Node<'tree>>,
+    return_type: Option<Node<'tree>>,
+    precondition: Option<Node<'tree>>,
+    postcondition: Option<Node<'tree>>,
+    notes: Option<Node<'tree>>,
+    attribute_or_routine: Option<Node<'tree>>,
+    body: Option<Node<'tree>>,
+    whole_feature: Node<'tree>,
+}
 
-    fn feature_body_range(&mut self) -> Result<Option<Range>>;
+impl<'tree> FeatureNodes<'tree> {
+    fn feature_range(&self) -> Range {
+        self.whole_feature.range().into()
+    }
+
+    fn feature_body_range(&self) -> Option<Range> {
+        self.body.map(|body_node| body_node.range().into())
+    }
+}
+
+impl<'source, 'tree> TreeTraversal<'source, 'tree> {
+    fn feature_nodes(&mut self) -> Option<FeatureNodes<'tree>> {
+        let initial_node = self.current_node();
+        debug_assert!(
+            initial_node.kind() == "feature_declaration" || initial_node.kind() == "source_file",
+            "initial node kind: {}",
+            initial_node.kind()
+        );
+        let index_feature_name = self.capture_index_of("feature_name");
+        let index_parameters = self.capture_index_of("parameters");
+        let index_return_type = self.capture_index_of("return_type");
+        let index_notes = self.capture_index_of("notes");
+        let index_precondition = self.capture_index_of("precondition");
+        let index_postcondition = self.capture_index_of("postcondition");
+        let index_attribute_or_routine = self.capture_index_of("attribute_or_routine");
+        let index_body = self.capture_index_of("body");
+        let index_feature_declaration = self.capture_index_of("feature_declaration");
+
+        let mut names: Vec<Node<'tree>> = Vec::new();
+        let mut parameters: Option<Node<'tree>> = None;
+        let mut return_type: Option<Node<'tree>> = None;
+        let mut precondition: Option<Node<'tree>> = None;
+        let mut postcondition: Option<Node<'tree>> = None;
+        let mut notes: Option<Node<'tree>> = None;
+        let mut whole_feature: Option<Node<'tree>> = None;
+        let mut attribute_or_routine: Option<Node<'tree>> = None;
+        let mut body: Option<Node<'tree>> = None;
+
+        let captures = match self.captures().next() {
+            Some((mtc, _mtc_index)) => mtc.captures,
+            None => return None,
+        };
+
+        for cap in captures {
+            match cap.index {
+                i if i == index_feature_name => names.push(cap.node),
+
+                i if i == index_parameters => {
+                    debug_assert!(parameters.is_none(), "There is maximum one parameter node.");
+                    parameters = Some(cap.node)
+                }
+                i if i == index_return_type => {
+                    debug_assert!(
+                        return_type.is_none(),
+                        "There is maximum one return type node."
+                    );
+                    return_type = Some(cap.node)
+                }
+                i if i == index_notes => {
+                    debug_assert!(notes.is_none(), "There is maximum one notes node.");
+                    notes = Some(cap.node)
+                }
+                i if i == index_precondition => {
+                    debug_assert!(
+                        precondition.is_none(),
+                        "There is maximum one precondition node."
+                    );
+                    precondition = Some(cap.node)
+                }
+                i if i == index_postcondition => {
+                    debug_assert!(
+                        postcondition.is_none(),
+                        "There is maximum one postcondition node."
+                    );
+                    postcondition = Some(cap.node)
+                }
+                i if i == index_attribute_or_routine => {
+                    debug_assert!(
+                        attribute_or_routine.is_none(),
+                        "There is maximum one attribute_or_routine node."
+                    );
+                    attribute_or_routine = Some(cap.node)
+                }
+                i if i == index_body => {
+                    debug_assert!(
+                        body.is_none(),
+                        "There is maximum one attribute_or_routine node."
+                    );
+                    body = Some(cap.node)
+                }
+                i if i == index_feature_declaration => {
+                    debug_assert!(
+                        whole_feature.is_none(),
+                        "There is maximum one feature_declaration node."
+                    );
+                    whole_feature = Some(cap.node)
+                }
+                _ => {
+                    unreachable!(
+                        "The index of the capture must be handled by case.\nCapture kind:{}",
+                        cap.node.kind()
+                    )
+                }
+            }
+        }
+
+        Some(FeatureNodes {
+            names,
+            parameters,
+            return_type,
+            precondition,
+            postcondition,
+            notes,
+            whole_feature: whole_feature?,
+            body,
+            attribute_or_routine,
+        })
+    }
 }
 
 impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tree> {
     fn goto_feature_tree(&mut self, feature_declaration_node: Node<'tree>) {
-        assert!(
+        debug_assert!(
             feature_declaration_node.kind() == "feature_declaration"
                 || feature_declaration_node.kind() == "source_file"
         );
         self.set_node_and_query(feature_declaration_node, <Self as FeatureTree>::query());
     }
 
-    fn feature_names(&mut self) -> Result<Vec<String>> {
-        self.nodes_captures("feature_name")?
+    fn feature_names(&mut self, feature_nodes: &FeatureNodes) -> Result<Vec<String>> {
+        feature_nodes
+            .names
             .iter()
-            .map(|name| self.node_content(*name).map(|name| name.to_string()))
+            .map(|name_node| self.node_content(*name_node).map(|name| name.to_string()))
             .collect::<Result<Vec<_>, _>>()
     }
 
-    fn feature_parameters(&mut self) -> Result<FeatureParameters> {
+    fn feature_parameters(
+        &mut self,
+        feature_nodes: &FeatureNodes<'tree>,
+    ) -> Result<FeatureParameters> {
         let initial_node = self.current_node();
 
-        let parameters_node = self.nodes_captures("parameters")?;
-        let parameters_node = parameters_node.first();
-
-        let parameters = parameters_node
-            .map(|parameters_node| -> Result<_> {
-                self.goto_parameter_tree(*parameters_node);
-                self.parameters()
-            })
-            .transpose()?
-            .unwrap_or_default();
-
-        self.goto_feature_tree(initial_node);
-
-        Ok(parameters)
+        match feature_nodes.parameters {
+            Some(parameters_node) => {
+                self.goto_parameter_tree(parameters_node);
+                let parameters = self.parameters()?;
+                self.goto_feature_tree(initial_node);
+                Ok(parameters)
+            }
+            None => Ok(FeatureParameters::default()),
+        }
     }
 
-    fn feature_return_type(&mut self) -> Result<Option<EiffelType>> {
+    fn feature_return_type(
+        &mut self,
+        feature_nodes: &FeatureNodes<'tree>,
+    ) -> Result<Option<EiffelType>> {
         let initial_node = self.current_node();
 
-        let return_type_node = self.nodes_captures("return_type")?;
-        let return_type_node = return_type_node.first();
-
-        let return_type = return_type_node
+        let return_type = feature_nodes
+            .return_type
             .map(|type_node| {
-                self.goto_eiffel_type_tree(*type_node);
-                self.eiffel_type()
+                self.goto_eiffel_type_tree(type_node);
+                let return_type = self.eiffel_type();
+                self.goto_feature_tree(initial_node);
+                return_type
             })
             .transpose();
-
-        self.goto_feature_tree(initial_node);
 
         return_type
     }
 
-    fn feature_precondition(&mut self) -> Result<Option<Block<Precondition>>> {
+    fn feature_precondition(
+        &mut self,
+        feature_nodes: &FeatureNodes<'tree>,
+    ) -> Result<Option<Block<Precondition>>> {
         let initial_node = self.current_node();
 
-        let notes_node = self.nodes_captures("notes")?;
-        let notes_node = notes_node.first();
+        let notes_node = feature_nodes.notes;
 
-        let some_attribute_or_routine_range_if_contracts_supported = self
-            .nodes_captures("attribute_or_routine")?
-            .first()
-            .map(|aor_node| aor_node.range());
-
-        let preconditions_node = self.nodes_captures("precondition")?;
-        let preconditions_node = preconditions_node.first();
-
-        let preconditions = preconditions_node.map_or_else(
+        feature_nodes.precondition.map_or_else(
             || -> Result<Option<Block<Precondition>>> {
-                Ok(
-                    some_attribute_or_routine_range_if_contracts_supported.map(|range| {
+                Ok(feature_nodes
+                    .attribute_or_routine
+                    .map(|aor_node| aor_node.range())
+                    .map(|range| {
                         let point_for_collapsed_block = match notes_node {
                             Some(note_node) => note_node.range().end_point,
                             None => range.start_point,
                         };
                         Block::new_empty(point_for_collapsed_block.into())
-                    }),
-                )
+                    }))
             },
-            |&precondition_node| -> Result<Option<Block<Precondition>>> {
+            |precondition_node| -> Result<Option<Block<Precondition>>> {
                 self.goto_contract_tree(precondition_node);
                 let clauses = self.clauses()?;
                 let precondition = Precondition(clauses);
-                Ok(Some(Block {
+                let preconditions_block = Ok(Some(Block {
                     item: precondition,
                     range: precondition_node.range().into(),
-                }))
+                }));
+                self.goto_feature_tree(initial_node);
+                preconditions_block
             },
-        );
-
-        self.goto_feature_tree(initial_node);
-
-        preconditions
+        )
     }
 
-    fn feature_postcondition(&mut self) -> Result<Option<Block<Postcondition>>> {
+    fn feature_postcondition(
+        &mut self,
+        feature_nodes: &FeatureNodes<'tree>,
+    ) -> Result<Option<Block<Postcondition>>> {
         let initial_node = self.current_node();
 
-        let some_attribute_or_routine_range_if_contracts_supported = self
-            .nodes_captures("attribute_or_routine")?
-            .first()
-            .map(|aor_node| aor_node.range());
-
-        let postconditions_node = self.nodes_captures("postcondition")?;
-        let postconditions_node = postconditions_node.first();
-
-        let postconditions = postconditions_node.map_or_else(
+        feature_nodes.postcondition.map_or_else(
             || -> Result<Option<Block<_>>> {
-                Ok(
-                    some_attribute_or_routine_range_if_contracts_supported.map(|range| {
+                Ok(feature_nodes
+                    .attribute_or_routine
+                    .map(|aor_node| aor_node.range())
+                    .map(|range| {
                         let mut point_of_collapsed_block: Point = range.end_point.into();
 
                         // Compensates the word `end`.
                         point_of_collapsed_block.shift_left(3);
                         Block::new_empty(point_of_collapsed_block)
-                    }),
-                )
+                    }))
             },
-            |&postcondition_node| -> Result<Option<Block<_>>> {
+            |postcondition_node| -> Result<Option<Block<_>>> {
                 self.goto_contract_tree(postcondition_node);
                 let clauses = self.clauses()?;
                 let postcondition = Postcondition(clauses);
-                Ok(Some(Block {
+                let postconditions_block = Ok(Some(Block {
                     item: postcondition,
                     range: postcondition_node.range().into(),
-                }))
+                }));
+                self.goto_feature_tree(initial_node);
+                postconditions_block
             },
-        );
-
-        self.goto_feature_tree(initial_node);
-
-        postconditions
+        )
     }
 
-    fn feature_notes(&mut self) -> Result<Option<FeatureNotes>> {
+    fn feature_notes(
+        &mut self,
+        feature_nodes: &FeatureNodes<'tree>,
+    ) -> Result<Option<FeatureNotes>> {
         let initial_node = self.current_node();
 
-        let notes_node = self.nodes_captures("notes")?;
-        let notes_node = notes_node.first();
-
-        let notes = notes_node
-            .map(|&note_node| -> Result<_> {
+        feature_nodes
+            .notes
+            .map(|note_node| -> Result<_> {
                 self.goto_notes_tree(note_node);
-                self.notes()
+                let notes = self.notes();
+                self.goto_feature_tree(initial_node);
+                notes
             })
-            .transpose();
-
-        self.goto_feature_tree(initial_node);
-
-        notes
+            .transpose()
     }
 
-    fn feature_range(&mut self) -> Result<Range> {
-        let outer_node = self.nodes_captures("feature_declaration")?;
+    fn feature(&mut self) -> Result<impl IntoIterator<Item = Feature>> {
+        let feature_nodes = self
+            .feature_nodes()
+            .with_context(|| "Fails to parse feature")?;
+        let names = self.feature_names(&feature_nodes)?;
+        let parameters = self.feature_parameters(&feature_nodes)?;
+        let return_type = self.feature_return_type(&feature_nodes)?;
+        let notes = self.feature_notes(&feature_nodes)?;
+        let range = feature_nodes.feature_range();
+        let body_range = feature_nodes.feature_body_range();
+        let preconditions = self.feature_precondition(&feature_nodes)?;
+        let postconditions = self.feature_postcondition(&feature_nodes)?;
 
-        outer_node
-            .first()
-            .map(|outer| outer.range().into())
-            .with_context(|| "fails to get feature declaration.")
-    }
-
-    fn feature_body_range(&mut self) -> Result<Option<Range>> {
-        Ok(self
-            .nodes_captures("body")?
-            .first()
-            .map(|body_node| body_node.range().into()))
-    }
-
-    fn feature(&mut self) -> Result<Vec<Feature>> {
-        let names = self.feature_names()?;
-        let parameters = self.feature_parameters()?;
-        let return_type = self.feature_return_type()?;
-        let notes = self.feature_notes()?;
-        let range = self.feature_range()?;
-        let body_range = self.feature_body_range()?;
-        let preconditions = self.feature_precondition()?;
-        let postconditions = self.feature_postcondition()?;
-
-        let features = names
-            .into_iter()
-            .map(|name| {
-                Feature::new(
-                    name,
-                    parameters.clone(),
-                    return_type.clone(),
-                    notes.clone(),
-                    FeatureVisibility::Private,
-                    range.clone(),
-                    body_range.clone(),
-                    preconditions.clone(),
-                    postconditions.clone(),
-                )
-            })
-            .collect();
-        Ok(features)
+        Ok(names.into_iter().map(move |name| {
+            Feature::new(
+                name,
+                parameters.clone(),
+                return_type.clone(),
+                notes.clone(),
+                FeatureVisibility::Private,
+                range.clone(),
+                body_range.clone(),
+                preconditions.clone(),
+                postconditions.clone(),
+            )
+        }))
     }
 }
 
@@ -327,23 +440,46 @@ class A feature
 end"#;
 
     impl<'source, 'tree> TreeTraversal<'source, 'tree> {
-        pub fn mock_feature<'tmp_src: 'source + 'tree>(
+        pub fn mock_features_clause<'tmp_src: 'source + 'tree>(
             parsed_file: &'tmp_src ParsedSource<'source>,
         ) -> anyhow::Result<Self> {
             let mut tree_traversal = parsed_file.class_tree_traversal()?;
             let nodes: ClassDeclarationNodes<'tree> = (&mut tree_traversal).try_into()?;
             let mut features = nodes.feature_clause_nodes;
-            let first_feature = features.pop().with_context(
+            let first_feature_clause = features.pop().with_context(
                 || "fails to get a feature to create the mock feature tree traversal.",
             )?;
-            tree_traversal
-                .set_node_and_query(first_feature, <TreeTraversal as FeatureClauseTree>::query());
+            tree_traversal.set_node_and_query(
+                first_feature_clause,
+                <TreeTraversal as FeatureClauseTree>::query(),
+            );
             Ok(tree_traversal)
+        }
+
+        pub fn mock_feature<'tmp_src: 'source + 'tree>(
+            parsed_file: &'tmp_src ParsedSource<'source>,
+        ) -> Self {
+            let mut tree_traversal = parsed_file.class_tree_traversal().expect(
+                "Should get tree traversal (implementing class traversal) from parsed file",
+            );
+            let nodes: ClassDeclarationNodes<'tree> = (&mut tree_traversal)
+                .try_into()
+                .expect("Should get class declaration nodes.");
+            let mut features = nodes.feature_clause_nodes;
+            let first_feature_clause = features.pop().expect("Should get first feature clause");
+            tree_traversal.goto_feature_clause_tree(first_feature_clause);
+            let first_feature = tree_traversal
+                .nodes_captures("feature")
+                .expect("Should find capture name `feature`")
+                .pop()
+                .expect("Should find first node `feature` in features clause.");
+            tree_traversal.goto_feature_tree(first_feature);
+            tree_traversal
         }
     }
 
     pub fn extracted_features(parsed_source: &ParsedSource) -> anyhow::Result<Vec<Feature>> {
-        let mut feature_tree = TreeTraversal::mock_feature(&parsed_source)?;
+        let mut feature_tree = TreeTraversal::mock_features_clause(&parsed_source)?;
         feature_tree.features()
     }
 
@@ -425,5 +561,17 @@ end"#;
             "MML_SEQUENCE [INTEGER]".to_string()
         );
         Ok(())
+    }
+
+    #[test]
+    fn feature_nodes() {
+        let mut parser = Parser::new();
+        let parsed_source = parser
+            .parse(CONTRACT_FEATURE_CLASS_SOURCE)
+            .expect("Should parse `CONTRACT_FEATURE_CLASS_SOURCE`");
+
+        let mut tree_traversal = TreeTraversal::mock_feature(&parsed_source);
+
+        tree_traversal.feature_nodes();
     }
 }

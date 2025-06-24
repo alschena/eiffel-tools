@@ -1,6 +1,8 @@
 use crate::parser::*;
 use anyhow::Result;
 use anyhow::anyhow;
+use tree_sitter::QueryCaptures;
+use tree_sitter::QueryMatches;
 
 pub fn query(sexp: &str) -> Query {
     Query::new(&tree_sitter_eiffel::LANGUAGE.into(), sexp)
@@ -83,5 +85,15 @@ impl<'source, 'tree> TreeTraversal<'source, 'tree> {
 
     pub(super) fn set_query(&mut self, query: Query) {
         self.query = query
+    }
+
+    pub(super) fn capture_index_of(&self, capture_name: &str) -> u32 {
+        self.query
+            .capture_index_for_name(capture_name)
+            .unwrap_or_else(|| panic!("Should find the capture index of `{capture_name}`"))
+    }
+
+    pub(super) fn captures(&mut self) -> QueryCaptures<'_, 'tree, &[u8], &[u8]> {
+        self.cursor.captures(&self.query, self.node, self.source)
     }
 }

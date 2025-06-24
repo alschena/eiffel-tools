@@ -103,8 +103,8 @@ impl Parser {
             ))
         } else {
             let mut feature_tree_traversal = parsed_source.feature_tree_traversal()?;
-            let mut alias_features = feature_tree_traversal.feature()?;
-            let any_feature = alias_features.pop().with_context(
+            let alias_features = feature_tree_traversal.feature()?;
+            let any_feature = alias_features.into_iter().next().with_context(
                 || "fails to get a feature from a vector of alias features parsing source: {source}",
             )?;
             Ok(Parsed::Correct(any_feature))
