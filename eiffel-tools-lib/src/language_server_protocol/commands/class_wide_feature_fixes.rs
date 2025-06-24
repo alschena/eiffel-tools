@@ -14,17 +14,20 @@ pub async fn fix_class_in_place(
     let mut last_valid_code = tokio::fs::read(&path)
         .await
         .unwrap_or_else(|e| panic!("fails to read at path {path:#?} with {e:#?}"));
+    let max_number_of_tries = 10;
+    let mut number_of_tries = 0;
 
-    for number_of_tries in 0..10 {
-        let verification =
-            modify_in_place::verification(class_name, None, workspace, &mut last_valid_code).await;
-
-        match verification {
-            ControlFlow::Break(_) => {
-                break;
-            }
-            ControlFlow::Continue(Some(error_message)) => {
-                info!("Try #{number_of_tries} fails to fix {class_name}");
+    while let ControlFlow::Continue(verifier_failure_feedback) =
+        modify_in_place::verification(class_name, None, workspace, &mut last_valid_code).await
+    {
+        number_of_tries += 1;
+        if max_number_of_tries <= number_of_tries {
+            info!(target: "autoproof", "Giving up on verifiying {class_name}");
+            break;
+        }
+        match verifier_failure_feedback {
+            Some(error_message) => {
+                info!(target:"autoproof", "Try #{number_of_tries} fails to fix {class_name}");
 
                 let feature_candidates = generators
                     .class_wide_fixes(workspace, &path, error_message)
@@ -33,7 +36,7 @@ pub async fn fix_class_in_place(
                 modify_in_place::rewrite_features(workspace.path(class_name), &feature_candidates)
                     .await;
             }
-            ControlFlow::Continue(None) => {}
+            None => {}
         }
     }
 }

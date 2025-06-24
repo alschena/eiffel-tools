@@ -57,17 +57,17 @@ pub async fn verification(
             ControlFlow::Continue(Some(error_message))
         }
         Ok(Ok(None)) => {
-            warn!("The LSP fails to run the AutoProof CLI.");
+            info!("The LSP fails to run the AutoProof CLI.");
             ControlFlow::Break(())
         }
         Ok(Err(_timeout)) => {
             reset_source(workspace, path.to_path_buf(), last_valid_code).await;
-            warn!(target: "autoproof", "AutoProof times out verifying {entity_under_verification}.");
+            info!(target: "autoproof", "AutoProof times out verifying {entity_under_verification}.");
             ControlFlow::Continue(None)
         }
         Err(fails_to_complete_task) => {
             reset_source(workspace, path.to_path_buf(), last_valid_code).await;
-            warn!("Fails to await for AutoProof task because {fails_to_complete_task:#?}");
+            info!("Fails to await for AutoProof task because {fails_to_complete_task:#?}");
             ControlFlow::Continue(None)
         }
     }

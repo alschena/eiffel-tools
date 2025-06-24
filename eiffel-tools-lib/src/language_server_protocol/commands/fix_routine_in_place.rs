@@ -15,21 +15,26 @@ pub async fn fix_routine_in_place(
     let mut last_valid_code = tokio::fs::read(&path)
         .await
         .unwrap_or_else(|e| panic!("fails to read at path {:#?} with {:#?}", &path, e));
+    let feature_name = feature.name();
+    let max_number_of_tries = 10;
+    let mut number_of_tries = 0;
 
-    for number_of_tries in 0..10 {
-        let feature_name = feature.name();
-
-        let verification = modify_in_place::verification(
-            class_name,
-            Some(feature_name),
-            workspace,
-            &mut last_valid_code,
-        )
-        .await;
-
-        match verification {
-            ControlFlow::Continue(Some(error_message)) => {
-                info!(target:"autoproof", "Fix #{number_of_tries} of {class_name}.{feature_name} fails.");
+    while let ControlFlow::Continue(verifier_failure_feedback) = modify_in_place::verification(
+        class_name,
+        Some(feature_name),
+        workspace,
+        &mut last_valid_code,
+    )
+    .await
+    {
+        number_of_tries += 1;
+        if max_number_of_tries <= number_of_tries {
+            info!(target: "autoproof", "Giving up on verifiying {class_name}.{}",feature.name());
+            break;
+        }
+        info!(target:"autoproof", "Try #{number_of_tries} on {class_name}.{}",feature.name());
+        match verifier_failure_feedback {
+            Some(error_message) => {
                 if let Some((ft_name, body)) = generators
                     .routine_fixes(&workspace, &path, feature_name, error_message)
                     .await
@@ -37,10 +42,7 @@ pub async fn fix_routine_in_place(
                     modify_in_place::rewrite_features(&path, &[(ft_name.to_owned(), body)]).await;
                 }
             }
-            ControlFlow::Continue(None) => {}
-            ControlFlow::Break(_) => {
-                break;
-            }
+            None => {}
         }
     }
 }
