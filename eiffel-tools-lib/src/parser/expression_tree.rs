@@ -6,28 +6,27 @@ use crate::parser::FeatureName;
 use anyhow::Context;
 use anyhow::Result;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
-pub trait ExpressionTree<'tree> {
-    fn query_top_level_identifiers() -> Query {
-        util::query("(call (unqualified_call (identifier) @id) !target)")
-    }
+pub static EXPRESSION_TOP_LEVEL_IDENTIFIERS_QUERY: LazyLock<Query> =
+    LazyLock::new(|| util::query("(call (unqualified_call (identifier) @id) !target)"));
 
-    fn top_level_identifiers(&mut self) -> Result<HashSet<&str>>;
-
-    fn query_top_level_call_with_arguments() -> Query {
-        util::query(
-            r#"(call (unqualified_call (identifier) @id
+pub static EXPRESSION_TOP_LEVEL_CALLS_WITH_ARGUMENTS: LazyLock<Query> = LazyLock::new(|| {
+    util::query(
+        r#"(call (unqualified_call (identifier) @id
                 (actuals (expression) @argument
                     ("," (expression) @argument)*) !target)) @call"#,
-        )
-    }
+    )
+});
 
+pub trait ExpressionTree<'tree> {
+    fn top_level_identifiers(&mut self) -> Result<HashSet<&str>>;
     fn top_level_calls_with_arguments(&mut self) -> Result<Vec<(FeatureName, Vec<String>)>>;
 }
 
 impl<'tree> ExpressionTree<'tree> for TreeTraversal<'_, 'tree> {
     fn top_level_identifiers(&mut self) -> Result<HashSet<&str>> {
-        self.set_query(<Self as ExpressionTree>::query_top_level_identifiers());
+        self.set_query(&EXPRESSION_TOP_LEVEL_IDENTIFIERS_QUERY);
 
         self.nodes_captures("id")?
             .into_iter()
@@ -38,7 +37,7 @@ impl<'tree> ExpressionTree<'tree> for TreeTraversal<'_, 'tree> {
     fn top_level_calls_with_arguments(&mut self) -> Result<Vec<(FeatureName, Vec<String>)>> {
         let initial_node = self.current_node();
 
-        self.set_query(<Self as ExpressionTree>::query_top_level_call_with_arguments());
+        self.set_query(&EXPRESSION_TOP_LEVEL_CALLS_WITH_ARGUMENTS);
 
         let mut top_level_calls = Vec::new();
         for call_node in self.nodes_captures("call")? {

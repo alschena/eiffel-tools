@@ -1,5 +1,6 @@
 use anyhow::Context;
 use anyhow::Result;
+use std::sync::LazyLock;
 
 use crate::parser::EiffelType;
 use crate::parser::Node;
@@ -9,19 +10,19 @@ use crate::parser::util::Traversal;
 
 use super::TreeTraversal;
 
-pub trait EiffelTypeTree<'source, 'tree> {
-    fn query() -> Query {
-        util::query(
-            r#"
+static EIFFELTYPE_QUERY: LazyLock<Query> = LazyLock::new(|| {
+    util::query(
+        r#"
             [
                 (class_type (class_name) @class_name)  @class_type
                 (tuple_type) @tuple_type
                 (anchored) @anchored_type
             ] @eiffel_type
             "#,
-        )
-    }
+    )
+});
 
+pub trait EiffelTypeTree<'source, 'tree> {
     fn goto_eiffel_type_tree(&mut self, node: Node<'tree>);
 
     fn eiffel_type(&mut self) -> Result<EiffelType>;
@@ -32,7 +33,7 @@ impl<'source, 'tree> EiffelTypeTree<'source, 'tree> for TreeTraversal<'source, '
         assert!(
             node.kind() == "class_type" || node.kind() == "tuple_type" || node.kind() == "anchored"
         );
-        self.set_node_and_query(node, <Self as EiffelTypeTree>::query());
+        self.set_node_and_query(node, &EIFFELTYPE_QUERY);
     }
 
     fn eiffel_type(&mut self) -> Result<EiffelType> {

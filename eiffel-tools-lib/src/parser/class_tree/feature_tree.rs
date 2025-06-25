@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use super::*;
 use crate::parser::class_tree::contract_tree::ContractTree;
 use crate::parser::class_tree::eiffel_type::EiffelTypeTree;
@@ -9,50 +11,15 @@ use tracing::warn;
 mod parameter_tree;
 use parameter_tree::ParameterTree;
 
-pub trait FeatureClauseTree<'source, 'tree> {
-    type Error;
-
-    fn query() -> Query {
+pub static FEATURE_CLAUSE_QUERY: LazyLock<Query> = LazyLock::new(||
         util::query(
             r#"
             (feature_clause (feature_declaration)* @feature)
             "#,
         )
-    }
+);
 
-    fn goto_feature_clause_tree(&mut self, feature_clause_node: Node<'tree>);
-
-    fn features(&mut self) -> Result<Vec<Feature>>;
-}
-
-impl<'source, 'tree, T: FeatureTree<'source, 'tree>> FeatureClauseTree<'source, 'tree> for T {
-    type Error = anyhow::Error;
-    fn goto_feature_clause_tree(&mut self, feature_clause_node: Node<'tree>) {
-        assert_eq!(feature_clause_node.kind(), "feature_clause");
-        self.set_node_and_query(feature_clause_node, <Self as FeatureClauseTree>::query());
-    }
-
-    fn features(&mut self) -> Result<Vec<Feature>, Self::Error> {
-        let feature_declaration = self.nodes_captures("feature")?;
-
-        let mut features = Vec::new();
-        for feature_declaration_node in feature_declaration {
-            self.goto_feature_tree(feature_declaration_node);
-            match self.feature() {
-                Ok(features_in_clause) => features.extend(features_in_clause),
-                Err(e) => {
-                    warn!(
-                        "fails to parse feature clause at node: {feature_declaration_node:#?} with error: {e:#?}"
-                    )
-                }
-            }
-        }
-        Ok(features)
-    }
-}
-
-pub trait FeatureTree<'source, 'tree>: Traversal<'source, 'tree> {
-    fn query() -> Query {
+pub static FEATURE_QUERY: LazyLock<Query> = LazyLock::new(||
         util::query(
             r#"(feature_declaration
                 (new_feature (extended_feature_name) @feature_name)
@@ -66,8 +33,42 @@ pub trait FeatureTree<'source, 'tree>: Traversal<'source, 'tree> {
                     (postcondition)? @postcondition
                 )? @attribute_or_routine) @feature_declaration"#,
         )
+);
+
+pub trait FeatureClauseTree<'source, 'tree> {
+    type Error;
+
+    fn goto_feature_clause_tree(&mut self, feature_clause_node: Node<'tree>);
+
+    fn features(&mut self) -> Result<Vec<Feature>>;
+}
+
+impl<'source, 'tree, T: FeatureTree<'source, 'tree>> FeatureClauseTree<'source, 'tree> for T {
+    type Error = anyhow::Error;
+    fn goto_feature_clause_tree(&mut self, feature_clause_node: Node<'tree>) {
+        assert_eq!(feature_clause_node.kind(), "feature_clause");
+        self.set_node_and_query(feature_clause_node, &FEATURE_CLAUSE_QUERY);
     }
 
+    fn features(&mut self) -> Result<Vec<Feature>, Self::Error> {
+        let feature_declaration = self.nodes_captures("feature")?;
+
+        Ok(feature_declaration.into_iter().fold(Vec::new(),|mut acc, feature_declaration_node| {
+            self.goto_feature_tree(feature_declaration_node);
+            match self.feature() {
+                Ok(features_in_clause) => acc.extend(features_in_clause),
+                Err(e) => {
+                    warn!(
+                        "fails to parse feature clause at node: {feature_declaration_node:#?} with error: {e:#?}"
+                    )},
+                }
+            acc
+            
+        }))
+    }
+}
+
+pub trait FeatureTree<'source, 'tree>: Traversal<'source, 'tree> {
     fn goto_feature_tree(&mut self, feature_declaration_node: Node<'tree>);
 
     fn feature(&mut self) -> Result<impl IntoIterator<Item = Feature>>;
@@ -238,7 +239,7 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
             feature_declaration_node.kind() == "feature_declaration"
                 || feature_declaration_node.kind() == "source_file"
         );
-        self.set_node_and_query(feature_declaration_node, <Self as FeatureTree>::query());
+        self.set_node_and_query(feature_declaration_node, &FEATURE_QUERY);
     }
 
     fn feature_names(&mut self, feature_nodes: &FeatureNodes) -> Result<Vec<String>> {
@@ -451,7 +452,7 @@ end"#;
             )?;
             tree_traversal.set_node_and_query(
                 first_feature_clause,
-                <TreeTraversal as FeatureClauseTree>::query(),
+                &FEATURE_CLAUSE_QUERY,
             );
             Ok(tree_traversal)
         }

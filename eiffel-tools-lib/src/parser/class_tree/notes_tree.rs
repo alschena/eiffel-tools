@@ -1,12 +1,13 @@
+use std::sync::LazyLock;
+
 use crate::parser::util::Traversal;
 use crate::parser::util::is_inside;
 use crate::parser::*;
 use anyhow::Result;
 
-pub trait NotesTree<'source, 'tree> {
-    fn query() -> Query {
-        util::query(
-            r#"
+pub static NOTES_QUERY: LazyLock<Query> = LazyLock::new(|| {
+    util::query(
+        r#"
             (notes (note_entry
                 (tag) @model_tag
                 value: (_) @model_value
@@ -17,9 +18,10 @@ pub trait NotesTree<'source, 'tree> {
                 value: (_) @note_value
                 ("," value: (_) @note_value)*))
             "#,
-        )
-    }
+    )
+});
 
+pub trait NotesTree<'source, 'tree> {
     fn goto_notes_tree(&mut self, node: Node<'tree>);
 
     fn notes(&mut self) -> Result<FeatureNotes>;
@@ -34,7 +36,7 @@ pub trait NotesTree<'source, 'tree> {
 impl<'source, 'tree> NotesTree<'source, 'tree> for TreeTraversal<'source, 'tree> {
     fn goto_notes_tree(&mut self, node: Node<'tree>) {
         assert_eq!(node.kind(), "notes");
-        self.set_node_and_query(node, <Self as NotesTree>::query());
+        self.set_node_and_query(node, &NOTES_QUERY);
     }
 
     fn notes(&mut self) -> Result<FeatureNotes> {
@@ -111,7 +113,7 @@ end
                 .notes_nodes
                 .pop()
                 .with_context(|| "fails to get the class notes node.")?;
-            tree_traversal.set_node_and_query(node, <TreeTraversal as NotesTree>::query());
+            tree_traversal.set_node_and_query(node, &NOTES_QUERY);
             Ok(tree_traversal)
         }
     }

@@ -1,6 +1,7 @@
 use crate::parser::Node;
 use anyhow::Context;
 use anyhow::Result;
+use std::sync::LazyLock;
 
 use crate::parser::Query;
 use crate::parser::util;
@@ -9,13 +10,11 @@ use crate::parser::util::is_inside;
 
 use crate::code_entities::prelude::contract::*;
 
-pub trait ContractTree<'source, 'tree>: Traversal<'source, 'tree> {
-    fn query() -> Query {
-        util::query(
-            r#"(assertion_clause (tag_mark (tag) @tag)? (expression) @expression)* @clause"#,
-        )
-    }
+static CONTRACT_QUERY: LazyLock<Query> = LazyLock::new(|| {
+    util::query(r#"(assertion_clause (tag_mark (tag) @tag)? (expression) @expression)* @clause"#)
+});
 
+pub trait ContractTree<'source, 'tree>: Traversal<'source, 'tree> {
     fn goto_contract_tree(&mut self, contract_node: Node<'tree>);
 
     fn clauses(&mut self) -> Result<Vec<Clause>>;
@@ -28,7 +27,7 @@ impl<'source, 'tree, T: Traversal<'source, 'tree>> ContractTree<'source, 'tree> 
                 || contract_node.kind() == "postcondition"
                 || contract_node.kind() == "invariant"
         );
-        self.set_node_and_query(contract_node, <Self as ContractTree>::query());
+        self.set_node_and_query(contract_node, &CONTRACT_QUERY);
     }
 
     fn clauses(&mut self) -> Result<Vec<Clause>> {

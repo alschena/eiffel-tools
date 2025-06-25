@@ -2,7 +2,6 @@ use crate::parser::*;
 use anyhow::Result;
 use anyhow::anyhow;
 use tree_sitter::QueryCaptures;
-use tree_sitter::QueryMatches;
 
 pub fn query(sexp: &str) -> Query {
     Query::new(&tree_sitter_eiffel::LANGUAGE.into(), sexp)
@@ -25,13 +24,13 @@ pub trait Traversal<'source, 'tree> {
     fn current_node(&self) -> Node<'tree>;
     fn node_content(&self, node: Node<'tree>) -> Result<&str>;
     fn nodes_captures(&mut self, capture_name: &str) -> Result<Vec<Node<'tree>>>;
-    fn set_node_and_query(&mut self, node: Node<'tree>, query: Query);
+    fn set_node_and_query(&mut self, node: Node<'tree>, query: &'static Query);
 }
 
 pub struct TreeTraversal<'source, 'tree> {
     source: &'source [u8],
     node: Node<'tree>,
-    query: Query,
+    query: &'static Query,
     cursor: QueryCursor,
 }
 
@@ -61,14 +60,18 @@ impl<'source, 'tree> Traversal<'source, 'tree> for TreeTraversal<'source, 'tree>
         Ok(nodes)
     }
 
-    fn set_node_and_query(&mut self, node: Node<'tree>, query: Query) {
+    fn set_node_and_query(&mut self, node: Node<'tree>, query: &'static Query) {
         self.set_node(node);
         self.set_query(query);
     }
 }
 
 impl<'source, 'tree> TreeTraversal<'source, 'tree> {
-    pub fn try_new(source: &'source [u8], node: Node<'tree>, query: Query) -> Result<Self> {
+    pub fn try_new(
+        source: &'source [u8],
+        node: Node<'tree>,
+        query: &'static Query,
+    ) -> Result<Self> {
         let cursor = QueryCursor::new();
 
         Ok(Self {
@@ -83,7 +86,7 @@ impl<'source, 'tree> TreeTraversal<'source, 'tree> {
         self.node = node
     }
 
-    pub(super) fn set_query(&mut self, query: Query) {
+    pub(super) fn set_query(&mut self, query: &'static Query) {
         self.query = query
     }
 

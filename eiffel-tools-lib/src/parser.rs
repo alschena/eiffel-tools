@@ -13,9 +13,12 @@ use super::code_entities::contract::*;
 use super::code_entities::prelude::*;
 
 mod class_tree;
+use class_tree::CLASS_QUERY;
+use class_tree::FEATURE_QUERY;
 use class_tree::FeatureTree;
 
 mod expression_tree;
+use expression_tree::EXPRESSION_TOP_LEVEL_IDENTIFIERS_QUERY;
 pub use expression_tree::ExpressionTree;
 
 mod util;
@@ -127,22 +130,18 @@ impl ParsedSource<'_> {
     }
 
     fn class_tree_traversal(&self) -> Result<TreeTraversal<'_, '_>> {
-        TreeTraversal::try_new(self.source, self.tree.root_node(), class_tree::query())
+        TreeTraversal::try_new(self.source, self.tree.root_node(), &CLASS_QUERY)
     }
 
     fn feature_tree_traversal(&self) -> Result<TreeTraversal<'_, '_>> {
-        TreeTraversal::try_new(
-            self.source,
-            self.tree.root_node(),
-            <TreeTraversal as FeatureTree>::query(),
-        )
+        TreeTraversal::try_new(self.source, self.tree.root_node(), &FEATURE_QUERY)
     }
 
     pub fn expression_tree_traversal(&self) -> Result<TreeTraversal<'_, '_>> {
         TreeTraversal::try_new(
             self.source,
             self.tree.root_node(),
-            <TreeTraversal as ExpressionTree>::query_top_level_identifiers(),
+            &EXPRESSION_TOP_LEVEL_IDENTIFIERS_QUERY,
         )
     }
 }

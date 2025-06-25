@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use anyhow::Context;
 use anyhow::Result;
 
@@ -8,17 +10,17 @@ use crate::parser::Query;
 use crate::parser::util;
 use crate::parser::util::Traversal;
 
-pub trait InheritanceTree<'source, 'tree> {
-    fn query() -> Query {
-        util::query(
-            r#"
+pub static INHERITANCE_QUERY: LazyLock<Query> = LazyLock::new(|| {
+    util::query(
+        r#"
                 (parent (class_type (class_name) @name)
                 (feature_adaptation (rename (rename_pair (identifier) @rename_before
                         (extended_feature_name) @rename_after)* )?)?)
             "#,
-        )
-    }
+    )
+});
 
+pub trait InheritanceTree<'source, 'tree> {
     fn goto_inheritance_tree(&mut self, parent_node: Node<'tree>);
     fn parent(&mut self) -> Result<ClassParent>;
 }
@@ -29,7 +31,7 @@ where
 {
     fn goto_inheritance_tree(&mut self, parent_node: Node<'tree>) {
         assert_eq!(parent_node.kind(), "parent");
-        self.set_node_and_query(parent_node, <Self as InheritanceTree>::query());
+        self.set_node_and_query(parent_node, &INHERITANCE_QUERY);
     }
 
     fn parent(&mut self) -> Result<ClassParent> {

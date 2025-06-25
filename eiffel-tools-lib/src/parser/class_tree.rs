@@ -2,10 +2,12 @@ use crate::parser::util::Traversal;
 use crate::parser::*;
 use anyhow::Result;
 use anyhow::ensure;
+use std::sync::LazyLock;
 
 mod contract_tree;
 mod eiffel_type;
 mod feature_tree;
+pub use feature_tree::FEATURE_QUERY;
 
 use contract_tree::ContractTree;
 use feature_tree::FeatureClauseTree;
@@ -17,8 +19,7 @@ use notes_tree::NotesTree;
 
 mod notes_tree;
 
-#[instrument(skip_all)]
-pub(super) fn query() -> Query {
+pub static CLASS_QUERY: LazyLock<Query> = LazyLock::new(|| {
     util::query(
         r#"
             (class_declaration
@@ -31,7 +32,7 @@ pub(super) fn query() -> Query {
             )@class
             "#,
     )
-}
+});
 
 struct ClassDeclarationNodes<'tree> {
     notes_nodes: Vec<Node<'tree>>,
