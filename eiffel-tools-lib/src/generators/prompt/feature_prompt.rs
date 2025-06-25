@@ -67,17 +67,13 @@ fn feature_identifiers_injections(
             beginning,
             Source::format_available_identifiers_in_feature_preconditon(
                 workspace, class_name, feature,
-            )
-            .comment()
-            .indent(),
+            ),
         ),
         Injection(
             beginning,
             Source::format_available_identifiers_in_feature_postconditions(
                 workspace, class_name, feature,
-            )
-            .comment()
-            .indent(),
+            ),
         ),
     ]
 }

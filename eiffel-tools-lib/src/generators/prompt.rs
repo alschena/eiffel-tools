@@ -125,7 +125,7 @@ impl Source {
         if parameters.is_empty() {
             Source(String::new())
         } else {
-            Source(format!("{parameters}")).comment()
+            Source(format!("{parameters}"))
         }
     }
 
