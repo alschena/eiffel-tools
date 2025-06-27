@@ -78,41 +78,47 @@ where
     B: AsRef<str> + 'ft,
     I: IntoIterator<Item = &'ft (FeatureName, B)> + Copy,
 {
-    if let Some(content) = rewriting_features(path, features).await {
-        let _ = tokio::fs::write(path, content)
-            .await
-            .inspect_err(|e| warn!("Fails to await rewriting file at {path:#?} with {e:#?}"))
-            .ok();
+    let maybe_rewrite_handle = tokio::fs::read(path)
+        .await
+        .inspect_err(|e| warn!("Fails to await reading {path:#?} before rewrite because {e:#?}"))
+        .ok()
+        .and_then(move |ref content| {
+            str::from_utf8(content)
+                .inspect_err(|e| warn!("Fails to convert file content to UFT-8 because {e:#?}"))
+                .ok()
+                .and_then(|initial_content| rewriting_features(initial_content, features))
+        })
+        .map(move |new_file| {
+            let path = path.to_owned();
+            tokio::spawn(tokio::fs::write(path, new_file))
+        });
+
+    if let Some(rewrite_handle) = maybe_rewrite_handle {
+        match rewrite_handle.await {
+            Ok(Err(e)) => {
+                warn!("Fails to rewrite fetures because {e:#?}")
+            }
+            Err(e) => {
+                warn!("Fails to await the rewriting of features because {e:#?}.")
+            }
+            Ok(Ok(())) => {}
+        }
     }
 }
 
-async fn rewriting_features<'ft, B, I>(path: &Path, features: I) -> Option<String>
+fn rewriting_features<'ft, B, I>(initial_source: &str, features: I) -> Option<String>
 where
     B: AsRef<str> + 'ft,
     I: IntoIterator<Item = &'ft (FeatureName, B)> + Copy,
 {
-    tokio::fs::read(path)
-        .await
-        .inspect_err(|e| warn!("Fails to read {path:#?} because {e:#?}"))
+    parser::Parser::new()
+        .class_and_tree_from_source(initial_source)
+        .inspect_err(|e| warn!("Fails to parse file rewriting feature because {e:#?}"))
         .ok()
-        .and_then(|file_content| {
-            String::from_utf8(file_content)
-                .inspect_err(|e| {
-                    warn!("Fails to convert file at {path:#?} to UFT-8 string because {e:#?}")
-                })
-                .ok()
-        })
-        .and_then(|file_content| {
-            let mut parser = parser::Parser::new();
-            parser
-                .class_and_tree_from_source(&file_content)
-                .inspect_err(|e| warn!("Fails to parse file at {path:#?} because {e:#?}"))
-                .ok()
-                .map(|(cl, _)| (file_content, cl))
-        })
-        .map(|(file_content, class)| {
+        .map(|(cl, _)| (initial_source, cl))
+        .map(|(initial_source, class)| {
             let current_features = class.features();
-            file_content
+            initial_source
                 .lines()
                 .enumerate()
                 .fold(String::new(), |mut acc, (linenum, line)| {
