@@ -102,18 +102,44 @@ async fn feature_by_feature(
 
     let classes_names = name_classes(&classes_file).await;
 
-    let mut generators = Generators::default();
-    generators.add_new().await;
+    let generators = {
+        let mut generators = Generators::default();
+        generators.add_new().await;
+        Arc::new(generators)
+    };
 
-    let mut ws = workspace.write().await;
+    let classes_and_routines = {
+        let ws = workspace.read().await;
+        classes_and_routines(&ws, classes_names)
+    };
 
-    let classes_and_routines = classes_and_routines(&ws, classes_names);
+    let handles = classes_and_routines
+        .into_iter()
+        .flat_map(|(classname, features)| {
+            features
+                .into_iter()
+                .map(move |feature| (classname.clone(), feature.name().to_owned()))
+        })
+        .map(move |(classname, featurename)| {
+            let local_generators = generators.clone();
+            let local_owned_workspace = workspace.clone();
+            let local_classname = classname.clone();
+            let local_featurename = featurename.clone();
 
-    for (class, features) in classes_and_routines {
-        for feature in features {
-            fix_routine_in_place::fix_routine_in_place(&generators, &mut ws, &class, &feature)
-                .await;
-        }
+            tokio::spawn(async move {
+                let mut ws = local_owned_workspace.write().await;
+                fix_routine_in_place::fix_routine_in_place(
+                    &local_generators,
+                    &mut ws,
+                    &local_classname,
+                    &local_featurename,
+                )
+                .await
+            })
+        });
+
+    for handle in handles {
+        handle.await.expect("Fails to await fix routine in place.")
     }
 }
 
