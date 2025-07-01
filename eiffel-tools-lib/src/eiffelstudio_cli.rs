@@ -8,12 +8,14 @@ pub enum VerificationResult {
 }
 
 fn verification_result(verification_message: String) -> VerificationResult {
-    if verification_message.contains("Verification failed") {
-        info!(target:"autoproof", "AutoProof fails with message: {}", verification_message);
-        VerificationResult::Failure(verification_message)
-    } else {
+    if verification_message.contains("Successfully verified")
+        && !verification_message.contains("Verification failed")
+    {
         info!(target: "autoproof", "Autoproof succedes.");
         VerificationResult::Success
+    } else {
+        info!(target: "autoproof", "AutoProof fails with message: {}", verification_message);
+        VerificationResult::Failure(verification_message)
     }
 }
 

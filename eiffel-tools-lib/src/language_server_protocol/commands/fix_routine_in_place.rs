@@ -34,11 +34,11 @@ pub async fn fix_routine_in_place(
         info!(target:"autoproof", "Try #{number_of_tries} on {class_name}.{}",feature_name);
         match verifier_failure_feedback {
             Some(error_message) => {
-                if let Some((ft_name, body)) = generators
-                    .routine_fixes(&workspace, &path, feature_name, error_message)
+                if let Some((ft, body)) = generators
+                    .fixed_routine_src(&workspace, &path, feature_name, error_message)
                     .await
                 {
-                    modify_in_place::rewrite_features(&path, &[(ft_name.to_owned(), body)]).await;
+                    modify_in_place::rewrite_features(&path, &[(ft.name().to_owned(), body)]).await;
                 }
             }
             None => {}

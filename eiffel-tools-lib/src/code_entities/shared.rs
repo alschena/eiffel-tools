@@ -19,6 +19,10 @@ impl Point {
         self.column += shift;
     }
 
+    pub fn shift_up(&mut self, shift: usize) {
+        self.row -= shift;
+    }
+
     pub fn reset_column(&mut self) {
         self.column = 0;
     }
@@ -81,6 +85,13 @@ impl Range {
     pub fn collapse_to_line_start(&mut self) {
         self.start.reset_column();
         self.end.reset_column();
+    }
+
+    pub fn move_one_line_up(&mut self) {
+        let Range { start, end } = self;
+
+        start.shift_up(1);
+        end.shift_up(1);
     }
 }
 

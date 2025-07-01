@@ -7,6 +7,7 @@ use std::borrow::Borrow;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::path::Path;
+use tracing::warn;
 
 mod notes;
 pub use notes::Notes;
@@ -113,6 +114,34 @@ impl Feature {
             body_range,
             preconditions,
             postconditions,
+        }
+    }
+
+    pub fn move_one_line_up(&mut self) {
+        let Feature {
+            name: _,
+            parameters: _,
+            return_type: _,
+            notes: _,
+            visibility: _,
+            range,
+            body_range,
+            preconditions,
+            postconditions,
+        } = self;
+
+        if let Some(Block { item: _, range }) = preconditions {
+            range.move_one_line_up();
+        }
+
+        if let Some(Block { item: _, range }) = postconditions {
+            range.move_one_line_up();
+        }
+
+        range.move_one_line_up();
+
+        if let Some(range) = body_range {
+            range.move_one_line_up();
         }
     }
 

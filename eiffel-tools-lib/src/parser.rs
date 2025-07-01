@@ -107,9 +107,12 @@ impl Parser {
         } else {
             let mut feature_tree_traversal = parsed_source.feature_tree_traversal()?;
             let alias_features = feature_tree_traversal.feature()?;
-            let any_feature = alias_features.into_iter().next().with_context(
+            let mut any_feature = alias_features.into_iter().next().with_context(
                 || "fails to get a feature from a vector of alias features parsing source: {source}",
             )?;
+            // All ranges are skewed by the prefix.
+            any_feature.move_one_line_up();
+
             Ok(Parsed::Correct(any_feature))
         }
     }

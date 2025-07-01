@@ -51,7 +51,7 @@ mod feature_focused {
     use super::*;
     use crate::parser::Parsed;
 
-    fn filter_unparsable(candidate: String) -> Option<(String, Feature)> {
+    fn filter_unparsable(candidate: String) -> Option<(Feature, String)> {
         match Parser::new().to_feature(&candidate) {
             Err(e) => {
                 info!(target: "llm", "Fails to parse LLM generated feature with error: {e:#?}");
@@ -59,7 +59,7 @@ mod feature_focused {
             }
             Ok(Parsed::Correct(val)) => {
                 info!(target: "llm", "Parsable LLM candidate:\t{:#?}", candidate);
-                Some((candidate, val))
+                Some((val, candidate))
             }
             Ok(Parsed::HasErrorNodes(tree, candidate)) => {
                 info!(target: "llm", "LLM candidate has error nodes.\nCandidate text: {:#?}\nTree: {:#?}",
@@ -96,7 +96,7 @@ mod feature_focused {
             let completion_response_processed = completion_response
                 .flat_map(|reply| reply.markdown_to_code())
                 .filter_map(filter_unparsable)
-                .map(|(_, ft)| ft.routine_specification())
+                .map(|(ft, _)| ft.routine_specification())
                 .collect();
 
             info!("completions:\t{completion_response_processed:#?}");
@@ -135,7 +135,7 @@ mod feature_focused {
             let completion_response_processed: Option<String> = completion_response
                 .flat_map(|response| response.markdown_to_code())
                 .filter_map(filter_unparsable)
-                .filter_map(|(source,ft)| ft.body_source_unchecked(source)
+                .filter_map(|(ft,source)| ft.body_source_unchecked(source)
                     .inspect_err(|e| info!(target: "llm", "fails to extract body of candidate feature with error: {:#?}", e))
                     .ok())
                 .next();
@@ -147,13 +147,13 @@ mod feature_focused {
             Ok(completion_response_processed)
         }
 
-        pub async fn routine_fixes<'slf, 'ft: 'slf>(
+        pub async fn fixed_routine_src<'slf, 'ft: 'slf>(
             &'slf self,
             workspace: &Workspace,
             path: &Path,
             name_routine: &'ft FeatureName,
             error_message: String,
-        ) -> Option<(&'ft FeatureName, String)> {
+        ) -> Option<(Feature, String)> {
             let prompt = prompt::FeaturePrompt::try_new_for_feature_fixes(
                 workspace,
                 path,
@@ -173,13 +173,10 @@ mod feature_focused {
                 .into_iter()
                 .inspect(|response| info!(target: "llm", "LLM response {response:#?}"));
 
-            let proposed_feature = completion_response
+            completion_response
                 .flat_map(|response| response.markdown_to_code())
                 .filter_map(filter_unparsable)
-                .map(|(candidate, _)| candidate)
-                .next();
-
-            proposed_feature.map(|candidate| (name_routine, candidate))
+                .next()
         }
     }
 }

@@ -166,17 +166,28 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
                     Ok(Ok(Some(VerificationResult::Failure(error_message))))
                         if number_of_tries <= max_number_of_tries =>
                     {
-                        let maybe_candidate = generators
-                            .fix_body(workspace, path, feature.name(), error_message)
-                            .await?;
-
-                        // Write text edits to disk.
-                        if let Some(candidate) = maybe_candidate {
-                            feature_verified = Some(candidate.clone());
-
-                            info!(target: "llm", "Writing candidate to subclass file:\n{}", candidate);
-                            write_to_feature_redefinition(path, class.name(), feature, candidate)
-                                .await?;
+                        // all candidates are generating from the initial feature,
+                        // not the programmatically generated redefinition in the artificial subclass.
+                        if let Some((feature, candidate_text)) = generators
+                            .fixed_routine_src(workspace, path, feature.name(), error_message)
+                            .await
+                        {
+                            match feature.body_source_unchecked(candidate_text) {
+                                Ok(body_src) => {
+                                    feature_verified = Some(body_src.clone());
+                                    info!(target: "llm", "Writing feature body candidate to subclass file:\n{}", body_src);
+                                    write_to_feature_redefinition(
+                                        path,
+                                        class.name(),
+                                        &feature,
+                                        body_src,
+                                    )
+                                    .await?;
+                                }
+                                Err(e) => warn!(
+                                    target:"llm", "Fails to extract the source of the feature's body with error {e:#?}"
+                                ),
+                            }
                         }
                     }
                     Ok(Ok(Some(VerificationResult::Failure(_)))) => {
