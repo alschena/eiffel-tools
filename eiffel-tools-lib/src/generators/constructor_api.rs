@@ -1,4 +1,5 @@
 use anyhow::Result;
+use anyhow::ensure;
 use reqwest::header::HeaderMap;
 use schemars::JsonSchema;
 use schemars::schema_for;
@@ -419,7 +420,13 @@ impl Llm {
 
         let response = request.send().await?;
 
-        debug_assert!(response.status().is_success(), "{}", response.text().await?);
+        ensure!(
+            response.status().is_success(),
+            "request parameters: {:#?}\n
+            response status: {}",
+            parameters,
+            response.status()
+        );
 
         let response_json = response.json().await?;
 
