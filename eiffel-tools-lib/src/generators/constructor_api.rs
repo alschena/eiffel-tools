@@ -272,15 +272,18 @@ impl CompletionResponse {
         )
     }
 
-    pub fn extract_multiline_code(&self) -> Vec<String> {
+    pub fn markdown_to_code(&self) -> Vec<String> {
         self.contents()
             .map(Self::remove_quotes_around_markdown_code_block)
-            .collect()
-    }
-
-    pub fn retry_extract_multiline_code(&self) -> Vec<String> {
-        self.contents()
-            .map(Self::first_code_block_in_markdown)
+            .into_iter()
+            .inspect(|content| info!("Extract from first markdown block in text: {content}"))
+            .chain(
+                self.contents()
+                    .map(Self::first_code_block_in_markdown)
+                    .inspect(|content| {
+                        info!("Extract from first markdown block in text: {content}")
+                    }),
+            )
             .collect()
     }
 }
@@ -541,10 +544,10 @@ mod tests {
     #[test]
     fn extract_multiline_code() {
         let res = CompletionResponse::new("```eiffel\nsmaller (other: NEW_INTEGER): BOOLEAN\n\tdo\n\t\tResult := value < other.value\n\tensure\n\t\tResult = (value < other.value)\n\tend\n```".to_string());
-        let multiline_code = res.extract_multiline_code();
-        let multiline_code = multiline_code.first().unwrap();
+        let multiline_code = res.markdown_to_code();
+        let content = multiline_code.first().unwrap();
         assert_eq!(
-            multiline_code,
+            content,
             "smaller (other: NEW_INTEGER): BOOLEAN\n\tdo\n\t\tResult := value < other.value\n\tensure\n\t\tResult = (value < other.value)\n\tend\n"
         );
     }
