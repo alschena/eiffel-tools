@@ -363,6 +363,7 @@ impl TryFrom<&Feature> for lsp_types::DocumentSymbol {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::Parsed;
     use crate::parser::Parser;
 
     fn class(src: &str) -> Result<Class> {
@@ -410,5 +411,45 @@ end"#;
                 .class_name()
                 .is_ok_and(|name| name == *"MML_SEQUENCE")
         );
+    }
+
+    #[test]
+    fn body_src() {
+        let src = r#"min (x, y: INTEGER): INTEGER
+		do
+		    if x < y then
+    		    Result := x
+    		else
+    		    y := y
+    		end
+		end"#;
+        let mut parser = Parser::new();
+
+        match parser.to_feature(src).expect("Should parse `min` feature.") {
+            Parsed::Correct(feature) => {
+                let body_src = feature.body_source_unchecked(src).unwrap_or_else(|e| {
+                    panic!(
+                        "Should extract body from the feature {:#?} with the code {}\nbecause {:#?}",
+                        feature, src, e
+                    )
+                });
+                assert_eq!(
+                    body_src,
+                    r#"
+		    if x < y then
+    		    Result := x
+    		else
+    		    y := y
+    		end
+"#
+                )
+            }
+            Parsed::HasErrorNodes(tree, _) => {
+                unreachable!(
+                    "The parsing of `min` should be correct. Instead, it returns the following tree: {}",
+                    tree.root_node().to_sexp()
+                )
+            }
+        }
     }
 }
