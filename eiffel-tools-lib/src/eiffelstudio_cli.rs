@@ -8,14 +8,23 @@ pub enum VerificationResult {
 }
 
 fn verification_result(verification_message: String) -> VerificationResult {
-    if verification_message.contains("Successfully verified")
-        && !verification_message.contains("Verification failed")
-    {
-        info!(target: "autoproof", "Autoproof succedes.");
-        VerificationResult::Success
-    } else {
-        info!(target: "autoproof", "AutoProof fails with message: {}", verification_message);
-        VerificationResult::Failure(verification_message)
+    match verification_message {
+        s if s.contains("Syntax error") => {
+            info!(target: "autoproof", "AutoProof fails to compile because of the following syntax error: {}", s);
+            VerificationResult::Failure(s)
+        }
+        s if s.contains("Error code") => {
+            info!(target: "autoproof", "AutoProof fails to compile because of the following error: {}", s);
+            VerificationResult::Failure(s)
+        }
+        s if s.contains("Verification failed") => {
+            info!(target: "autoproof", "AutoProof fails to verify because: {}", s);
+            VerificationResult::Failure(s)
+        }
+        _ => {
+            info!(target: "autoproof", "Autoproof succedes.");
+            VerificationResult::Success
+        }
     }
 }
 
