@@ -19,9 +19,9 @@ use tokio::sync::RwLock;
 #[command(version, about, long_about = None)]
 struct Args {
     #[arg(long)]
-    config_file: std::path::PathBuf,
+    config: std::path::PathBuf,
     #[arg(long)]
-    classes_file: std::path::PathBuf,
+    classes: std::path::PathBuf,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -33,8 +33,8 @@ async fn main() {
 
 async fn feature_by_feature(
     Args {
-        config_file,
-        classes_file,
+        config: config_file,
+        classes: classes_file,
     }: Args,
 ) {
     let log_directory_path = &Path::new(".lsp_eiffel.d");
