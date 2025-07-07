@@ -10,7 +10,11 @@ pub enum VerificationResult {
 fn verification_result(verification_message: String) -> VerificationResult {
     match verification_message {
         s if s.contains("Syntax error") => {
-            info!(target: "autoproof", "AutoProof fails to compile because of the following syntax error: {}", s);
+            info!(target: "autoproof", "AutoProof fails to parse because: {}", s);
+            VerificationResult::Failure(s)
+        }
+        s if s.contains("Type error") => {
+            info!(target: "autoproof", "AutoProof fails to type check because: {}", s);
             VerificationResult::Failure(s)
         }
         s if s.contains("Error code") => {
