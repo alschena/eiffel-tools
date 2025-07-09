@@ -12,9 +12,9 @@ use tokio::sync::RwLock;
 #[command(version, about, long_about = None)]
 struct Args {
     #[arg(long)]
-    config_file: std::path::PathBuf,
+    config: std::path::PathBuf,
     #[arg(long)]
-    classes_file: std::path::PathBuf,
+    classes: std::path::PathBuf,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -24,20 +24,15 @@ async fn main() {
     println!("DONE FIXING CLASSES.");
 }
 
-async fn class_by_class(
-    Args {
-        config_file,
-        classes_file,
-    }: Args,
-) {
+async fn class_by_class(Args { config, classes }: Args) {
     // TODO: add logging
 
-    let system = system(&config_file);
+    let system = system(&config);
     let workspace = Arc::new(RwLock::new(Workspace::default()));
 
     load_workspace(system, workspace.clone()).await;
 
-    let classes_names = name_classes(&classes_file).await;
+    let classes_names = name_classes(&classes).await;
 
     let mut generators = Generators::default();
     generators.add_new().await;
