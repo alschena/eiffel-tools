@@ -9,6 +9,14 @@ pub enum VerificationResult {
 
 fn verification_result(verification_message: String) -> VerificationResult {
     match verification_message {
+        s if s.contains("system execution failed") => {
+            info!(target: "autoproof", "EiffelStudio crashes because: {}", s);
+            VerificationResult::Failure(s)
+        }
+        s if s.contains("AutoProof error") => {
+            info!(target: "autoproof", "AutoProof fails due to an internal error: {}", s);
+            VerificationResult::Failure(s)
+        }
         s if s.contains("Syntax error") => {
             info!(target: "autoproof", "AutoProof fails to parse because: {}", s);
             VerificationResult::Failure(s)
