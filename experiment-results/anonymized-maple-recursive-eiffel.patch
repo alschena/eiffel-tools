@@ -1,0 +1,394 @@
+From: Anonymous
+Date: Fri, 4 Jul 2025 19:23:13 +0200
+Subject: [PATCH] feature-by-feature
+
+---
+ maple_recursive_absolute_1.e  |  2 +-
+ maple_recursive_absolute_2.e  |  2 +-
+ maple_recursive_conseq_1.e    |  2 +-
+ maple_recursive_conseq_2.e    |  2 +-
+ maple_recursive_conseq_3.e    |  2 +-
+ maple_recursive_conseq_4.e    |  2 +-
+ maple_recursive_increment_1.e |  2 +-
+ maple_recursive_increment_2.e |  2 +-
+ maple_recursive_increment_3.e |  2 +-
+ maple_recursive_increment_4.e |  2 +-
+ maple_recursive_max_2_1.e     |  2 +-
+ maple_recursive_max_2_2.e     |  2 +-
+ maple_recursive_max_3_1.e     |  6 +++---
+ maple_recursive_max_3_2.e     | 10 ++++------
+ maple_recursive_min_2_1.e     |  2 +-
+ maple_recursive_min_2_2.e     |  2 +-
+ maple_recursive_min_3_1.e     |  2 +-
+ maple_recursive_min_3_2.e     |  4 ++--
+ maple_recursive_sum_2_1.e     |  2 +-
+ maple_recursive_sum_2_2.e     |  2 +-
+ maple_recursive_sum_3_1.e     |  2 +-
+ maple_recursive_sum_3_2.e     |  4 ++--
+ maple_recursive_sum_n_1.e     |  2 +-
+ maple_recursive_sum_n_2.e     |  2 +-
+ maple_recursive_sum_n_3.e     |  2 +-
+ maple_recursive_sum_n_4.e     |  4 +++-
+ 26 files changed, 35 insertions(+), 35 deletions(-)
+
+diff --git a/maple_recursive_absolute_1.e b/maple_recursive_absolute_1.e
+index d0bd952..a259774 100644
+--- a/maple_recursive_absolute_1.e
++++ b/maple_recursive_absolute_1.e
+@@ -4,7 +4,7 @@ class
+ feature
+ 	abs (x: INTEGER): INTEGER
+ 		do
+-			if x >= 2 then
++			if x >= 0 then
+ 				Result := x
+ 			else
+ 				Result := -x
+diff --git a/maple_recursive_absolute_2.e b/maple_recursive_absolute_2.e
+index 4876478..29cbd4c 100644
+--- a/maple_recursive_absolute_2.e
++++ b/maple_recursive_absolute_2.e
+@@ -7,7 +7,7 @@ feature
+ 			if x >= 0 then
+ 				Result := x
+ 			else
+-				Result := x
++				Result := -x
+ 			end
+ 		ensure
+ 			arg_when_arg_non_negative: x >= 0 implies Result = x
+diff --git a/maple_recursive_conseq_1.e b/maple_recursive_conseq_1.e
+index 32f2940..4aec204 100644
+--- a/maple_recursive_conseq_1.e
++++ b/maple_recursive_conseq_1.e
+@@ -7,7 +7,7 @@ feature
+ 			arg_non_negative: n >= 0
+ 		do
+ 			if n = 0 then
+-				Result := 3
++				Result := 0
+ 			else
+ 				Result := n * (n + 1) + sum (n - 1)
+ 			end
+diff --git a/maple_recursive_conseq_2.e b/maple_recursive_conseq_2.e
+index 458480e..001765e 100644
+--- a/maple_recursive_conseq_2.e
++++ b/maple_recursive_conseq_2.e
+@@ -12,7 +12,7 @@ feature
+ 				Result := 0
+ 			else
+ 				k := n * (n + 1)
+-				Result := 4 * k + 3 * sum (n - 1)
++				Result := k + sum (n - 1)
+ 			end
+ 		ensure
+ 			result_correct: 3 * Result = n * (n + 1) * (n + 2)
+diff --git a/maple_recursive_conseq_3.e b/maple_recursive_conseq_3.e
+index 93f25ae..21d5402 100644
+--- a/maple_recursive_conseq_3.e
++++ b/maple_recursive_conseq_3.e
+@@ -13,7 +13,7 @@ feature
+ 			else
+ 				k := n * (n + 1)
+ 				h := sum (n - 1)
+-				Result := -h + k
++				Result := h + k
+ 			end
+ 		ensure
+ 			result_correct: 3 * Result = n * (n + 1) * (n + 2)
+diff --git a/maple_recursive_conseq_4.e b/maple_recursive_conseq_4.e
+index 6ebf52f..880b87f 100644
+--- a/maple_recursive_conseq_4.e
++++ b/maple_recursive_conseq_4.e
+@@ -13,7 +13,7 @@ feature
+ 			else
+ 				k := n * (n + 1)
+ 				h := sum (n - 1)
+-				Result := -h - k
++				Result := h + k
+ 			end
+ 		ensure
+ 			result_correct: 3 * Result = n * (n + 1) * (n + 2)
+diff --git a/maple_recursive_increment_1.e b/maple_recursive_increment_1.e
+index c6bad42..842cc72 100644
+--- a/maple_recursive_increment_1.e
++++ b/maple_recursive_increment_1.e
+@@ -12,6 +12,6 @@ feature
+ 				Result := 1 + increment (n - 1)
+ 			end
+ 		ensure
+-			result_is_arg: Result = n
++			result_is_arg_plus_three: Result = n + 3
+ 		end
+ end
+diff --git a/maple_recursive_increment_2.e b/maple_recursive_increment_2.e
+index 0d2521b..db04876 100644
+--- a/maple_recursive_increment_2.e
++++ b/maple_recursive_increment_2.e
+@@ -9,7 +9,7 @@ feature
+ 			if n = 0 then
+ 				Result := 0
+ 			else
+-				Result := 3 + increment (n - 1)
++				Result := 1 + increment (n - 1)
+ 			end
+ 		ensure
+ 			result_is_arg: Result = n
+diff --git a/maple_recursive_increment_3.e b/maple_recursive_increment_3.e
+index d705554..fb143fd 100644
+--- a/maple_recursive_increment_3.e
++++ b/maple_recursive_increment_3.e
+@@ -12,6 +12,6 @@ feature
+ 				Result := 1 + 2 * increment (n - 1)
+ 			end
+ 		ensure
+-			result_is_arg: Result = n
++			result_correct: Result = if n = 0 then 0 else 2^n - 1 end
+ 		end
+ end
+diff --git a/maple_recursive_increment_4.e b/maple_recursive_increment_4.e
+index 6ad2da5..df48f9f 100644
+--- a/maple_recursive_increment_4.e
++++ b/maple_recursive_increment_4.e
+@@ -12,6 +12,6 @@ feature
+ 				Result := 3 + 4 * increment (n - 1)
+ 			end
+ 		ensure
+-			result_is_arg: Result = n
++			result_formula: Result = 4^n - 1
+ 		end
+ end
+diff --git a/maple_recursive_max_2_1.e b/maple_recursive_max_2_1.e
+index 0a65782..cd66c78 100644
+--- a/maple_recursive_max_2_1.e
++++ b/maple_recursive_max_2_1.e
+@@ -5,7 +5,7 @@ feature
+ 	max(x, y: INTEGER): INTEGER
+ 		do
+ 			if x > y then
+-				Result := x + 2
++				Result := x
+ 			else
+ 				Result := y
+ 			end
+diff --git a/maple_recursive_max_2_2.e b/maple_recursive_max_2_2.e
+index a4aa8e7..a51d9f6 100644
+--- a/maple_recursive_max_2_2.e
++++ b/maple_recursive_max_2_2.e
+@@ -4,7 +4,7 @@ class
+ feature
+ 	max(x, y: INTEGER): INTEGER
+ 		do
+-			if x > 2 * y then
++			if x >= y then
+ 				Result := x
+ 			else
+ 				Result := y
+diff --git a/maple_recursive_max_3_1.e b/maple_recursive_max_3_1.e
+index d8a351e..78833d5 100644
+--- a/maple_recursive_max_3_1.e
++++ b/maple_recursive_max_3_1.e
+@@ -4,10 +4,10 @@ class
+ feature
+ 	max (x, y, z: INTEGER): INTEGER
+ 		do
+-			if x > y and x > z then
+-				Result := x + 2
++			if x >= y and x >= z then
++				Result := x
+ 			else
+-				if y > z then
++				if y >= z then
+ 					Result := y
+ 				else
+ 					Result := z
+diff --git a/maple_recursive_max_3_2.e b/maple_recursive_max_3_2.e
+index 7833634..839d661 100644
+--- a/maple_recursive_max_3_2.e
++++ b/maple_recursive_max_3_2.e
+@@ -4,14 +4,12 @@ class
+ feature
+ 	max(x, y, z: INTEGER): INTEGER
+ 		do
+-			if x > 2 * y and x > z then
++			if x >= y and x >= z then
+ 				Result := x
++			elseif y >= x and y >= z then
++				Result := y
+ 			else
+-				if y > z then
+-					Result := y
+-				else
+-					Result := z
+-				end
++				Result := z
+ 			end
+ 		ensure
+ 			max_x: x >= y and x >= z implies Result = x
+diff --git a/maple_recursive_min_2_1.e b/maple_recursive_min_2_1.e
+index 7ecffde..d3c50b0 100644
+--- a/maple_recursive_min_2_1.e
++++ b/maple_recursive_min_2_1.e
+@@ -13,7 +13,7 @@ feature
+ 			True
+ 		do
+ 			if a_x < a_y then
+-				Result := 2 * a_x
++				Result := a_x
+ 			else
+ 				Result := a_y
+ 			end
+diff --git a/maple_recursive_min_2_2.e b/maple_recursive_min_2_2.e
+index da016b0..874379e 100644
+--- a/maple_recursive_min_2_2.e
++++ b/maple_recursive_min_2_2.e
+@@ -12,7 +12,7 @@ feature
+ 		require
+ 			True
+ 		do
+-			if (3 * a_x) < a_y then
++			if a_x <= a_y then
+ 				Result := a_x
+ 			else
+ 				Result := a_y
+diff --git a/maple_recursive_min_3_1.e b/maple_recursive_min_3_1.e
+index fdbaeba..20110cb 100644
+--- a/maple_recursive_min_3_1.e
++++ b/maple_recursive_min_3_1.e
+@@ -17,7 +17,7 @@ feature
+ 			elseif a_y < a_z then
+ 				Result := a_y
+ 			else
+-				Result := 2 * a_z + 3
++				Result := a_z
+ 			end
+ 		ensure
+ 			result_for_a_x_smaller_or_equal_a_y_and_a_x_smaller_or_equal_a_z: ((a_x <= a_y) and (a_x <= a_z)) implies (Result = a_x)
+diff --git a/maple_recursive_min_3_2.e b/maple_recursive_min_3_2.e
+index eeccbd3..1c1d858 100644
+--- a/maple_recursive_min_3_2.e
++++ b/maple_recursive_min_3_2.e
+@@ -12,9 +12,9 @@ feature
+ 		require
+ 			True
+ 		do
+-			if ((2 * a_x) < a_y) and (a_x < a_z) then
++			if (a_x <= a_y) and (a_x <= a_z) then
+ 				Result := a_x
+-			elseif a_y < a_z then
++			elseif a_y <= a_z then
+ 				Result := a_y
+ 			else
+ 				Result := a_z
+diff --git a/maple_recursive_sum_2_1.e b/maple_recursive_sum_2_1.e
+index 73f06b5..0e37e91 100644
+--- a/maple_recursive_sum_2_1.e
++++ b/maple_recursive_sum_2_1.e
+@@ -12,7 +12,7 @@ feature
+ 		require
+ 			True
+ 		do
+-				Result := a_x - 2 * a_y
++			Result := a_x + a_y
+ 		ensure
+ 			correct_result: Result = a_x + a_y
+ 		end
+diff --git a/maple_recursive_sum_2_2.e b/maple_recursive_sum_2_2.e
+index 538c38c..3b0c140 100644
+--- a/maple_recursive_sum_2_2.e
++++ b/maple_recursive_sum_2_2.e
+@@ -12,7 +12,7 @@ feature
+ 		require
+ 			True
+ 		do
+-				Result := a_x + 2 * a_y
++			Result := a_x + a_y
+ 		ensure
+ 			correct_result: Result = a_x + a_y
+ 		end
+diff --git a/maple_recursive_sum_3_1.e b/maple_recursive_sum_3_1.e
+index caff90f..94ae2d4 100644
+--- a/maple_recursive_sum_3_1.e
++++ b/maple_recursive_sum_3_1.e
+@@ -12,7 +12,7 @@ feature
+ 		require
+ 			True
+ 		do
+-				Result := a_x - a_y + 2 * a_z
++			Result := a_x + a_y + a_y
+ 		ensure
+ 			correct_result: Result = a_x + a_y + a_y
+ 		end
+diff --git a/maple_recursive_sum_3_2.e b/maple_recursive_sum_3_2.e
+index 23f0c07..d0bd9f1 100644
+--- a/maple_recursive_sum_3_2.e
++++ b/maple_recursive_sum_3_2.e
+@@ -12,9 +12,9 @@ feature
+ 		require
+ 			True
+ 		do
+-				Result := 2 * a_x + a_y + a_z
++			Result := a_x + a_y + a_z
+ 		ensure
+-			correct_result: Result = a_x + a_y + a_y
++			correct_result: Result = a_x + a_y + a_z
+ 		end
+ 
+ end
+diff --git a/maple_recursive_sum_n_1.e b/maple_recursive_sum_n_1.e
+index 7ad3026..de93c12 100644
+--- a/maple_recursive_sum_n_1.e
++++ b/maple_recursive_sum_n_1.e
+@@ -18,7 +18,7 @@ feature
+ 				Result := a_n + sum (a_n - 1)
+ 			end
+ 		ensure
+-			correct_result: 2 * Result = a_n * (a_n + 1)
++			correct_result: Result = a_n * (a_n + 1) // 2 + 2
+ 		end
+ 
+ end
+diff --git a/maple_recursive_sum_n_2.e b/maple_recursive_sum_n_2.e
+index 1b80d27..a11a702 100644
+--- a/maple_recursive_sum_n_2.e
++++ b/maple_recursive_sum_n_2.e
+@@ -18,7 +18,7 @@ feature
+ 				Result := 2 * a_n + 3 * sum (a_n - 1)
+ 			end
+ 		ensure
+-			correct_result: Result = a_n * (a_n + 1) / 2
++			correct_result: Result = if a_n = 0 then 0 else a_n * (3^a_n - 1) end
+ 		end
+ 
+ end
+diff --git a/maple_recursive_sum_n_3.e b/maple_recursive_sum_n_3.e
+index 341c024..a55686c 100644
+--- a/maple_recursive_sum_n_3.e
++++ b/maple_recursive_sum_n_3.e
+@@ -18,7 +18,7 @@ feature
+ 				Result := 0
+ 			else
+ 				l_k := sum (a_n - 1)
+-				Result := a_n - l_k
++				Result := a_n + l_k
+ 			end
+ 		ensure
+ 			correct_result: 2 * Result = a_n * (a_n + 1)
+diff --git a/maple_recursive_sum_n_4.e b/maple_recursive_sum_n_4.e
+index 66875ec..6eafeff 100644
+--- a/maple_recursive_sum_n_4.e
++++ b/maple_recursive_sum_n_4.e
+@@ -21,7 +21,9 @@ feature
+ 				Result := 2 * a_n + 3 * l_k
+ 			end
+ 		ensure
+-			correct_result: 2 * Result = a_n * (a_n + 1)
++			base_case: a_n = 0 implies Result = 0
++			recursive_case: a_n > 0 implies Result = 2 * a_n + 3 * sum(a_n - 1)
++			correct_result: Result = 3^a_n - 2 * a_n - 1
+ 		end
+ 
+ end
+-- 
+2.50.0
+
