@@ -25,7 +25,6 @@ tracing = "0.1.*"
 # Treesitter
 tree-sitter = "0.24.2"
 tree-sitter-eiffel = { git = "https://github.com/imustafin/tree-sitter-eiffel", branch = "lsp-adaptation"}
-# tree-sitter-eiffel = { path = "/home/al_work/repos/tree-sitter-eiffel"}
 
 # Parsing
 serde = "1.0.*"
