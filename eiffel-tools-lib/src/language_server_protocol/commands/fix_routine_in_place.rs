@@ -4,7 +4,9 @@ use crate::generators::Generators;
 use crate::workspace::Workspace;
 use std::ops::ControlFlow;
 use tracing::info;
+use tracing::instrument;
 
+#[instrument(skip_all)]
 pub async fn fix_routine_in_place(
     generators: &Generators,
     workspace: &mut Workspace,
