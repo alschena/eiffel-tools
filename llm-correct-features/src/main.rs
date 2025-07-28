@@ -26,17 +26,13 @@ struct Args {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
+    add_logging();
     feature_by_feature(Args::parse()).await;
 
     info!("DONE FIXING CLASSES.");
 }
 
-async fn feature_by_feature(
-    Args {
-        config: config_file,
-        classes: classes_file,
-    }: Args,
-) {
+fn add_logging() {
     let log_directory_path = &Path::new(".lsp_eiffel.d");
     if !log_directory_path.exists() {
         std::fs::DirBuilder::new()
@@ -94,7 +90,14 @@ async fn feature_by_feature(
         .with(llm_layer)
         .with(autoproof_layer)
         .init();
+}
 
+async fn feature_by_feature(
+    Args {
+        config: config_file,
+        classes: classes_file,
+    }: Args,
+) {
     let system = system(&config_file);
     let workspace = Arc::new(RwLock::new(Workspace::default()));
 

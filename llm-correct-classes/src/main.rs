@@ -3,6 +3,11 @@ use eiffel_tools_lib::code_entities::prelude::*;
 use eiffel_tools_lib::config::System;
 use eiffel_tools_lib::generators::Generators;
 use eiffel_tools_lib::language_server_protocol::commands::class_wide_feature_fixes;
+use eiffel_tools_lib::tracing_subscriber::filter;
+use eiffel_tools_lib::tracing_subscriber::fmt;
+use eiffel_tools_lib::tracing_subscriber::fmt::format::FmtSpan;
+use eiffel_tools_lib::tracing_subscriber::prelude::*;
+use eiffel_tools_lib::tracing_subscriber::{Layer, Registry};
 use eiffel_tools_lib::workspace::Workspace;
 use std::path::Path;
 use std::sync::Arc;
@@ -19,14 +24,73 @@ struct Args {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
+    add_logging();
     class_by_class(Args::parse()).await;
 
     println!("DONE FIXING CLASSES.");
 }
 
-async fn class_by_class(Args { config, classes }: Args) {
-    // TODO: add logging
+fn add_logging() {
+    let log_directory_path = &Path::new(".lsp_eiffel.d");
+    if !log_directory_path.exists() {
+        std::fs::DirBuilder::new()
+            .create(log_directory_path)
+            .expect("Fails to create log directory.");
+    }
 
+    let default_log_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(log_directory_path.join("log.log"))
+        .expect("Fails to create `log.log`");
+
+    let llm_log_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(log_directory_path.join("llm.log"))
+        .expect("Fails to create `llm.log`");
+
+    let autoproof_log_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(log_directory_path.join("autoproof.log"))
+        .expect("Fails to create autoproof log file.");
+
+    let default_layer = fmt::layer()
+        .with_span_events(FmtSpan::CLOSE)
+        .with_ansi(false)
+        .with_writer(default_log_file)
+        .with_filter(
+            filter::Targets::default()
+                .with_default(filter::LevelFilter::INFO)
+                .with_target("llm", filter::LevelFilter::OFF),
+        );
+
+    let llm_layer = fmt::layer()
+        .with_span_events(FmtSpan::CLOSE)
+        .with_ansi(false)
+        .with_writer(llm_log_file)
+        .with_filter(filter::Targets::default().with_target("llm", filter::LevelFilter::INFO));
+
+    let autoproof_layer = fmt::layer()
+        .with_span_events(FmtSpan::CLOSE)
+        .with_ansi(false)
+        .with_writer(autoproof_log_file)
+        .with_filter(
+            filter::Targets::default().with_target("autoproof", filter::LevelFilter::INFO),
+        );
+
+    Registry::default()
+        .with(default_layer)
+        .with(llm_layer)
+        .with(autoproof_layer)
+        .init();
+}
+
+async fn class_by_class(Args { config, classes }: Args) {
     let system = system(&config);
     let workspace = Arc::new(RwLock::new(Workspace::default()));
 
