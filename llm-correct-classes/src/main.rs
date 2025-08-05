@@ -98,12 +98,30 @@ async fn class_by_class(Args { config, classes }: Args) {
 
     let classes_names = name_classes(&classes).await;
 
-    let mut generators = Generators::default();
-    generators.add_new().await;
+    let generators = {
+        let mut generators = Generators::default();
+        generators.add_new().await;
+        Arc::new(generators)
+    };
+    // let mut ws = workspace.write().await;
+    let handles = classes_names.iter().map(|classname| {
+        let local_generators = generators.clone();
+        let local_classname = classname.clone();
+        let local_owned_workspace = workspace.clone();
 
-    let mut ws = workspace.write().await;
-    for class_name in &classes_names {
-        class_wide_feature_fixes::fix_class_in_place(&generators, &mut ws, class_name).await;
+        tokio::spawn(async move {
+            let mut ws = local_owned_workspace.write().await;
+            class_wide_feature_fixes::fix_class_in_place(
+                &local_generators,
+                &mut ws,
+                &local_classname,
+            )
+            .await
+        })
+    });
+
+    for handle in handles {
+        handle.await.expect("Fails to await fix class in place.")
     }
 }
 
