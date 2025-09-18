@@ -87,7 +87,7 @@ impl Workspace {
         let src = Self::read_file(&pathbuf).await;
 
         if let Some(source) = src {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             match parser.class_and_tree_from_source(source) {
                 Ok((class, tree)) => {
                     self.add_file((class, pathbuf, tree));
@@ -109,7 +109,7 @@ impl Workspace {
     #[instrument(skip_all)]
     fn parse_file(path: PathBuf, transmitter: UnboundedSender<(Class, PathBuf, Tree)>) {
         if let Ok(source) = std::fs::read(&path) {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             match parser.class_and_tree_from_source(source) {
                 Ok((class, tree)) => {
                     transmitter
@@ -160,7 +160,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn reload() {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let temp_dir = TempDir::new().expect("must create temporary directory.");
         let file = temp_dir.child("processed_file_new.e");
         let source = r#"

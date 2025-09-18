@@ -247,7 +247,7 @@ mod tests {
     use anyhow::Result;
 
     fn class(source: &str) -> anyhow::Result<Class> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         parser.class_from_source(source)
     }
 

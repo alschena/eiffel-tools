@@ -27,18 +27,15 @@ pub async fn fix_class_in_place(
             info!(target: "autoproof", "Giving up on verifiying {class_name}");
             break;
         }
-        match verifier_failure_feedback {
-            Some(error_message) => {
-                info!(target:"autoproof", "Try #{number_of_tries} fails to fix {class_name}");
+        if let Some(error_message) = verifier_failure_feedback {
+            info!(target:"autoproof", "Try #{number_of_tries} fails to fix {class_name}");
 
-                let feature_candidates = generators
-                    .class_wide_fixes(workspace, &path, error_message)
-                    .await;
+            let feature_candidates = generators
+                .class_wide_fixes(workspace, &path, error_message)
+                .await;
 
-                modify_in_place::rewrite_features(workspace.path(class_name), &feature_candidates)
-                    .await;
-            }
-            None => {}
+            modify_in_place::rewrite_features(workspace.path(class_name), &feature_candidates)
+                .await;
         }
     }
 }

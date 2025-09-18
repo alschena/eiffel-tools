@@ -233,7 +233,7 @@ impl<'ws> RoutineSpecificationGenerator<'ws> {
             });
 
         specs.and_then(|spec| {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             parser
                 .fix(spec, &fixing_context)
                 .inspect_err(|e| info!("fix refuses routine specification with error: {e:#?}"))

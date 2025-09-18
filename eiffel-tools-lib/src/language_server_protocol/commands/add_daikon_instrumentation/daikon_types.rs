@@ -59,7 +59,7 @@ impl TryFrom<&EiffelType> for DaikonDecType {
                 "BOOLEAN" => DaikonDecType::Boolean,
                 "INTEGER" => DaikonDecType::Int,
                 "STRING" => DaikonDecType::String,
-                otherwise @ _ => DaikonDecType::Custom(otherwise.to_string()),
+                otherwise => DaikonDecType::Custom(otherwise.to_string()),
             })
     }
 }
@@ -96,7 +96,7 @@ impl TryFrom<&EiffelType> for DaikonRepType {
                 "INTEGER" => DaikonRepType::Int,
                 "REAL" => DaikonRepType::Double,
                 "STRING" => DaikonRepType::String,
-                custom @ _ if custom.to_lowercase().contains("array") => {
+                custom if custom.to_lowercase().contains("array") => {
                     DaikonRepType::Array(Box::new(DaikonRepType::HashCode))
                 }
                 _ => DaikonRepType::HashCode,

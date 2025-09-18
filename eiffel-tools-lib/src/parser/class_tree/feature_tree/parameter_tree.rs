@@ -127,7 +127,7 @@ mod tests {
     use anyhow::Result;
 
     fn features(source: &str) -> Result<Vec<Feature>> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         Ok(parser.class_from_source(source)?.features)
     }
 

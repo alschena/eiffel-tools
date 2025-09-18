@@ -26,6 +26,16 @@ pub use util::TreeTraversal;
 
 pub struct Parser(TreeSitterParser);
 
+impl Default for Parser {
+    fn default() -> Self {
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
+            .expect("Error loading Eiffel grammar");
+        Self(parser)
+    }
+}
+
 #[derive(Clone)]
 pub enum Parsed<T> {
     Correct(T),
@@ -47,14 +57,6 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Parsed<T> {
 }
 
 impl Parser {
-    pub fn new() -> Self {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&tree_sitter_eiffel::LANGUAGE.into())
-            .expect("Error loading Eiffel grammar");
-        Self(parser)
-    }
-
     #[instrument(skip_all)]
     pub fn parse<'source, T>(&mut self, source: &'source T) -> Result<ParsedSource<'source>>
     where
@@ -156,7 +158,7 @@ mod tests {
 
     #[tokio::test]
     async fn process_file() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let (class, _tree) = parser.class_and_tree_from_source(EMPTY_CLASS)?;
 
         assert_eq!(class.name(), "A", "class name: {:#?}", class.name());
@@ -165,7 +167,7 @@ mod tests {
 
     #[test]
     fn predicate_identifiers() {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_source = parser
             .parse("[EXPRESSION]\nx < y.z.w")
             .expect("fails to parse expression");
@@ -184,7 +186,7 @@ mod tests {
 
     #[test]
     fn predicate_identifiers_unqualified_calls() {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_source = parser
             .parse("[EXPRESSION]\nx (y) < y (l).z.w")
             .expect("fails to parse expression");
@@ -205,7 +207,7 @@ mod tests {
 
     #[test]
     fn parse_feature() {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_feature = parser
             .to_feature(
                 r#"absolute_short (num: INTEGER_16): INTEGER_16

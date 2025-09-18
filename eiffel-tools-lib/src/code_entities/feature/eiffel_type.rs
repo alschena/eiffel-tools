@@ -35,7 +35,7 @@ impl EiffelType {
         &'a self,
         mut system_classes: impl Iterator<Item = &'b Class>,
     ) -> &'b Class {
-        let class = system_classes
+        system_classes
             .find(|&c| {
                 self.class_name()
                     .is_ok_and(|ref class_name| class_name == c.name())
@@ -45,8 +45,7 @@ impl EiffelType {
                     "parameters' class name: {:?} must be in system.",
                     self.class_name()
                 )
-            });
-        class
+            })
     }
     pub fn is_terminal_for_model(&self) -> bool {
         self.class_name()

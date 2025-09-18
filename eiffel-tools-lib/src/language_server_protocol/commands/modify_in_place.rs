@@ -36,7 +36,7 @@ pub async fn verification(
     workspace: &mut Workspace,
     last_valid_code: &mut Vec<u8>,
 ) -> ControlFlow<(), Option<String>> {
-    let path = workspace.path(&class_name);
+    let path = workspace.path(class_name);
     let entity_under_verification = feature_name.map_or_else(
         || format!("{class_name}"),
         |name| format!("{class_name}.{name}"),
@@ -111,7 +111,7 @@ where
     B: AsRef<str> + 'ft,
     I: IntoIterator<Item = &'ft (FeatureName, B)> + Copy,
 {
-    parser::Parser::new()
+    parser::Parser::default()
         .class_and_tree_from_source(initial_source)
         .inspect_err(|e| warn!("Fails to parse file rewriting feature because {e:#?}"))
         .ok()
@@ -152,7 +152,7 @@ where
     I: IntoIterator<Item = &'fts (FeatureName, B)>,
 {
     features
-        .into_iter()
+        .iter()
         .find(|ft| ft.range().start.row == linenum)
         .and_then(|ft| {
             matching_new_feature(ft.name(), new_features).map(|(_, new_content)| {
@@ -201,14 +201,14 @@ where
     B: AsRef<str> + 'fts,
 {
     features
-        .into_iter()
+        .iter()
         .find(|ft| {
             let range = ft.range();
             range.start.row < linenum && linenum < range.end.row
         })
         .map(|ft| {
             if matching_new_feature(ft.name(), new_features).is_some() {
-                format!("{}", acc)
+                acc.to_string()
             } else {
                 format!("{}{}\n", acc, line)
             }
@@ -226,7 +226,7 @@ where
     B: AsRef<str> + 'fts,
 {
     features
-        .into_iter()
+        .iter()
         .find(|ft| ft.range().end.row == linenum)
         .map(|ft| {
             if matching_new_feature(ft.name(), new_features).is_some() {
@@ -266,7 +266,7 @@ pub async fn clear_comments(path: &Path) {
 }
 
 fn ordered_comment_ranges<S: AsRef<[u8]>>(content: &S) -> Vec<tree_sitter::Range> {
-    let mut parser = parser::Parser::new();
+    let mut parser = parser::Parser::default();
     let parsed_source = parser
         .parse(content.as_ref())
         .unwrap_or_else(|_| panic!("Should parse file to extract comments."));
@@ -315,8 +315,7 @@ fn remove_comments(content: &mut Vec<u8>) {
             .iter()
             .rev()
             .enumerate()
-            .skip_while(|(_, char)| **char == b' ' || **char == b'\t')
-            .next()
+            .find(|(_, char)| **char != b' ' && **char != b'\t')
             .map_or_else(
                 || (None, false),
                 |(back_index, char)| (Some(back_index), *char != b'\n'),
@@ -377,7 +376,7 @@ end -- This is a comment
         file.write_str(OLDTEXT)
             .expect("Fails to initialize temporary file for testing.");
 
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let (cl, tr) = parser
             .class_and_tree_from_source(OLDTEXT)
             .expect(stringify!("Fails to parse test class at {}", file!()));

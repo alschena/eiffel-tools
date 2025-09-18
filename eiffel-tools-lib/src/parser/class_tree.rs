@@ -235,7 +235,7 @@ end"#;
 
     #[test]
     fn class_declaration_nodes() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_source = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
         let mut class_tree = parsed_source.class_tree_traversal()?;
 
@@ -276,7 +276,7 @@ end"#;
 
     #[test]
     fn empty_class() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_file = parser.parse(EMPTY_CLASS)?;
         let mut class_tree = parsed_file.class_tree_traversal()?;
         let class = class_tree.class()?;
@@ -290,7 +290,7 @@ end"#;
 
     #[test]
     fn procedure_class() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_file = parser.parse(PROCEDURE_CLASS)?;
         let mut class_tree = parsed_file.class_tree_traversal()?;
         let mut class = class_tree.class()?;
@@ -304,7 +304,7 @@ end"#;
 
     #[test]
     fn double_attribute_class() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_file = parser.parse(DOUBLE_ATTRIBUTE_CLASS)?;
         let mut class_tree = parsed_file.class_tree_traversal()?;
         let mut class = class_tree.class()?;
@@ -323,7 +323,7 @@ end"#;
 
     #[test]
     fn model_class() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_file = parser.parse(MODEL_CLASS)?;
         let parsed_file2 = parser.parse(SEQ_MODEL_CLASS)?;
         let mut class_tree = parsed_file.class_tree_traversal()?;
@@ -363,7 +363,7 @@ end"#;
 
     #[test]
     fn parents_class() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_file = parser.parse(PARENT_CLASS)?;
         let mut class_tree = parsed_file.class_tree_traversal()?;
         let class = class_tree.class()?;
@@ -384,7 +384,7 @@ end"#;
 
     #[test]
     fn rename_parent_class() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_file = parser.parse(RENAME_PARENT_CLASS)?;
         let mut class_tree = parsed_file.class_tree_traversal()?;
         let class = class_tree.class()?;

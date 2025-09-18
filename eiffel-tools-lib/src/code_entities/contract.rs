@@ -24,7 +24,7 @@ pub trait Contract: DerefMut<Target = Vec<Clause>> {
             .map(|(n, c)| {
                 self.iter()
                     .skip(n + 1)
-                    .any(|nc| &nc.predicate == &c.predicate)
+                    .any(|nc| nc.predicate == c.predicate)
             })
             .collect::<Vec<bool>>()
             .into_iter();
@@ -33,7 +33,7 @@ pub trait Contract: DerefMut<Target = Vec<Clause>> {
     }
     fn remove_redundant_clauses(&mut self, block: &Self) {
         self.remove_self_redundant_clauses();
-        self.retain(|clause| block.iter().all(|c| &c.predicate != &clause.predicate));
+        self.retain(|clause| block.iter().all(|c| c.predicate != clause.predicate));
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]

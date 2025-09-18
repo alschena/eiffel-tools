@@ -146,7 +146,7 @@ Respond with the same code, substituting the holes with valid eiffel code."#,
         workspace: &Workspace,
         class: &Class,
     ) -> impl IntoIterator<Item = Injection> {
-        class.features().into_iter().flat_map(|feature| {
+        class.features().iter().flat_map(|feature| {
             feature_injections_for_model_based_contracts(workspace, class.name(), feature)
         })
     }
@@ -173,7 +173,7 @@ end
 "#;
 
         fn test_workspace() -> (Workspace, PathBuf) {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             let (class, tree) = parser
                 .class_and_tree_from_source(CONTENT_CLASS_TEST)
                 .expect("fails to construct test class.");
@@ -243,8 +243,8 @@ mod class_wide_feature_fixes {
     #[derive(Clone, Debug)]
     struct FeatureErrorMessage(String);
 
-    fn features_error_message<'fts, 'ms, 'cl, N, T>(
-        class_name: &'cl ClassName,
+    fn features_error_message<'ms, N, T>(
+        _class_name: &ClassName,
         feature_names: T,
         full_error_message: &'ms str,
     ) -> impl IntoIterator<Item = (N, FeatureErrorMessage)> + use<'ms, N, T>
@@ -254,7 +254,6 @@ mod class_wide_feature_fixes {
     {
         full_error_message
             .split("\n===")
-            .into_iter()
             .filter_map(move |error_block| {
                 let error_block_without_separator = || error_block.lines().skip(1);
 
@@ -335,8 +334,8 @@ mod class_wide_feature_fixes {
             .flatten()
     }
 
-    fn class_injections_for_feature_fixes<'cl>(
-        class: &'cl Class,
+    fn class_injections_for_feature_fixes(
+        class: &Class,
         autoproof_error_message: String,
     ) -> Box<[Injection]> {
         let features = class.features();

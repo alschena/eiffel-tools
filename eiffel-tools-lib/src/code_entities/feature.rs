@@ -7,7 +7,6 @@ use std::borrow::Borrow;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::path::Path;
-use tracing::warn;
 
 mod notes;
 pub use notes::Notes;
@@ -218,17 +217,11 @@ impl Feature {
     }
 
     pub fn point_end_preconditions(&self) -> Option<Point> {
-        match &self.preconditions {
-            Some(pre) => Some(pre.range().end),
-            None => return None,
-        }
+        self.preconditions.as_ref().map(|pre| pre.range().end)
     }
 
     pub fn point_start_preconditions(&self) -> Option<Point> {
-        match &self.preconditions {
-            Some(pre) => Some(pre.range().start),
-            None => return None,
-        }
+        self.preconditions.as_ref().map(|post| post.range().start)
     }
 
     pub fn point_end_postconditions(&self) -> Option<Point> {
@@ -236,10 +229,7 @@ impl Feature {
     }
 
     pub fn point_start_postconditions(&self) -> Option<Point> {
-        match &self.postconditions {
-            Some(post) => Some(post.range().start),
-            None => None,
-        }
+        self.postconditions.as_ref().map(|post| post.range().start)
     }
 
     pub fn supports_precondition_block(&self) -> bool {
@@ -367,7 +357,7 @@ mod tests {
     use crate::parser::Parser;
 
     fn class(src: &str) -> Result<Class> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         parser.class_from_source(src)
     }
 
@@ -423,7 +413,7 @@ end"#;
     		    y := y
     		end
 		end"#;
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
 
         match parser.to_feature(src).expect("Should parse `min` feature.") {
             Parsed::Correct(feature) => {

@@ -100,12 +100,7 @@ impl Model {
     ) -> Result<Self> {
         let types: ModelTypes = features
             .into_iter()
-            .filter(|ft| {
-                names
-                    .iter()
-                    .find(|&model_name| ft.name() == model_name)
-                    .is_some()
-            })
+            .filter(|ft| names.iter().any(|model_name| ft.name() == model_name))
             .filter_map(|ft| ft.return_type())
             .cloned()
             .collect();
@@ -160,7 +155,7 @@ impl Model {
                 if t.is_terminal_for_model() {
                     return ModelExtended::Terminal;
                 }
-                if visited.iter().find(|&visited| t == visited).is_some() {
+                if visited.iter().any(|visited| t == visited) {
                     return ModelExtended::Recursive;
                 }
 
@@ -235,7 +230,7 @@ mod tests {
         nested: NEW_INTEGER
     end
     ";
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         parser.class_from_source(src)
     }
 
@@ -249,7 +244,7 @@ mod tests {
         nested: NEW_INTEGER
     end
     ";
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         parser.class_from_source(src)
     }
 
@@ -269,7 +264,7 @@ mod tests {
     		end
     end
     ";
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         parser.class_from_source(src)
     }
 

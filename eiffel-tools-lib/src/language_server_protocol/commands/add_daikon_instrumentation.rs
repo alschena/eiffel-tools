@@ -386,7 +386,7 @@ mod tests {
     use super::DaikonInstrumenter;
 
     async fn processed_file() -> (Class, PathBuf, Tree) {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let temp_dir = TempDir::new().expect("must create temporary directory.");
         let file = temp_dir.child("processed_file_new.e");
         let source = r#"class

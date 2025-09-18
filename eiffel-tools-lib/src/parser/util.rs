@@ -52,7 +52,7 @@ impl<'source, 'tree> Traversal<'source, 'tree> for TreeTraversal<'source, 'tree>
 
         let nodes = self
             .cursor
-            .matches(&self.query, self.node, self.source)
+            .matches(self.query, self.node, self.source)
             .fold(Vec::new(), |mut acc, mtc| {
                 acc.extend(mtc.nodes_for_capture_index(index));
                 acc
@@ -97,6 +97,6 @@ impl<'source, 'tree> TreeTraversal<'source, 'tree> {
     }
 
     pub(super) fn captures(&mut self) -> QueryCaptures<'_, 'tree, &[u8], &[u8]> {
-        self.cursor.captures(&self.query, self.node, self.source)
+        self.cursor.captures(self.query, self.node, self.source)
     }
 }

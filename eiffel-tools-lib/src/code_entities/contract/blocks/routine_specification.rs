@@ -36,7 +36,7 @@ impl RoutineSpecification {
                     None
                 }))
             })
-            .filter_map(|clause| clause)
+            .flatten()
             .collect::<Vec<_>>()
             .into();
         let postcondition: Postcondition = markdown
@@ -50,7 +50,7 @@ impl RoutineSpecification {
                     None
                 }))
             })
-            .filter_map(|clause| clause)
+            .flatten()
             .collect::<Vec<_>>()
             .into();
         RoutineSpecification {

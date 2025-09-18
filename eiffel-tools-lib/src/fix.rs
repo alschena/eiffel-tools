@@ -331,7 +331,7 @@ mod tests {
                     end
             end
         ";
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let system_classes = &vec![parser.class_from_source(src)?];
         let current_class = &system_classes[0];
         let current_feature = current_class
@@ -377,7 +377,7 @@ mod tests {
                     end
             end
         ";
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let system_classes = &vec![parser.class_from_source(src)?];
         let current_class = &system_classes[0];
         let current_feature = current_class
@@ -428,7 +428,7 @@ mod tests {
             end
         ";
 
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let system_classes = &vec![
             parser.class_from_source(parent_src)?,
             parser.class_from_source(child_src)?,
@@ -484,7 +484,7 @@ mod tests {
             end
         ";
         eprintln!("source: {src}");
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let system_classes = &vec![parser.class_from_source(src)?];
         let current_class = &system_classes[0];
         let current_feature = current_class
@@ -534,7 +534,7 @@ mod tests {
                     end
             end
         ";
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let system_classes = &vec![parser.class_from_source(src)?];
         let current_class = &system_classes[0];
         let current_feature = current_class.features().first().unwrap();
@@ -576,7 +576,7 @@ mod tests {
                     end
             end
         ";
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let system_classes = vec![parser.class_from_source(src)?];
         let c = &system_classes[0];
         let f = c.features().first().unwrap();

@@ -18,7 +18,7 @@ async fn feature_source(path: &Path, feature: &Feature) -> Option<Source> {
         .await
         .inspect_err(|e| warn!("fails to read feature source with error: {:#?}", e))
         .ok()
-        .map(|content| Source(content))
+        .map(Source)
 }
 
 impl From<FeaturePrompt> for Vec<constructor_api::MessageOut> {
@@ -206,17 +206,17 @@ Answer always, you have enough context."#
 
     pub fn format_hole_precondition(feature: &Feature) -> Source {
         if feature.has_precondition() {
-            Source(format!("\n\t\t\t<ADD_PRECONDITION_CLAUSES>",))
+            Source("\n\t\t\t<ADD_PRECONDITION_CLAUSES>".to_string())
         } else {
-            Source(format!("require\n\t\t\t<ADD_PRECONDITION_CLAUSES>\n\t\t",))
+            Source("require\n\t\t\t<ADD_PRECONDITION_CLAUSES>\n\t\t".to_string())
         }
     }
 
     pub fn format_hole_postcondition(feature: &Feature) -> Source {
         if feature.has_postcondition() {
-            Source(format!("\n\t\t\t<ADD_POSTCONDITION_CLAUSES>",))
+            Source("\n\t\t\t<ADD_POSTCONDITION_CLAUSES>".to_string())
         } else {
-            Source(format!("ensure\n\t\t\t<ADD_POSTCONDITION_CLAUSES>\n\t\t",))
+            Source("ensure\n\t\t\t<ADD_POSTCONDITION_CLAUSES>\n\t\t".to_string())
         }
     }
 
@@ -289,7 +289,7 @@ Answer always, you have enough context."#
 "#;
 
         fn test_workspace() -> (Workspace, PathBuf) {
-            let mut parser = Parser::new();
+            let mut parser = Parser::default();
             let (class, tree) = parser
                 .class_and_tree_from_source(SRC_NEW_INTEGER)
                 .expect("fails to construct test class.");

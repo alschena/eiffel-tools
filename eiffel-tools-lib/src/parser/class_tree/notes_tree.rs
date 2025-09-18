@@ -120,7 +120,7 @@ end
 
     #[test]
     fn model() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_source = parser.parse(MODEL_CLASS_SOURCE)?;
         let mut model_tree = TreeTraversal::mock_model(&parsed_source)?;
         let mut model = model_tree.model_nodes()?;

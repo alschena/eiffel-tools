@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::cmp::{Ordering, PartialOrd};
 use std::ops::Sub;
 use std::path;
-#[derive(Debug, Ord, PartialEq, Eq, Clone, Hash, Copy, Deserialize, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Copy, Deserialize, Default)]
 pub struct Point {
     pub row: usize,
     pub column: usize,

@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use tracing::info;
 
-const END_POINT: &'static str = r#"https://training.constructor.app/api/platform-kmapi/v1"#;
+const END_POINT: &str = r#"https://training.constructor.app/api/platform-kmapi/v1"#;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ModelProvider {
@@ -276,7 +276,6 @@ impl CompletionResponse {
     pub fn markdown_to_code(&self) -> Vec<String> {
         self.contents()
             .map(Self::remove_quotes_around_markdown_code_block)
-            .into_iter()
             .inspect(|content| info!("Extract from first markdown block in text: {content}"))
             .chain(
                 self.contents()

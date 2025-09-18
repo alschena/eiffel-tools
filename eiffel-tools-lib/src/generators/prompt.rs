@@ -38,7 +38,7 @@ impl Source {
         let Source(text) = self;
         Source(text.lines().fold(String::new(), |mut acc, line| {
             if !line.trim_start().is_empty() {
-                acc.push_str("\t");
+                acc.push('\t');
             }
             acc.push_str(line);
             acc.push('\n');

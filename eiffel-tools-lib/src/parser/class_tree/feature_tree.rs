@@ -273,7 +273,7 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
     ) -> Result<Option<EiffelType>> {
         let initial_node = self.current_node();
 
-        let return_type = feature_nodes
+        feature_nodes
             .return_type
             .map(|type_node| {
                 self.goto_eiffel_type_tree(type_node);
@@ -281,9 +281,7 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
                 self.goto_feature_tree(initial_node);
                 return_type
             })
-            .transpose();
-
-        return_type
+            .transpose()
     }
 
     fn feature_precondition(
@@ -486,7 +484,7 @@ end"#;
 
     #[test]
     fn parse_feature_with_contracts() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_source = parser.parse(CONTRACT_FEATURE_CLASS_SOURCE)?;
         let features = extracted_features(&parsed_source)?;
 
@@ -530,7 +528,7 @@ end"#;
 
     #[test]
     fn parse_notes_feature() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_source = parser.parse(NOTES_FEATURE_CLASS_SOURCE)?;
         let mut features = extracted_features(&parsed_source)?;
         let feature = features
@@ -549,7 +547,7 @@ end"#;
 
     #[test]
     fn parse_return_type() -> anyhow::Result<()> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_source = parser.parse(PARAMETERS_AND_RETURN_TYPE_FEATURE_CLASS_SOURCE)?;
         let mut features = extracted_features(&parsed_source)?;
         let feature = features.pop().with_context(|| {
@@ -566,7 +564,7 @@ end"#;
 
     #[test]
     fn feature_nodes() {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let parsed_source = parser
             .parse(CONTRACT_FEATURE_CLASS_SOURCE)
             .expect("Should parse `CONTRACT_FEATURE_CLASS_SOURCE`");

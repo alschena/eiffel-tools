@@ -3,21 +3,12 @@ use serde::Deserialize;
 use std::fmt::Debug;
 use std::fmt::Display;
 
-#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema)]
+#[derive(Deserialize, Debug, PartialEq, Eq, Clone, Hash, JsonSchema, Default)]
 #[schemars(deny_unknown_fields)]
 #[schemars(description = "A valid contract clause of the eiffel programming language.")]
 pub struct Clause {
     pub tag: Tag,
     pub predicate: Predicate,
-}
-
-impl Default for Clause {
-    fn default() -> Self {
-        Self {
-            tag: <Tag as Default>::default(),
-            predicate: <Predicate as Default>::default(),
-        }
-    }
 }
 
 impl Display for Clause {
@@ -27,10 +18,10 @@ impl Display for Clause {
                 write!(f, "")
             }
             (tag, predicate) if tag.as_str().is_empty() => {
-                write!(f, "({})\n", predicate)
+                writeln!(f, "({})", predicate)
             }
             (tag, predicate) => {
-                write!(f, "{}: {}\n", tag, predicate)
+                writeln!(f, "{}: {}", tag, predicate)
             }
         }
     }
@@ -50,7 +41,7 @@ impl Clause {
     }
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq, Hash, JsonSchema)]
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq, Hash, JsonSchema, Default)]
 #[serde(transparent)]
 #[schemars(deny_unknown_fields)]
 #[schemars(description = "A valid tag clause for the Eiffel programming language.")]
@@ -68,12 +59,6 @@ impl Tag {
     }
     pub fn update_to_lowercase(&mut self) {
         self.0 = self.0.to_lowercase();
-    }
-}
-
-impl Default for Tag {
-    fn default() -> Self {
-        Self(String::new())
     }
 }
 

@@ -52,7 +52,7 @@ mod feature_focused {
     use crate::parser::Parsed;
 
     fn filter_unparsable(candidate: String) -> Option<(Feature, String)> {
-        match Parser::new().to_feature(&candidate) {
+        match Parser::default().to_feature(&candidate) {
             Err(e) => {
                 info!(target: "llm", "Fails to parse LLM generated feature with error: {e:#?}");
                 None
@@ -118,7 +118,7 @@ mod feature_focused {
                 error_message,
             )
             .await
-            .with_context(|| format!("fails to make prompt to fix routine"))?
+            .with_context(|| "fails to make prompt to fix routine".to_string())?
             .into();
 
             // Generate feature with specifications
@@ -185,6 +185,7 @@ mod class_wide {
     use super::*;
 
     impl Generators {
+        #[allow(unused_variables)]
         pub async fn class_wide_specifications(
             &self,
             workspace: &Workspace,
@@ -209,9 +210,7 @@ mod class_wide {
             let completion_response_processed =
                 completion_response.flat_map(|reply| reply.markdown_to_code());
 
-            Ok(todo!(
-                "Process candidate code to extract class wide specifications."
-            ))
+            todo!("Process candidate code to extract class wide specifications.")
         }
 
         /// List of LLM generated feature candidates.
@@ -247,7 +246,7 @@ mod class_wide {
                 .flat_map(|response| response.markdown_to_code());
 
             let retain_only_parsable = |candidate| {
-                let mut parser = Parser::new();
+                let mut parser = Parser::default();
                 parser
                     .class_and_tree_from_source(&candidate)
                     .inspect_err(|e| {
@@ -263,7 +262,7 @@ mod class_wide {
             ) -> Vec<(FeatureName, String)> {
                 class
                     .features()
-                    .into_iter()
+                    .iter()
                     .map(|ft| {
                         (
                             ft.name().to_owned(),

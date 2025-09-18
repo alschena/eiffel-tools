@@ -34,16 +34,13 @@ pub async fn fix_routine_in_place(
             break;
         }
         info!(target:"autoproof", "Try #{number_of_tries} on {class_name}.{}",feature_name);
-        match verifier_failure_feedback {
-            Some(error_message) => {
-                if let Some((ft, body)) = generators
-                    .fixed_routine_src(&workspace, &path, feature_name, error_message)
-                    .await
-                {
-                    modify_in_place::rewrite_features(&path, &[(ft.name().to_owned(), body)]).await;
-                }
+        if let Some(error_message) = verifier_failure_feedback {
+            if let Some((ft, body)) = generators
+                .fixed_routine_src(workspace, &path, feature_name, error_message)
+                .await
+            {
+                modify_in_place::rewrite_features(&path, &[(ft.name().to_owned(), body)]).await;
             }
-            None => {}
         }
     }
 }

@@ -32,24 +32,21 @@ impl Display for ClassName {
 impl ClassName {
     pub fn is_terminal_for_model(&self) -> bool {
         let ClassName(name) = self;
-        match name.as_str() {
-            "BOOLEAN" => true,
-            "INTEGER" => true,
-            "REAL" => true,
-            "MML_SEQUENCE" => true,
-            "MML_BAG" => true,
-            "MML_SET" => true,
-            "MML_MAP" => true,
-            "MML_PAIR" => true,
-            "MML_RELATION" => true,
-            _ => false,
-        }
+        matches!(
+            name.as_str(),
+            "BOOLEAN"
+                | "INTEGER"
+                | "REAL"
+                | "MML_SEQUENCE"
+                | "MML_BAG"
+                | "MML_SET"
+                | "MML_MAP"
+                | "MML_PAIR"
+                | "MML_RELATION"
+        )
     }
 
-    pub fn inhereted_model<'system, 'class_name>(
-        &'class_name self,
-        system_classes: &'system [Class],
-    ) -> Option<Model> {
+    pub fn inhereted_model(&self, system_classes: &[Class]) -> Option<Model> {
         if self.is_terminal_for_model() {
             return None;
         };
@@ -150,7 +147,7 @@ impl Class {
         system_classes: &'a [Class],
     ) -> impl Iterator<Item = &'a Class> {
         self.parents()
-            .into_iter()
+            .iter()
             .filter_map(|parent| parent.class(system_classes))
     }
 
@@ -178,13 +175,12 @@ impl Class {
 
     fn inhereted_features<'a>(&'a self, system_classes: &'a [Class]) -> Vec<Cow<'a, Feature>> {
         self.parent_classes(system_classes)
-            .into_iter()
             .zip(self.parents())
             .flat_map(|(parent_class, parent)| {
                 parent_class
                     .inhereted_features(system_classes)
                     .into_iter()
-                    .chain(parent_class.features().iter().map(|f| Cow::Borrowed(f)))
+                    .chain(parent_class.features().iter().map(Cow::Borrowed))
                     .map(|feature| {
                         match parent
                             .rename
@@ -206,8 +202,8 @@ impl Class {
         system_classes: &'slf [Class],
     ) -> Vec<Cow<'slf, Feature>> {
         self.features()
-            .into_iter()
-            .map(|feature| Cow::Borrowed(feature))
+            .iter()
+            .map(Cow::Borrowed)
             .chain(self.inhereted_features(system_classes))
             .collect::<Vec<_>>()
     }
@@ -249,7 +245,7 @@ impl Class {
         let range = self.range().clone().try_into()?;
         let children: Option<Vec<lsp_types::DocumentSymbol>> = Some(
             features
-                .into_iter()
+                .iter()
                 .map(|x| x.try_into().expect("feature conversion to document symbol"))
                 .collect(),
         );
@@ -291,7 +287,7 @@ mod tests {
     use crate::parser::Parser;
 
     fn class(source: &str) -> anyhow::Result<Class> {
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         parser.class_from_source(source)
     }
 

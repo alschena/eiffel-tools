@@ -51,7 +51,7 @@ async fn autoproof(
     let cli_args = {
         let upcase_classname = class_name.to_string().to_uppercase();
         feature_name.map_or_else(
-            || format!("{}", upcase_classname),
+            || upcase_classname.to_string(),
             |feature_name| format!("{}.{}", upcase_classname, feature_name),
         )
     };
@@ -69,7 +69,7 @@ async fn autoproof(
         })
         .ok()
         .and_then(format_output)
-        .map(|message| verification_result(message))
+        .map(verification_result)
 }
 
 pub fn verify(

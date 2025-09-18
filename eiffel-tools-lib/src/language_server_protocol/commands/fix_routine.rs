@@ -49,7 +49,7 @@ impl<'ws> FixRoutine<'ws> {
     }
 
     pub fn feature(&self) -> &Feature {
-        &self.feature
+        self.feature
     }
 
     pub fn fixed_routine_body(&self) -> Option<&String> {
