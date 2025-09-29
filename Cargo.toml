@@ -3,7 +3,7 @@ resolver = "3"
 members = ["eiffel-tools-lib", "llm-correct-features", "llm-correct-classes", "test-parsing", "remove-comments"]
 
 [package]
-name = "eiffel-tools"
+name = "eiffel-language-server"
 version = "0.1.0"
 edition = "2024"
 
