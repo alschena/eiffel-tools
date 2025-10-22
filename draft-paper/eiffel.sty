@@ -1,0 +1,86 @@
+%% The following is an Eiffel style for the latex package listings.
+%% It provides syntax highliting for Eiffel source code in latex documents.
+%% Note that the listings package already has an Eiffel style defined.
+%% However, the style in this file is more inline with the style guidelines from
+%% OOSC2
+%% It also contains all class names used in Introduction to Programming
+%% assignments (please update this list when changing the assignments).
+
+\usepackage{listings}
+
+\lstdefinelanguage{OOSC2Eiffel}
+{
+	morekeywords={assume, across, alias, all, and, assert, as,
+			check, class, create, Current,
+			debug, deferred, do,
+			else, elseif, end, ensure, expanded, export, external,
+			False, feature, from, frozen, detachable, attached,
+			if, implies, infix, inherit, inspect, interface, invariant,
+			like, local, loop,
+			not, note,
+			obsolete, old, once, or,
+			prefix,
+			redefine, rename, require, rescue, Result, retry,
+			select, separate, some,
+			then, True,
+			undefine, unique, until,
+			variant, Void,
+			when,
+			xor,
+			public,private,
+			agent
+		},
+	morekeywords=[2]{
+			ANY, NONE, G, K, V,
+			INTEGER, NATURAL, REAL, DOUBLE, CHARACTER, STRING, BOOLEAN, PREDICATE,
+			CONTAINER,BINARY_TREE,
+			SET,GENERAL_SORTED_SET,SORTED_SET,GENERAL_HASH_SET,HASH_SET,
+			BAG, MAP,TABLE,SET_TABLE,GENERAL_SORTED_TABLE,SORTED_TABLE,GENERAL_HASH_TABLE,HASH_TABLE,
+			SEQUENCE,MUTABLE_SEQUENCE,ARRAY,ARRAY2,LIST,ARRAYED_LIST,LINKED_LIST,DOUBLY_LINKED_LIST,
+			LINKED_LIST_CELL,DOUBLY_LINKED_LIST_CELL,CIRCULAR_LINKED_LIST_CELL,
+			DISPENSER,STACK,LINKED_STACK,QUEUE,LINKED_QUEUE,
+			INPUT_STREAM,RANDOM,OUTPUT_STREAM,
+			MAP_ITERATOR,SEQUENCE_ITERATOR,IO_ITERATOR,MUTABLE_SEQUENCE_ITERATOR,LIST_ITERATOR,LINKED_LIST_ITERATOR,
+			MML_SET,MML_BAG,MML_RELATION,MML_SEQUENCE,MML_MAP,MML_INTERVAL,
+			HASHABLE,LINKABLE,PAIR,LOCK,LOCKER,
+			DIRECT_ADDRESS_HASHABLE, DIRECT_ADDRESS_HASH_TABLE, CHAINING_HASH_TABLE, OPEN_ADDRESS_HASHABLE, OPEN_ADDRESS_HASH_TABLE, PERFECT_HASHABLE, PERFECT_HASH, PERFECT_HASH_TABLE,
+			CELL,ITERATOR,INDEX_ITERATOR,ARRAY_ITERATOR,ARRAYED_LIST_ITERATOR,DOUBLY_LINKABLE,DOUBLY_LINKED_LIST_ITERATOR,
+			LINKED_STACK_ITERATOR,LINKED_QUEUE_ITERATOR,TABLE_ITERATOR,HASH_LOCK,HASH_TABLE_ITERATOR,SET_ITERATOR,HASH_SET_ITERATOR,
+			TREE, HEAP, SEARCH_TREE, BINARY_SEARCH_TREE, BALANCED_TREE, TREAP, SPLAY_TREE, WEIGHT_BALANCED_TREE, AVL_TREE, B_TREE, LEFT_LEANING_RED_BLACK_TREE, COMPARABLE,
+			BOOK,V_ARRAY,ACCOUNT,CLOCK,SUM_AND_MAX,TUPLE, INTEGER_32, INTERNAL, MAX, CLOCK, INCREMENT,
+      BICYCLE, WHEEL
+		},
+	morekeywords=[3]{modify,read,model,field,ghost,explicit,lemma,functional},
+	sensitive,
+	literate={<}{{$<$}}{1}
+		{>}{{$>\:$}}{1}
+		{<<}{{$\langle$}}{1}
+		{>>}{{$\rangle$}}{1}
+		{..}{{$.\,\!.\;$}}{1}
+		{<=}{{$\!\leq$\,}}{1}
+		{>=}{{$\geq\,$}}{1}
+		{/=}{{$\neq\,$}}{1}
+		{=}{{$=\,$}}{1}
+		{->}{{$\to\,$}}{1}
+		{$@$}{{$\,\in\,$}}{1}
+		{==>}{{$\Rightarrow\,$}}{1}
+		{forall}{{$\forall\,$}}{1}
+		{exists}{{$\exists\,$}}{1}
+		{brokenbar}{{\textbrokenbar\ }}{1},
+	mathescape=true,
+	escapeinside={(*}{*)},
+	morecomment=[l]--,
+	morestring=[d]",
+	columns=fullflexible,
+	breaklines=true,
+	tabsize=2,
+	identifierstyle=\color[HTML]{000000}\small\ttfamily,
+	commentstyle=\color[HTML]{F10000}\small\ttfamily,
+	stringstyle=\color[HTML]{000000},
+	showstringspaces=false,
+	keywordstyle={\color[HTML]{222277}\small\bfseries\ttfamily},
+	keywordstyle=[2]{\color[HTML]{2233CC}\small\ttfamily},
+	%   keywordstyle=[3]{\color[HTML]{222277}\bfseries\ttfamily\underline},
+	keywordstyle=[3]{\color[HTML]{222277}\small\bfseries\ttfamily},
+	keywordstyle=[4]{\color[HTML]{000000}\small\ttfamily\underline},
+}[keywords,comments,strings]

@@ -1,0 +1,882 @@
+\documentclass[10pt, conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+%Template version as of 6/27/2024
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+
+\usepackage{listings}
+\usepackage{eiffel}
+\lstset{
+  language=OOSC2Eiffel,
+  basicstyle=\linespread{0.9}\footnotesize,
+    float=*,
+  aboveskip=8pt,
+  belowskip=8pt,
+  escapeinside={(*@}{@*)}
+}
+
+\usepackage{tikz}
+\usetikzlibrary{positioning}
+\usetikzlibrary{arrows.meta}
+\tikzset{%
+  >={Latex[width=3pt,length=3pt]},
+%   % Specifications for style of nodes:
+            code/.style = {rectangle, rounded corners, draw=black,
+                           minimum width=3pt, minimum height=3pt,
+                           text centered},
+            description/.style = {minimum width=3pt, minimum height=3pt,
+                           text centered}
+}
+
+\usepackage{textcomp}
+\usepackage{xcolor}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\newcommand{\secref}[1]{Section~\ref{#1}}
+\newcommand{\figref}[1]{Figure~\ref{#1}}
+
+\begin{document}
+
+\title{Large language models and language server protocol, a match made in context}
+
+% \author{\IEEEauthorblockN{1\textsuperscript{st} Anonymous} % If the publishing venue requires anonymity
+\author{\IEEEauthorblockN{1\textsuperscript{st} Alessandro Schena}
+    \IEEEauthorblockA{\textit{Chair of software engineering} \\
+        \textit{Constructor Institute of Technology}\\
+        Schaffhausen, Switzerland \\
+        ORCID: 0009-0005-1793-9107}
+}
+
+\maketitle
+
+\begin{abstract}
+    This article introduces Eiffel-tools, a language server implementation that uses large language models to aid the development of statically verified software.
+    It analyzes Eiffel projects.
+    It defines various interactive and non-interactive commands to produce code or specifications.
+    The language server uses language and project specific knowledge to direct the large language model.
+    It crafts rich programmatic prompts for the input and corrects or refuses the output.
+
+\end{abstract}
+
+\begin{IEEEkeywords}
+    LLM, LSP, software verification, design-by-contract, Eiffel, AutoProof.
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+While large language models have demonstrated impressive capabilities
+in code generation and automated assistance, their effectiveness in
+specialized domains such as formal verification is limited by the lack
+of publicly available resources. Existing tools for Eiffel, described in~\secref{related-work},
+focus on generating contracts for dynamic checks and do not address the
+needs of model-based, statically verified specifications required by
+AutoProof, explained in~\secref{eiffel-and-autoproof}. Similarly, prior repair tools depend on
+code substitution templates, leaving a gap in interactive or automated adaptable support
+for static verification.
+
+This paper introduces Eiffel-tools~\cite{eiffel-tools}.
+That is a server-side implementation of the language server protocol~\secref{lsp}.
+Eiffel-tools uses large language models, described in~\secref{llm}.
+It provides language and project specific help to the developers of Eiffel software verified using AutoProof, described in~\secref{eiffel-and-autoproof}.
+
+% This document is a model and instructions for \LaTeX.
+% Please observe the conference page limits. For more information about how to become an IEEE Conference author or how to write your paper, please visit   IEEE Conference Author Center website: https://conferences.ieeeauthorcenter.ieee.org/.
+
+\subsection{Eiffel and AutoProof}\label{eiffel-and-autoproof}
+
+Eiffel~\cite{eiffel_language_and_environment} is an object-oriented programming language with first-class support for Design by Contract~\cite{design-by-contract}, allowing developers to embed preconditions, postconditions, and class invariants directly in the source code. Thus, a typical Eiffel project contains both the executable program and its formal specifications within the same codebase.
+
+While dynamic checks constitute the most common use of contracts in Eiffel, the language also supports model-based contracts, which enable the static verification of programs through AutoProof~\cite{autoproof}.
+Such contracts reference entities that are axiomatically defined in the intermediate verification language Boogie~\cite{boogie-lang}.
+AutoProof builds on the existing Boogie~\cite{boogie} toolchain to verify Eiffel programs against these specifications, leveraging axiomatic definitions contained in Boogie files originally developed for Dafny~\cite{dafny}.
+
+
+\subsection{Large language models for software development}\label{llm}
+
+The recent advancements in deep learning brought large language models (LLMs) into industrial use for software development.
+LLMs need proper context to provide useful information because despite their impressively coherent outputs, they are not oracles and cannot infer user intentions that are not explicitly stated.
+This paper shows that language servers are a natural place to condense language and project specific information to guide the generation of large language models.
+We expect the constructed context to compensate partially the scarcity of training data for low resources languages and boost the quality of performance for all other languages.
+
+\subsection{Language server protocol}\label{lsp}
+
+% Why?
+The language server protocol~\cite{lsp} (LSP) makes the idea of the paper portable to any project which defines formal specifications and code.
+% What?
+The LSP defines a compatibility layer between source code editors and language specific functionalities.
+% By whom?
+It was developed by Microsoft and standardized as an open standard in 2016 in a conjoint effort with RedHat and CodeEnvy~\cite{lsp_origin_1}.
+% How much?
+To exemplify the success of this protocol, let us note that at the time of this writing there are 302 server side and 65 client side implementations listed on the official website~\cite{lsp}.
+
+When a programming editor implements the client side of the LSP, it automatically provides ``smart editing features'' for all the projects in languages for which the server side of the LSP has been implemented.
+Some of the language-specific features which the LSP standardizes are code completion, marking of lints, warnings and errors and editing routines.
+The latter can be refactoring routines, formatting routines, and custom operations with domain specific knowledge.
+Within the protocol they are shown as code actions or commands; the former being parametrized only by the user's cursor's position and the latter which can be called from anywhere with the right arguments.
+
+% How does it fit?
+These custom operations may access the server state and use the project and language specific knowledge to implement their custom logic.
+This is a perfect environment for defining guidelines for LLMs: which information is useful in the prompt, which outputs satisfy the syntax of the language and which identifiers are valid in the place the custom command wants to write and more.
+In our case, because Eiffel can define formal specifications and AutoProof can prove the correctness of the code against those specifications, we can force any command that generates code to produce only verified code.
+
+\section{Design and implementation}
+
+Eiffel-tools is implemented as a language server that provides commands leveraging LLMs to generate or repair Eiffel code and specifications.
+It communicates with them through the Constructor Tech API~\cite{constructor-api}.
+All outputs from the LLM are syntax-checked using Tree-sitter~\cite{treesitter}~\cite{tree-sitter-eiffel}; if an output cannot be parsed, Eiffel-tools extracts the first Markdown code block as a fallback response.
+
+Eiffel-tools can also invoke AutoProof to verify existing code or LLM-generated suggestions.
+Because AutoProof may not terminate on some inputs, Eiffel-tools runs it with timeouts: any verification exceeding a time limit is killed, and if the code was LLM-generated, the tool reverts it to its previous stable state upon failure.
+
+For organizational clarity, Eiffel-tools commands are classified along two dimensions:
+\begin{itemize}
+    \item \textbf{Interaction mode:}\begin{itemize} \item \emph{Interactive}, invoked as code actions by the LSP client \item \emph{non-interactive}, invoked as standalone executables.\end{itemize}
+    \item \textbf{Focus:} \begin{itemize} \item \emph{specifications} \item \emph{code} \item \emph{specification and code}\end{itemize}
+\end{itemize}
+
+\subsection{Interactive commands}
+
+Interactive commands are invoked by the developer as code actions in the IDE, typically when the cursor is inside the definition of a feature (routine).
+These commands may create intermediate files or artifacts in the workspace, but they do not modify the files currently open in the developer’s editor.
+This approach minimizes disruption and reduces context switching.
+
+\paragraph{Add model-based contracts}\label{add-model-based-contracts}
+This command tries to add model-based contracts to a given feature.
+As its focus in only on specifications, it may only extend the feature's precondition and postcondition blocks.
+It prompts an LLM following this schema, where the ``*'' before a placeholder means that it is kept as a placeholder in the final prompt.
+
+\begin{lstlisting}
+-- <TASK>
+-- <MODEL CURRENT CLASS>
+-- <MODEL ARGUMENT CLASSES>
+-- <PRECONDITION AVAILABLE IDENTIFIERS>
+-- <POSTCONDITION AVAILABLE IDENTIFIERS>
+<FEATURE NAME> <PARAMETERS> <RETURN TYPE>
+    <HEADER COMMENT>
+    require
+        <PREEXISTING PRECONDITIONS>
+        *<ADD NEW PRECONDITIONS>
+    do
+        <ALREADY PRESENT BODY>
+    ensure
+        <PREEXISTING POSTCONDITIONS>
+        *<ADD NEW POSTCONDITIONS>
+    end
+\end{lstlisting}
+The user can include additional hints in the feature's header comment, which are incorporated into the prompt.
+The LLM returns a set of candidate feature definitions.
+Eiffel-tools parses each candidate to extract the suggested contracts and then applies filtering to remove any unsuitable contracts.
+Specifically, we remove contracts which:
+
+\begin{itemize}
+    \item Are redundant
+    \item Are not model-based, and thus unusable by AutoProof
+    \item Contain invalid top-level identifiers
+    \item Contain calls with the wrong number of arguments
+\end{itemize}
+
+Finally, Eiffel-tools instructs the LSP client to insert the remaining valid contracts into the feature, appending them after any existing contracts.
+
+An example is shown at \figref{dataflow-model-based-contracts}.
+
+\begin{figure}
+    \begin{tikzpicture}[node distance=20pt, every node/.style={fill=white, font=\sffamily, scale=0.8}, align=left]
+        \node (start) [code] {
+            \begin{lstlisting}
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    require
+        True
+    do
+        Result := x
+    ensure
+        True
+    end
+\end{lstlisting}
+        };
+        \node (start-description) [description, right of=start, xshift=100pt] {Initial feature};
+        \draw[->] (start-description) -- (start);
+
+        \node (prompt) [code, below of=start, yshift=-100pt] {
+            \begin{lstlisting}
+-- <task>
+-- <model current class>
+-- <model argument classes>
+-- <precondition available ids>
+-- <postcondition available ids>
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    require
+        True
+        <ADD NEW PRECONDITIONS>
+    do
+        Result := x
+    ensure
+        True
+        <ADD NEW POSTCONDITIONS>
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (start) -- (prompt);
+        \node (prompt-description) [description, right of=prompt, xshift=130pt] {Generated prompt};
+        \draw[->] (prompt-description) -- (prompt);
+
+        \node (llm-candidate) [code, below of=prompt, yshift=-115pt] {
+            \begin{lstlisting}
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    require
+        True
+        llm-candidate-pre1
+        llm-candidate-pre2
+    do
+        Result := x
+    ensure
+        True
+        llm-candidate-post1
+        llm-candidate-post2
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (prompt) -- (llm-candidate);
+        \node (llm-candidate-description) [description, right of=llm-candidate, xshift=120pt] {Generated llm-candidate};
+        \draw[->] (llm-candidate-description) -- (llm-candidate);
+
+        \node (extracted-contracts) [code, below of=llm-candidate, yshift=-100pt] {
+            \begin{lstlisting}[language=]
+new-preconditions:
+  llm-candidate-pre1
+  llm-candidate-pre2
+
+new-postconditions:
+  llm-candidate-post1
+  llm-candidate-post2
+\end{lstlisting}
+        };
+        \draw[->, thick] (llm-candidate) -- (extracted-contracts);
+        \node (extracted-contracts-description) [description, right of=extracted-contracts, xshift=120pt] {Extracted contracts};
+        \draw[->] (extracted-contracts-description) -- (extracted-contracts);
+
+        \node (filtered-contracts) [code, below of=extracted-contracts, yshift=-60pt] {
+            \begin{lstlisting}[language=]
+new-preconditions:
+  llm-candidate-pre1
+
+new-postconditions:
+  llm-candidate-post2
+\end{lstlisting}
+        };
+        \draw[->, thick] (extracted-contracts) -- (filtered-contracts);
+        \node (filtered-contracts-description) [description, right of=filtered-contracts, xshift=120pt] {Filtered contracts};
+        \draw[->] (filtered-contracts-description) -- (filtered-contracts);
+
+        \node (initial-feature-after-edits) [code, below of=filtered-contracts, yshift=-80pt] {
+            \begin{lstlisting}
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    require
+        True
+    do
+        Result := x
+    ensure
+        True
+        res: (Result = x or Result = y)
+            and Result <= x and Result <= y
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (filtered-contracts) -- (initial-feature-after-edits);
+        \node (initial-feature-after-edits-description) [description, right of=initial-feature-after-edits, xshift=130pt] {Feature after edits};
+        \draw[->] (initial-feature-after-edits-description) -- (initial-feature-after-edits);
+    \end{tikzpicture}
+    \caption{Dataflow of a feature in the add model-based contracts command}\label{dataflow-model-based-contracts}
+\end{figure}
+
+\paragraph{Fix feature body}\label{fix-feature-body}
+This command generates an implementation for a feature that satisfies its model-based specifications.
+It modifies only the feature's body, never its specifications.
+Because AutoProof can verify only complete, compilable programs, Eiffel-tools handles intermediate results by creating a subclass of the current class and overriding the target feature in it.
+The overriding feature is initially given to AutoProof.
+If verification fails, Eiffel-tools enters a loop: it prompts the LLM for a new candidate body, inserts the candidate into the overriding feature, and reruns AutoProof.
+If a candidate body passes verification, Eiffel-tools copies that body into the original feature; otherwise, the loop continues until a candidate passes or a maximum number of attempts is reached.
+Unless a candidate succeeds, no changes are applied to the original feature.
+An example is shown at \figref{dataflow-feature-body}.
+
+\begin{figure}
+    \begin{tikzpicture}[node distance=20pt, every node/.style={fill=white, font=\sffamily, scale=0.8}, align=left]
+        \node (start) [code] {
+            \begin{lstlisting}
+class
+    EXAMPLE
+feature
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+end
+\end{lstlisting}
+        };
+        \node (start-description) [description, right of=start, xshift=130pt] {Initial feature in class};
+        \draw[->] (start-description) -- (start);
+
+        \node (prompt) [code, below of=start, yshift=-100pt] {
+            \begin{lstlisting}
+-- <task>
+-- <model current class>
+-- <model argument classes>
+-- <precondition available ids>
+-- <postcondition available ids>
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    do
+        <ADD BODY>
+    ensure
+        res: (Result = x or Result = y)
+            and Result <= x and Result <= y
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (start) -- (prompt);
+        \node (prompt-description) [description, right of=prompt, xshift=130pt] {Generated prompt};
+        \draw[->] (prompt-description) -- (prompt);
+
+        \node (llm-candidate) [code, below of=prompt, yshift=-100pt] {
+            \begin{lstlisting}
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    do
+        if x < y then
+            Result := x
+        else
+            Result := y
+        end
+    ensure
+        res: (Result = x or Result = y)
+            and Result <= x and Result <= y
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (prompt) -- (llm-candidate);
+        \node (llm-candidate-description) [description, right of=llm-candidate, xshift=140pt] {Generated llm-candidate};
+        \draw[->] (llm-candidate-description) -- (llm-candidate);
+
+        \node (extracted-body) [code, below of=llm-candidate, yshift=-70pt] {
+            \begin{lstlisting}
+if x < y then
+    Result := x
+else
+    Result := y
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (llm-candidate) -- (extracted-body);
+        \node (extracted-body-description) [description, right of=extracted-body, xshift=120pt] {Extracted body};
+        \draw[->] (extracted-body-description) -- (extracted-body);
+
+        \node (mid-artifact) [code, below of=extracted-body, yshift=-90pt] {
+            \begin{lstlisting}
+class
+    LLM_INSTRUMENTED_EXAMPLE
+inherit
+    EXAMPLE redefine min end
+feature
+    min (x, y: INTEGER): INTEGER
+        do
+            if x < y then
+                Result := x
+            else
+                Result := y
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (extracted-body) -- (mid-artifact);
+        \node (mid-artifact-description) [description, right of=mid-artifact, xshift=160pt] {Instrumented feature redefinition};
+        \draw[->] (mid-artifact-description) -- (mid-artifact);
+
+        \node (verification-result) [code, below of=mid-artifact, yshift=-80pt] { Verification output};
+        \draw[->, thick] (mid-artifact) -- (verification-result);
+        \draw[->, thick] (verification-result.west) -| ([xshift=-30pt] prompt.west)
+            node[near start, above] {Fails} -- (prompt.west);
+        \node (initial-feature-after-edits) [code, below of=verification-result, yshift=-70pt] {
+            \begin{lstlisting}
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    require
+        True
+    do
+        if x < y then
+            Result := x
+        else
+            Result := y
+        end
+    ensure
+        True
+        res: (Result = x or Result = y)
+            and Result <= x and Result <= y
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (verification-result) -- (initial-feature-after-edits)
+            node[midway, right] {Succeds};
+        \node (initial-feature-after-edits-description) [description, right of=initial-feature-after-edits, xshift=130pt] {Feature after edits};
+        \draw[->] (initial-feature-after-edits-description) -- (initial-feature-after-edits);
+    \end{tikzpicture}
+    \caption{Dataflow of a feature in the fix feature body command}\label{dataflow-feature-body}
+\end{figure}
+
+\subsection{Non-interactive commands}
+
+Non-interactive commands run as standalone executables, enabling batch execution and clear tracking of LLM-generated changes under version control.
+These commands may modify the project code and specifications directly, writing changes in place.
+After each change, Eiffel-tools runs AutoProof: if AutoProof fails to verify the modified code, the tool reverts to the last stable state.
+
+\paragraph{Feature by feature correction}\label{feature-by-feature}
+This command takes an Eiffel configuration file and a list of classes.
+It parses the entire project and attempts to verify each feature in the specified classes.
+If a feature fails verification, the tool prompts the LLM to suggest a correction.
+It may modify both the specifications and the code of the failing feature.
+The prompt includes a task description, a list of available identifiers, the feature's code, the class invariant, and the AutoProof counterexample, i.e.\ it follows the schema:
+
+\begin{lstlisting}
+-- <TASK>
+-- <AVAILABLE IDENTIFIERS>
+<FEATURE CODE>
+-- <CLASS INVARIANT>
+-- <AUTOPROOF COUNTEREXAMPLE>
+\end{lstlisting}
+
+From each LLM response, the parser extracts a candidate feature definition.
+Eiffel-tools backs up the original feature, replaces it with the candidate, and reruns AutoProof.
+If verification still fails, the original is restored and another candidate is tried.
+This process repeats until a candidate verifies or a maximum number of attempts is reached.
+An example is shown at \figref{dataflow-feature-by-feature-correction};
+
+\begin{figure}
+    \begin{tikzpicture}[node distance=20pt, every node/.style={fill=white, font=\sffamily, scale=0.6}, align=left]
+        \node (start) [code] {
+            \begin{lstlisting}
+class
+    EXAMPLE
+feature
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+
+    max (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result >= x and Result >= y
+        end
+end
+\end{lstlisting}
+        };
+        \node (start-description) [description, right of=start, xshift=135pt] {Initial feature in class};
+        \draw[->] (start-description) -- (start);
+
+        \node (prompt) [code, below of=start, yshift=-190pt] {
+\begin{lstlisting}
+class
+    EXAMPLE
+feature
+    -- <task>
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+        -- AutoProof counterexample
+
+    -- <task>
+    max (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result >= x and Result >= y
+        end
+        -- AutoProof counterexample
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (start) -- (prompt);
+        \node (prompt-description) [description, right of=prompt, xshift=130pt] {Generated prompt};
+        \draw[->] (prompt-description) -- (prompt);
+
+        \node (llm-candidate) [code, below of=prompt, yshift=-240pt] {
+            \begin{lstlisting}
+class
+    EXAMPLE
+feature
+    -- <task>
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            if x < y then
+                Result := x
+            else
+                Result := y
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+        -- AutoProof counterexample
+
+    -- <task>
+    max (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            if x < y then
+                Result := y
+            else
+                Result := x
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result >= x and Result >= y
+        end
+        -- AutoProof counterexample
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (prompt) -- (llm-candidate);
+        \node (llm-candidate-description) [description, right of=llm-candidate, xshift=140pt] {Generated llm-candidate};
+        \draw[->] (llm-candidate-description) -- (llm-candidate);
+
+        \node (verification-result) [code, below of=llm-candidate, yshift=-150pt] { Verification output };
+        \draw[->, thick] (llm-candidate) -- (verification-result);
+        \draw[->, thick] (verification-result.west) -| ([xshift=-30pt] prompt.west)
+            node[near start, below] {Reset failing features}
+            node[near start, above] {Some feature fails} -- (prompt.west);
+        \node (initial-feature-after-edits) [code, below of=verification-result, yshift=-140pt] {
+            \begin{lstlisting}
+class
+    EXAMPLE
+feature
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            if x < y then
+                Result := x
+            else
+                Result := y
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+
+    max (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            if x < y then
+                Result := y
+            else
+                Result := x
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result >= x and Result >= y
+        end
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (verification-result) -- (initial-feature-after-edits)
+            node[midway, right] {All features verify};
+        \node (initial-feature-after-edits-description) [description, right of=initial-feature-after-edits, xshift=130pt] {Feature after edits};
+        \draw[->] (initial-feature-after-edits-description) -- (initial-feature-after-edits);
+    \end{tikzpicture}
+    \caption{Dataflow of a feature in the feature by feature correction command}\label{dataflow-feature-by-feature-correction}
+\end{figure}
+
+\paragraph{Class by class correction}\label{class-by-class}
+This command takes an Eiffel configuration file and a list of classes.
+It verifies and repairs entire classes as a unit.
+It may modify both the specifications and code of all features in a class.
+After parsing the project, Eiffel-tools verifies each class as a whole.
+If a class fails verification, the LLM is asked to generate a new candidate version of the entire class.
+Eiffel-tools first backs up the original class.
+If the LLM's candidate is syntactically correct, it replaces the class, and AutoProof is run on it.
+If verification succeeds, Eiffel-tools moves on to the next class.
+Otherwise, it reverts to the backup and retries with another candidate (up to a fixed limit).
+This is the only command that attempts to produce a large, consistent output (a whole class) in one step.
+Each feature in the class prompt is formatted with its associated counterexample, as follows:
+
+\begin{lstlisting}
+-- <TASK>
+<FEATURE CODE>
+-- <AUTOPROOF COUNTEREXAMPLE ABOUT FEATURE>
+\end{lstlisting}
+
+\begin{figure}
+    \begin{tikzpicture}[node distance=20pt, every node/.style={fill=white, font=\sffamily, scale=0.6}, align=left]
+        \node (start) [code] {
+            \begin{lstlisting}
+class
+    EXAMPLE
+feature
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+
+    max (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result >= x and Result >= y
+        end
+end
+\end{lstlisting}
+        };
+        \node (start-description) [description, right of=start, xshift=135pt] {Initial feature in class};
+        \draw[->] (start-description) -- (start);
+
+        \node (prompt) [code, below of=start, yshift=-190pt] {
+\begin{lstlisting}
+class
+    EXAMPLE
+feature
+    -- <task>
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+        -- AutoProof counterexample
+
+    -- <task>
+    max (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result >= x and Result >= y
+        end
+        -- AutoProof counterexample
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (start) -- (prompt);
+        \node (prompt-description) [description, right of=prompt, xshift=130pt] {Generated prompt};
+        \draw[->] (prompt-description) -- (prompt);
+
+        \node (llm-candidate) [code, below of=prompt, yshift=-240pt] {
+            \begin{lstlisting}
+class
+    EXAMPLE
+feature
+    -- <task>
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            if x < y then
+                Result := x
+            else
+                Result := y
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+        -- AutoProof counterexample
+
+    -- <task>
+    max (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            if x < y then
+                Result := y
+            else
+                Result := x
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result >= x and Result >= y
+        end
+        -- AutoProof counterexample
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (prompt) -- (llm-candidate);
+        \node (llm-candidate-description) [description, right of=llm-candidate, xshift=140pt] {Generated llm-candidate};
+        \draw[->] (llm-candidate-description) -- (llm-candidate);
+
+        \node (verification-result) [code, below of=llm-candidate, yshift=-150pt] { Verification output };
+        \draw[->, thick] (llm-candidate) -- (verification-result);
+        \draw[->, thick] (verification-result.west) -| ([xshift=-30pt] prompt.west)
+            node[near start, below] {Reset failing features}
+            node[near start, above] {Some feature fails} -- (prompt.west);
+        \node (initial-feature-after-edits) [code, below of=verification-result, yshift=-140pt] {
+            \begin{lstlisting}
+class
+    EXAMPLE
+feature
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            if x < y then
+                Result := x
+            else
+                Result := y
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+
+    max (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            if x < y then
+                Result := y
+            else
+                Result := x
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result >= x and Result >= y
+        end
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (verification-result) -- (initial-feature-after-edits)
+            node[midway, right] {All features verify};
+        \node (initial-feature-after-edits-description) [description, right of=initial-feature-after-edits, xshift=130pt] {Feature after edits};
+        \draw[->] (initial-feature-after-edits-description) -- (initial-feature-after-edits);
+    \end{tikzpicture}
+    \caption{Dataflow of the class by class correction command}\label{dataflow-class-by-class-correction}
+\end{figure}
+
+\section{Initial evaluation}\label{initial-evaluation}
+
+We evaluated feature-by-feature, described in~\secref{feature-by-feature}, on the datasets buggy-java-jml-eiffel~\cite{Mustafin_buggy-java-jml-eiffel_2024} and maple-recursive-eiffel~\cite{Mustafin_maple-recursive-eiffel_2024}.
+For this evaluation, we used exclusively Claude Sonnet 4.0 from Anthropic within the Constructor Tech API.
+Both evaluations are in Eiffel-tools repository within the folder \verb|experiment-results|~\cite{eiffel-tools}.
+
+There are tools to generate automatic fixes to buggy programs: AutoFix and Proof2Fix.
+We expand more on them in the~\secref{related-work}.
+However, we could not find a working implementation of either to compare their performance.
+
+\paragraph{Buggy-java-jml-eiffel}
+This dataset is a collection of Java bugs~\cite{buggy-java-jml} specified via the Java Modelling Language (JML)~\cite{jml} translated to Eiffel, specified for AutoProof.
+As the dataset includes commented fixes for the bugs, we refined it to prevent the language models from being prompted with the correct solutions.\newline
+In total, there are 784 buggy classes in this dataset.\newline
+The command modified 339 classes.
+After the modification 316 classes verify.
+Because of two separate bugs that have since been fixed,
+16 modified classes failed to verify and 7 classes caused AutoProof to crash.
+
+\paragraph{Maple-recursive-eiffel}
+This dataset is a collection of artificial C bugs translated to Eiffel, fully specified for AutoProof.
+In total, it contains 26 buggy classes.\newline
+The command modified all 26 classes.\newline
+After the modification all 26 classes verify.
+
+\section{Related work}\label{related-work}
+
+The research area applying LLMs to software engineering is flourishing
+~\cite{braberman2024tasks}
+~\cite{hou2024large}
+~\cite{zhang2024unifyingperspectivesnlpsoftware}.
+Many groups focus on generating qualitative code either with classical or with agentic LLMs frameworks
+~\cite{mukherjee2024towards}
+~\cite{brandfonbrener2024vermcts}
+~\cite{sun2024clover}.
+Others work on the automatic generation of specifications
+~\cite{translating_natural_language_comments_to_formal_program_specifications}
+~\cite{enchanting_program_specification_synthesis_by_large_languae_models_using_static_analysis_and_program_verification}
+~\cite{specgen_automated_generation_of_formal_program_specifications_via_large_language_models}
+~\cite{yang2024autoverus}
+~\cite{liu2024propertygpt}
+~\cite{yao2023leveraging}.
+The most relevant related work we could find in the literature guides LLMs through monitors~\cite{monitors}.\@ It uses language servers externally, mainly their completion engines, to dynamically mask the streaming output of large language models.
+Their work adds to the benefits of fine-tuning the LLMs.
+With the same philosophy, our work defines where and how the LLMs may find language and project specific knowledge, which adds benefit to fine-tuning and dynamic masking.
+
+There are CITADEL~\cite{citadel} and AutoInfer~\cite{autoinfer} to automatically generate Eiffel specifications.
+Citadel is an Eiffel front end for Daikon~\cite{daikon}.
+AutoInfer~\cite{autoinfer} is another tool that generates Eiffel contracts using data mining and contract templates.
+However, these tools generate specifications for dynamic checks, not model-based specifications for static verification.
+On the side of automatic repair of Eiffel programs there is AutoFix~\cite{autofix} and Proof2Fix~\cite{proof2fix}.
+AutoFix uses random testing through AutoTest~\cite{autotest} to identify the faults.
+Proof2Fix identifies faults using AutoProof.
+They both propose candidate fixes that may be the substitution of a template for code edits or the strengthening of the preconditions or weakening of the postconditions for contracts edits.
+
+\section{Limitations and threats to validity}
+
+% UNAVOIDABLE IN THE DEVELOPMENT OF VERIFIED SOFTWARE
+A command that modifies the specifications of a feature to verify it, might inadvertently break the verification of the feature's clients.
+This is an expected part of the development of verified software.
+For a given routine, if the preconditions must become stronger or the postconditions must become weaker, the verification of its client is not guaranteed anymore.
+
+On the other hand, when using commands which cannot modify the specifications, they will fail when asked to satisfy unfeasible specifications.
+Currently, all the interactive commands rely on the soundness and feasibility of the specifications.
+
+% OUR LIMITATIONS.
+Our parser, tree sitter, refuses valid Eiffel code if it contains deprecated syntax.
+The heuristics we use to refuse repeating or invalid contracts, do not ensure the complete lack of logical redundancy and the removal of all invalid contracts.
+There are few benchmarks and overall online resources for Eiffel, this can significantly impact the ability of LLMs to generate output of comparable quality to more popular languages like Python or Java.
+
+The benchmarks used in our evaluation, described in~\secref{initial-evaluation}, are public and available in multiple programming languages, either C and Eiffel or Java-JML and Eiffel.
+It is possible that those benchmarks leaked in the training data of some LLMs.
+
+\section{Future work}
+
+We will evaluate all remaining commands:
+class-by-class-fixes,
+model-based-contracts-generation and
+feature-body-generation,
+respectively described in \secref{class-by-class}, \secref{add-model-based-contracts} and \secref{fix-feature-body}.
+
+Then, we want to improve the existing command.
+For the prompt construction, all commands will register successful generations and use them to dynamically construct few-shot prompting.
+For the output validation, all commands will to type checking on the candidates.
+The model-based contract generation will implement a stronger filter for redundancy and consistency using SMT solvers.
+It will construct SMT formulas from contracts, mapping identifiers in contracts to formal variables.
+If the formulas of the pre-existing contracts imply the formulas of the new proposed contracts, the new contracts are redundant.
+If the conjunction of the formulas of the pre-existing contracts and the new contracts imply false, the addition of the new contracts would introduce inconsistency.
+This command assumes that the pre-existing contracts are consistent because they have been written or accepted by the user.
+
+Moreover, we plan to add AI agents to monitor the project from a high-abstraction prospective and to streamline a conversation with the developer.
+
+\bibliographystyle{IEEEtran}
+\bibliography{Bibliography}
+
+\end{document}

@@ -7,27 +7,12 @@ This project introduces `lsp-eiffel`, a server-side implementation of the [langu
 ### Language server
 
 Configure your favorite editor with LSP support to use the language server.
-(Make a pull request with the specific instruction for your code editor e.g. IntelliJ, VSCode, Emacs, Neovim, Zed, Helix)
+(Make a pull request with the specific instruction for your code editor e.g. IntelliJ, VSCode, Emacs, Neovim, Zed)
 
 ### Helix
 
-```toml
-# ${HOME}/.config/helix/languages.toml
-[language-server.lsp-eiffel]
-command = "placeholder" # Change `placeholder` with the path to the language server binary.
-
-[[language]]
-name = "eiffel"
-scope = "source.eiffel"
-file-types = ["e"]
-comment-token = "--"
-roots = []
-language-servers = ["lsp-eiffel"]
-
-[[grammar]]
-name = "eiffel"
-source = { git = "https://github.com/imustafin/tree-sitter-eiffel.git", rev = "44c4c5cf912abb2a3cca04546fbca28fd4b3cecb" }
-```
+The configuration for helix has been merged upstream.
+Just install the language server and make sure it is visible in your `$PATH`.
 
 ### Standalone commands
 
@@ -60,3 +45,15 @@ The command `cargo build --release --workspace` builds the language server and t
 The command `cargo build --release -p eiffel-tools` builds only the language server.
 The command `cargo build --workspace` builds the language server and the standalone commands in the workspace with debugging information e.g. bounds checks.
 
+## Contributing
+
+### Functionality
+
+This project was born as a research project, most of the functionalities that make a language server truly useful (i.e. advanced code navigation, obvious code completion and in-place documentation) have not been built because there was no incentive in doing so.
+However, the infrastructure allows all these functionalities to be added easily.
+Feel free to write a PR, fork the project or get in touch for continuing this work.
+
+### Project visibility
+
+Do you want to help the visibility of the project?
+You might want to read the draft of the scientific paper describing this tool (in the `./draft-paper` folder) and getting in touch to cooperate on its conclusion.
