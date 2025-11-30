@@ -3,6 +3,7 @@ use eiffel_tools_lib::code_entities::prelude::*;
 use eiffel_tools_lib::config::System;
 use eiffel_tools_lib::generators::Generators;
 use eiffel_tools_lib::language_server_protocol::commands::fix_routine_in_place;
+use eiffel_tools_lib::language_server_protocol::commands::fix_routine_in_place::{CodeChange, LlmInteraction};
 use eiffel_tools_lib::tracing::info;
 use eiffel_tools_lib::tracing::warn;
 use eiffel_tools_lib::tracing_subscriber::filter;
@@ -11,6 +12,7 @@ use eiffel_tools_lib::tracing_subscriber::fmt::format::FmtSpan;
 use eiffel_tools_lib::tracing_subscriber::prelude::*;
 use eiffel_tools_lib::tracing_subscriber::{Layer, Registry};
 use eiffel_tools_lib::workspace::Workspace;
+use futures::stream::{FuturesUnordered, StreamExt};
 use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
@@ -33,6 +35,8 @@ struct FeatureReport {
     success: bool,
     max_retries_reached: bool,
     final_status: String,
+    interactions: Vec<LlmInteraction>,
+    code_changes: Vec<CodeChange>,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -127,7 +131,7 @@ async fn feature_by_feature(
         classes_and_routines(&ws, classes_names)
     };
 
-    let handles: Vec<_> = classes_and_routines
+    let mut handles: FuturesUnordered<_> = classes_and_routines
         .into_iter()
         .flat_map(|(classname, features)| {
             features
@@ -154,9 +158,9 @@ async fn feature_by_feature(
         })
         .collect();
 
-    let mut reports = Vec::new();
-    for handle in handles {
-        let (classname, featurename, result) = handle.await.expect("Fails to await fix routine in place.");
+    // Process results as they complete (not in order)
+    while let Some(handle_result) = handles.next().await {
+        let (classname, featurename, result) = handle_result.expect("Fails to await fix routine in place.");
         let report = FeatureReport {
             class_name: classname.to_string(),
             feature_name: featurename.to_string(),
@@ -164,14 +168,15 @@ async fn feature_by_feature(
             success: result.success,
             max_retries_reached: result.max_retries_reached,
             final_status: result.final_status,
+            interactions: result.interactions,
+            code_changes: result.code_changes,
         };
-        reports.push(report);
+        
+        // Output each feature report as a JSON line as soon as it's ready
+        let json_output = serde_json::to_string(&report)
+            .expect("Failed to serialize report to JSON");
+        println!("{}", json_output);
     }
-
-    // Output JSON report to stdout
-    let json_output = serde_json::to_string_pretty(&reports)
-        .expect("Failed to serialize reports to JSON");
-    println!("{}", json_output);
 }
 
 async fn load_workspace(system: System, workspace: Arc<RwLock<Workspace>>) {
