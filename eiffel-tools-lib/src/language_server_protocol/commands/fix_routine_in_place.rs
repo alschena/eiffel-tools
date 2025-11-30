@@ -6,19 +6,31 @@ use std::ops::ControlFlow;
 use tracing::info;
 use tracing::instrument;
 
+#[derive(Debug, Clone)]
+pub struct FixRoutineResult {
+    pub llm_interactions: u32,
+    pub success: bool,
+    pub max_retries_reached: bool,
+    pub final_status: String,
+}
+
 #[instrument(skip_all)]
 pub async fn fix_routine_in_place(
     generators: &Generators,
     workspace: &mut Workspace,
     class_name: &ClassName,
     feature_name: &FeatureName,
-) {
+) -> FixRoutineResult {
     let path = workspace.path(class_name).to_path_buf();
     let mut last_valid_code = tokio::fs::read(&path)
         .await
         .unwrap_or_else(|e| panic!("fails to read at path {:#?} with {:#?}", &path, e));
     let max_number_of_tries = 10;
     let mut number_of_tries = 0;
+    let mut llm_interactions = 0;
+
+    let mut success = false;
+    let mut max_retries_reached = false;
 
     while let ControlFlow::Continue(verifier_failure_feedback) = modify_in_place::verification(
         class_name,
@@ -31,10 +43,12 @@ pub async fn fix_routine_in_place(
         number_of_tries += 1;
         if max_number_of_tries <= number_of_tries {
             info!(target: "autoproof", "Giving up on verifiying {class_name}.{}",feature_name);
+            max_retries_reached = true;
             break;
         }
         info!(target:"autoproof", "Try #{number_of_tries} on {class_name}.{}",feature_name);
         if let Some(error_message) = verifier_failure_feedback {
+            llm_interactions += 1;
             if let Some((ft, body)) = generators
                 .fixed_routine_src(workspace, &path, feature_name, error_message)
                 .await
@@ -42,5 +56,20 @@ pub async fn fix_routine_in_place(
                 modify_in_place::rewrite_features(&path, &[(ft.name().to_owned(), body)]).await;
             }
         }
+    }
+
+    // If we exited the loop without max retries, verification succeeded
+    let final_status = if max_retries_reached {
+        format!("Max retries ({}) reached", max_number_of_tries)
+    } else {
+        success = true;
+        format!("Verification passed after {} LLM interaction(s)", llm_interactions)
+    };
+
+    FixRoutineResult {
+        llm_interactions,
+        success,
+        max_retries_reached,
+        final_status,
     }
 }
