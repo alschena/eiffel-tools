@@ -50,6 +50,31 @@ pub enum EnumLanguageModel {
     Qwen3,
 }
 
+impl EnumLanguageModel {
+    /// Parse a model name string to EnumLanguageModel.
+    /// Returns the default (ClaudeSonnet) if the string doesn't match any known model.
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "gemini-2.0-flash-001" => EnumLanguageModel::GeminiFlash,
+            "gemini-1.5-pro" => EnumLanguageModel::GeminiPro,
+            "learnlm-1.5-pro-experimental" => EnumLanguageModel::LearnlmProExperimental,
+            "claude-opus-4-0" => EnumLanguageModel::ClaudeOpus,
+            "claude-3-5-haiku-20241022" => EnumLanguageModel::ClaudeHaiku,
+            "claude-sonnet-4-0" => EnumLanguageModel::ClaudeSonnet,
+            "deepseek/deepseek-chat" => EnumLanguageModel::DeepSeekChat,
+            "deepseek/deepseek-r1" => EnumLanguageModel::DeepSeekR1,
+            "gpt-4o-mini" => EnumLanguageModel::Gpt4OMini,
+            "gpt-4o-2024-08-06" => EnumLanguageModel::Gpt40,
+            "o1-2024-12-17" => EnumLanguageModel::O1,
+            "o3-mini" => EnumLanguageModel::O3Mini,
+            "o3" => EnumLanguageModel::O3,
+            "o4-mini" => EnumLanguageModel::O4Mini,
+            "qwen/qwen3-235b-a22b" => EnumLanguageModel::Qwen3,
+            _ => EnumLanguageModel::default(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct LanguageModel {
     id: String,

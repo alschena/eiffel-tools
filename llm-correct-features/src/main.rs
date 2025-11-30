@@ -25,6 +25,8 @@ struct Args {
     config: std::path::PathBuf,
     #[arg(long)]
     classes: std::path::PathBuf,
+    #[arg(long, help = "LLM model name to use (e.g., 'claude-sonnet-4-0', 'gpt-4o-mini', 'o3-mini')")]
+    model: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -111,6 +113,7 @@ async fn feature_by_feature(
     Args {
         config: config_file,
         classes: classes_file,
+        model: model_name,
     }: Args,
 ) {
     let system = system(&config_file);
@@ -121,7 +124,11 @@ async fn feature_by_feature(
     let classes_names = name_classes(&classes_file).await;
 
     let generators = {
-        let mut generators = Generators::default();
+        let mut generators = if let Some(ref name) = model_name {
+            Generators::with_model_name(name)
+        } else {
+            Generators::default()
+        };
         generators.add_new().await;
         Arc::new(generators)
     };

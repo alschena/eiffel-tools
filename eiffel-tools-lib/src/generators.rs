@@ -13,9 +13,19 @@ mod prompt;
 
 mod constructor_api;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Generators {
     llms: Vec<Arc<constructor_api::Llm>>,
+    model: constructor_api::EnumLanguageModel,
+}
+
+impl Default for Generators {
+    fn default() -> Self {
+        Self {
+            llms: Vec::new(),
+            model: constructor_api::EnumLanguageModel::default(),
+        }
+    }
 }
 
 impl Generators {
@@ -25,6 +35,26 @@ impl Generators {
             return;
         };
         self.llms.push(Arc::new(llm));
+    }
+
+    pub fn with_model(model: constructor_api::EnumLanguageModel) -> Self {
+        Self {
+            llms: Vec::new(),
+            model,
+        }
+    }
+
+    /// Create a Generators instance with a model specified by name string.
+    /// If the model name is not recognized, uses the default model.
+    pub fn with_model_name(model_name: &str) -> Self {
+        Self::with_model(constructor_api::EnumLanguageModel::from_str(model_name))
+    }
+
+    fn default_completion_parameters(&self) -> constructor_api::CompletionParameters {
+        constructor_api::CompletionParameters {
+            model: self.model.clone(),
+            ..Default::default()
+        }
     }
 
     async fn complete(
@@ -83,12 +113,11 @@ mod feature_focused {
                     .await?;
 
             // Generate feature with specifications
+            let mut params = self.default_completion_parameters();
+            params.messages = prompt.into();
+            params.n = Some(50);
             let completion_response = self
-                .complete(constructor_api::CompletionParameters {
-                    messages: prompt.into(),
-                    n: Some(50),
-                    ..Default::default()
-                })
+                .complete(params)
                 .await
                 .into_iter()
                 .inspect(|response| info!(target: "llm", "LLM response {response:#?}"));
@@ -122,12 +151,11 @@ mod feature_focused {
             .into();
 
             // Generate feature with specifications
+            let mut params = self.default_completion_parameters();
+            params.messages = prompt;
+            params.n = Some(5);
             let completion_response = self
-                .complete(constructor_api::CompletionParameters {
-                    messages: prompt,
-                    n: Some(5),
-                    ..Default::default()
-                })
+                .complete(params)
                 .await
                 .into_iter()
                 .inspect(|response| info!(target: "llm", "LLM response {response:#?}"));
@@ -163,12 +191,11 @@ mod feature_focused {
             .await?
             .into();
 
+            let mut params = self.default_completion_parameters();
+            params.messages = prompt;
+            params.n = Some(5);
             let completion_response = self
-                .complete(constructor_api::CompletionParameters {
-                    messages: prompt,
-                    n: Some(5),
-                    ..Default::default()
-                })
+                .complete(params)
                 .await
                 .into_iter()
                 .inspect(|response| info!(target: "llm", "LLM response {response:#?}"));
@@ -198,12 +225,11 @@ mod class_wide {
                 .unwrap();
 
             // Generate feature with specifications
+            let mut params = self.default_completion_parameters();
+            params.messages = prompt.into();
+            params.n = Some(5);
             let completion_response = self
-                .complete(constructor_api::CompletionParameters {
-                    messages: prompt.into(),
-                    n: Some(5),
-                    ..Default::default()
-                })
+                .complete(params)
                 .await
                 .into_iter();
 
@@ -231,12 +257,11 @@ mod class_wide {
                     .await
                     .expect("fails to produce prompt for class-wide fixes.");
 
+            let mut params = self.default_completion_parameters();
+            params.messages = prompt.into();
+            params.n = Some(5);
             let completion_response = self
-                .complete(constructor_api::CompletionParameters {
-                    messages: prompt.into(),
-                    n: Some(5),
-                    ..Default::default()
-                })
+                .complete(params)
                 .await
                 .into_iter()
                 .inspect(|response| info!("LLM response: {response:#?}"));
@@ -315,6 +340,9 @@ mod class_wide {
 #[cfg(test)]
 impl Generators {
     pub fn mock() -> Self {
-        Generators { llms: Vec::new() }
+        Generators {
+            llms: Vec::new(),
+            model: constructor_api::EnumLanguageModel::default(),
+        }
     }
 }
