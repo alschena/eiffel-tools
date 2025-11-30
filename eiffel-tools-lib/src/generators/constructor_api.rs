@@ -73,6 +73,27 @@ impl EnumLanguageModel {
             _ => EnumLanguageModel::default(),
         }
     }
+
+    /// Get the model name as a string (the serialized form).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EnumLanguageModel::GeminiFlash => "gemini-2.0-flash-001",
+            EnumLanguageModel::GeminiPro => "gemini-1.5-pro",
+            EnumLanguageModel::LearnlmProExperimental => "learnlm-1.5-pro-experimental",
+            EnumLanguageModel::ClaudeOpus => "claude-opus-4-0",
+            EnumLanguageModel::ClaudeHaiku => "claude-3-5-haiku-20241022",
+            EnumLanguageModel::ClaudeSonnet => "claude-sonnet-4-0",
+            EnumLanguageModel::DeepSeekChat => "deepseek/deepseek-chat",
+            EnumLanguageModel::DeepSeekR1 => "deepseek/deepseek-r1",
+            EnumLanguageModel::Gpt4OMini => "gpt-4o-mini",
+            EnumLanguageModel::Gpt40 => "gpt-4o-2024-08-06",
+            EnumLanguageModel::O1 => "o1-2024-12-17",
+            EnumLanguageModel::O3Mini => "o3-mini",
+            EnumLanguageModel::O3 => "o3",
+            EnumLanguageModel::O4Mini => "o4-mini",
+            EnumLanguageModel::Qwen3 => "qwen/qwen3-235b-a22b",
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

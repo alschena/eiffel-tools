@@ -50,6 +50,11 @@ impl Generators {
         Self::with_model(constructor_api::EnumLanguageModel::from_str(model_name))
     }
 
+    /// Get the model name as a string.
+    pub fn model_name(&self) -> &'static str {
+        self.model.as_str()
+    }
+
     fn default_completion_parameters(&self) -> constructor_api::CompletionParameters {
         constructor_api::CompletionParameters {
             model: self.model.clone(),

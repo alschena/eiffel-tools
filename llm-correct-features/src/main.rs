@@ -33,6 +33,7 @@ struct Args {
 struct FeatureReport {
     class_name: String,
     feature_name: String,
+    model: String,
     llm_interactions: u32,
     success: bool,
     max_retries_reached: bool,
@@ -133,6 +134,9 @@ async fn feature_by_feature(
         Arc::new(generators)
     };
 
+    // Capture the model name before spawning tasks
+    let model_name_str = generators.model_name().to_string();
+
     let classes_and_routines = {
         let ws = workspace.read().await;
         classes_and_routines(&ws, classes_names)
@@ -171,6 +175,7 @@ async fn feature_by_feature(
         let report = FeatureReport {
             class_name: classname.to_string(),
             feature_name: featurename.to_string(),
+            model: model_name_str.clone(),
             llm_interactions: result.llm_interactions,
             success: result.success,
             max_retries_reached: result.max_retries_reached,
