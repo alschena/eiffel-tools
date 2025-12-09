@@ -74,3 +74,13 @@ MAPLE_RECURSIVE_SUM_N_4
 git restore .
 ```
 
+
+7. Fix the `not` bug in java-jml (TODO: explanation)
+
+8. For buggy-java-jml-eiffel dataset, run the preparation script and redirect
+output to `classes.txt`. The script will remove the comments which contain
+the fixes and will output the `CLASS_NAME.feature_name` for fixing.
+
+``` sh
+python buggy_prepare.py
+```
