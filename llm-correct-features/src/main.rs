@@ -18,6 +18,12 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+#[derive(Debug, Clone)]
+enum ClassOrFeature {
+    Class(ClassName),
+    ClassAndFeature(ClassName, String),
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -122,7 +128,7 @@ async fn feature_by_feature(
 
     load_workspace(system, workspace.clone()).await;
 
-    let classes_names = name_classes(&classes_file).await;
+    let classes_and_features = name_classes(&classes_file).await;
 
     let generators = {
         let mut generators = if let Some(ref name) = model_name {
@@ -139,7 +145,7 @@ async fn feature_by_feature(
 
     let classes_and_routines = {
         let ws = workspace.read().await;
-        classes_and_routines(&ws, classes_names)
+        classes_and_routines(&ws, classes_and_features)
     };
 
     let mut handles: FuturesUnordered<_> = classes_and_routines
@@ -211,7 +217,7 @@ fn system(config_file: &Path) -> System {
     }
 }
 
-async fn name_classes(classes_file: &Path) -> Vec<ClassName> {
+async fn name_classes(classes_file: &Path) -> Vec<ClassOrFeature> {
     tokio::fs::read(classes_file)
         .await
         .inspect_err(|e| warn!("fails to read classes_file with error: {:#?}", e))
@@ -228,8 +234,30 @@ async fn name_classes(classes_file: &Path) -> Vec<ClassName> {
         })
         .map(|text| {
             text.lines()
-                .flat_map(|name| (!name.is_empty()).then_some(ClassName(name.to_uppercase())))
-                .inspect(|name| info!("Class name read: {}", name))
+                .filter_map(|line| {
+                    if line.is_empty() {
+                        return None;
+                    }
+                    let trimmed = line.trim();
+                    if trimmed.contains('.') {
+                        let parts: Vec<&str> = trimmed.splitn(2, '.').collect();
+                        if parts.len() == 2 {
+                            let class_name = parts[0].trim().to_uppercase();
+                            let feature_name = parts[1].trim().to_string();
+                            if !class_name.is_empty() && !feature_name.is_empty() {
+                                info!("Class and feature read: {}.{}", class_name, feature_name);
+                                return Some(ClassOrFeature::ClassAndFeature(
+                                    ClassName(class_name),
+                                    feature_name,
+                                ));
+                            }
+                        }
+                    }
+                    // Fall back to treating as class name only
+                    let class_name = trimmed.to_uppercase();
+                    info!("Class name read: {}", class_name);
+                    Some(ClassOrFeature::Class(ClassName(class_name)))
+                })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default()
@@ -237,14 +265,41 @@ async fn name_classes(classes_file: &Path) -> Vec<ClassName> {
 
 fn classes_and_routines<'cl>(
     workspace: &'cl Workspace,
-    classes: Vec<ClassName>,
+    classes_and_features: Vec<ClassOrFeature>,
 ) -> Vec<(ClassName, Vec<Feature>)> {
-    classes
+    classes_and_features
         .into_iter()
-        .filter_map(|class_name| {
+        .filter_map(|class_or_feature| {
+            let (class_name, feature_filter) = match class_or_feature {
+                ClassOrFeature::Class(name) => (name, None),
+                ClassOrFeature::ClassAndFeature(name, feature) => (name, Some(feature)),
+            };
             let path = workspace.path(&class_name);
-            let features = workspace.class(path).map(|class| class.features())?;
-            Some((class_name, features.clone()))
+            let all_features = workspace.class(path).map(|class| class.features())?;
+            
+            let features: Vec<Feature> = if let Some(ref filter_name) = feature_filter {
+                // Filter to only the specified feature
+                all_features
+                    .iter()
+                    .filter(|f| *f.name() == *filter_name)
+                    .cloned()
+                    .collect()
+            } else {
+                // Include all features
+                all_features.clone()
+            };
+            
+            if features.is_empty() {
+                if let Some(ref filter_name) = feature_filter {
+                    warn!(
+                        "Feature '{}' not found in class '{}'",
+                        filter_name, class_name
+                    );
+                }
+                return None;
+            }
+            
+            Some((class_name, features))
         })
         .collect()
 }
