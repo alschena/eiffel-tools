@@ -20,7 +20,7 @@ pub async fn fix_class_in_place(
     let mut number_of_tries = 0;
 
     while let ControlFlow::Continue(verifier_failure_feedback) =
-        modify_in_place::verification(class_name, None, workspace, &mut last_valid_code).await
+        modify_in_place::verification(class_name, None, workspace, &mut last_valid_code, None, false).await
     {
         number_of_tries += 1;
         if max_number_of_tries <= number_of_tries {

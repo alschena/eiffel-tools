@@ -33,6 +33,8 @@ struct Args {
     classes: std::path::PathBuf,
     #[arg(long, help = "LLM model name to use (e.g., 'claude-sonnet-4-0', 'gpt-4o-mini', 'o3-mini')")]
     model: Option<String>,
+    #[arg(long, help = "Show verbose output including verification attempts and code changes on stderr")]
+    verbose: bool,
 }
 
 #[derive(Serialize)]
@@ -121,6 +123,7 @@ async fn feature_by_feature(
         config: config_file,
         classes: classes_file,
         model: model_name,
+        verbose,
     }: Args,
 ) {
     let system = system(&config_file);
@@ -160,6 +163,7 @@ async fn feature_by_feature(
             let local_owned_workspace = workspace.clone();
             let local_classname = classname.clone();
             let local_featurename = featurename.clone();
+            let local_verbose = verbose;
 
             tokio::spawn(async move {
                 let mut ws = local_owned_workspace.write().await;
@@ -168,6 +172,7 @@ async fn feature_by_feature(
                     &mut ws,
                     &local_classname,
                     &local_featurename,
+                    local_verbose,
                 )
                 .await;
                 (local_classname, local_featurename, result)

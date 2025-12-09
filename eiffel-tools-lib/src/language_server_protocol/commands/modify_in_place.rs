@@ -40,6 +40,8 @@ pub async fn verification(
     feature_name: Option<&FeatureName>,
     workspace: &mut Workspace,
     last_valid_code: &mut Vec<u8>,
+    attempt_number: Option<u32>,
+    verbose: bool,
 ) -> ControlFlow<(), Option<String>> {
     let path = workspace.path(class_name);
     let entity_under_verification = feature_name.map_or_else(
@@ -59,7 +61,14 @@ pub async fn verification(
         }
     });
 
-    let verification_handle = verify(class_name.clone(), feature_name.cloned(), 60);
+    if verbose {
+        if let Some(attempt) = attempt_number {
+            eprintln!("Starting verification attempt #{} for {}", attempt, entity_under_verification);
+        } else {
+            eprintln!("Starting verification attempt for {}", entity_under_verification);
+        }
+    }
+    let verification_handle = verify(class_name.clone(), feature_name.cloned(), 60, verbose);
     
     // Note: We can't store the current handle for future cancellation because JoinHandle doesn't implement Clone
     // and we need to await it to get the result. However, we've already aborted any previous handle above,
@@ -70,12 +79,26 @@ pub async fn verification(
     match verification_result {
         Ok(Ok(Some(VerificationResult::Success))) => {
             update_last_valid_source(workspace, path.to_path_buf(), last_valid_code).await;
+            if verbose {
+                if let Some(attempt) = attempt_number {
+                    eprintln!("[Attempt #{}] Verification succeeded for {}", attempt, entity_under_verification);
+                } else {
+                    eprintln!("Verification succeeded for {}", entity_under_verification);
+                }
+            }
             info!(target:"autoproof", "AutoProof verifies {entity_under_verification} successfully.");
 
             ControlFlow::Break(())
         }
         Ok(Ok(Some(VerificationResult::Failure(error_message)))) => {
             reset_source(workspace, path.to_path_buf(), last_valid_code).await;
+            if verbose {
+                if let Some(attempt) = attempt_number {
+                    eprintln!("[Attempt #{}] Verification failed for {}:\n{}", attempt, entity_under_verification, error_message);
+                } else {
+                    eprintln!("Verification failed for {}:\n{}", entity_under_verification, error_message);
+                }
+            }
             info!(target: "autoproof", "AutoProof fails to verify {entity_under_verification}.");
             ControlFlow::Continue(Some(error_message))
         }

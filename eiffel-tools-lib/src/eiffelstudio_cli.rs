@@ -44,6 +44,7 @@ pub fn verify(
     class_name: ClassName,
     feature_name: Option<FeatureName>,
     max_secs: u64,
+    verbose: bool,
 ) -> tokio::task::JoinHandle<Result<Option<VerificationResult>, tokio::time::error::Elapsed>> {
     tokio::spawn(async move {
         let autoproof_cli = std::env::var("AP_COMMAND").inspect_err(
@@ -118,34 +119,102 @@ pub fn verify(
                     kill_process_by_pid(pid, &cli_args).await;
                 }
 
-                Ok(format_output(output).map(verification_result))
+                let result = format_output(output, verbose);
+                Ok(result.map(verification_result))
             }
             _ = tokio::time::sleep(tokio::time::Duration::from_secs(max_secs)) => {
-                // Timeout occurred - kill the child process
+                // Timeout occurred - try to read output from the child
                 warn!(
                     target: "autoproof",
                     "AutoProof verification timeout after {} seconds for `ec -autoproof {}`",
                     max_secs, cli_args
                 );
                 
+                // Try to read output from the child if we still have it
+                let mut stdout_bytes = Vec::new();
+                let mut stderr_bytes = Vec::new();
+                
                 if let Some(mut child) = child_opt.take() {
-                    if let Err(e) = child.kill().await {
-                        warn!(
-                            target: "autoproof",
-                            "Failed to kill AutoProof child process after timeout for `ec -autoproof {}`: {:#?}",
-                            cli_args, e
-                        );
-                    } else {
-                        info!(
-                            target: "autoproof",
-                            "Killed AutoProof child process after timeout for `ec -autoproof {}`",
-                            cli_args
-                        );
+                    // Take handles and try to read what's available
+                    if let Some(mut stdout) = child.stdout.take() {
+                        use tokio::io::AsyncReadExt;
+                        let mut buf = [0u8; 4096];
+                        // Try reading with a short timeout
+                        loop {
+                            match tokio::time::timeout(
+                                tokio::time::Duration::from_millis(100),
+                                stdout.read(&mut buf)
+                            ).await {
+                                Ok(Ok(0)) => break,
+                                Ok(Ok(n)) => stdout_bytes.extend_from_slice(&buf[..n]),
+                                _ => break,
+                            }
+                        }
                     }
                     
-                    // Wait for the process to actually terminate
+                    if let Some(mut stderr) = child.stderr.take() {
+                        use tokio::io::AsyncReadExt;
+                        let mut buf = [0u8; 4096];
+                        // Try reading with a short timeout
+                        loop {
+                            match tokio::time::timeout(
+                                tokio::time::Duration::from_millis(100),
+                                stderr.read(&mut buf)
+                            ).await {
+                                Ok(Ok(0)) => break,
+                                Ok(Ok(n)) => stderr_bytes.extend_from_slice(&buf[..n]),
+                                _ => break,
+                            }
+                        }
+                    }
+                    
+                    // Kill the process
+                    let _ = child.kill().await;
                     let _ = child.wait().await;
                 } else if let Some(pid) = child_pid {
+                    // Child was already taken, try to kill by PID
+                    kill_process_by_pid(pid, &cli_args).await;
+                }
+                
+                // Print any output we managed to collect
+                if verbose {
+                    if !stdout_bytes.is_empty() || !stderr_bytes.is_empty() {
+                        eprintln!("=== AutoProof Output (before timeout kill) ===");
+                        if !stdout_bytes.is_empty() {
+                            match String::from_utf8(stdout_bytes.clone()) {
+                                Ok(s) => {
+                                    eprintln!("AutoProof stdout ({} bytes):\n{}", stdout_bytes.len(), s);
+                                },
+                                Err(_) => {
+                                    eprintln!("AutoProof stdout ({} bytes, invalid UTF-8):\n{:?}", stdout_bytes.len(), stdout_bytes);
+                                }
+                            }
+                        } else {
+                            eprintln!("AutoProof stdout: (empty)");
+                        }
+                        
+                        if !stderr_bytes.is_empty() {
+                            match String::from_utf8(stderr_bytes.clone()) {
+                                Ok(s) => {
+                                    eprintln!("AutoProof stderr ({} bytes):\n{}", stderr_bytes.len(), s);
+                                },
+                                Err(_) => {
+                                    eprintln!("AutoProof stderr ({} bytes, invalid UTF-8):\n{:?}", stderr_bytes.len(), stderr_bytes);
+                                }
+                            }
+                        } else {
+                            eprintln!("AutoProof stderr: (empty)");
+                        }
+                        eprintln!("=== End AutoProof Output (timeout) ===");
+                    } else {
+                        eprintln!("=== AutoProof Output (before timeout kill) ===");
+                        eprintln!("No output available before timeout");
+                        eprintln!("=== End AutoProof Output (timeout) ===");
+                    }
+                }
+                
+                // The child was already handled above
+                if let Some(pid) = child_pid {
                     // Child was already taken (shouldn't happen), but try to kill by PID anyway
                     kill_process_by_pid(pid, &cli_args).await;
                 }
@@ -192,21 +261,52 @@ async fn kill_process_by_pid(pid: u32, cli_args: &str) {
     }
 }
 
-fn format_output(autoproof_output: std::process::Output) -> Option<String> {
-    fn log_failure_converting_to_utf8(error: &std::string::FromUtf8Error) {
-        warn!(
-            "fails to convert stdout from autoproof command to UTF-8 string with error: {:#?}",
-            error
-        )
+fn format_output(autoproof_output: std::process::Output, verbose: bool) -> Option<String> {
+    
+    // Try to convert to UTF-8, but print output even if conversion fails
+    let to_stdout = String::from_utf8(autoproof_output.stdout.clone())
+        .inspect_err(|e| {
+            warn!(
+                "fails to convert stdout from autoproof command to UTF-8 string with error: {:#?}",
+                e
+            );
+            // Print raw bytes as hex if UTF-8 conversion fails (only in verbose mode)
+            if verbose {
+                eprintln!("AutoProof stdout (raw bytes, UTF-8 conversion failed):\n{:?}", autoproof_output.stdout);
+            }
+        })
+        .unwrap_or_else(|_| String::from(""));
+
+    let to_stderr = String::from_utf8(autoproof_output.stderr.clone())
+        .inspect_err(|e| {
+            warn!(
+                "fails to convert stderr from autoproof command to UTF-8 string with error: {:#?}",
+                e
+            );
+            // Print raw bytes as hex if UTF-8 conversion fails (only in verbose mode)
+            if verbose {
+                eprintln!("AutoProof stderr (raw bytes, UTF-8 conversion failed):\n{:?}", autoproof_output.stderr);
+            }
+        })
+        .unwrap_or_else(|_| String::from(""));
+
+    // Print verification output to stderr if verbose
+    if verbose {
+        eprintln!("=== AutoProof Verification Output ===");
+        eprintln!("AutoProof stdout ({} bytes):", autoproof_output.stdout.len());
+        if to_stdout.is_empty() {
+            eprintln!("(empty)");
+        } else {
+            eprintln!("{}", to_stdout);
+        }
+        eprintln!("AutoProof stderr ({} bytes):", autoproof_output.stderr.len());
+        if to_stderr.is_empty() {
+            eprintln!("(empty)");
+        } else {
+            eprintln!("{}", to_stderr);
+        }
+        eprintln!("=== End AutoProof Output ===");
     }
-
-    let to_stdout = String::from_utf8(autoproof_output.stdout)
-        .inspect_err(log_failure_converting_to_utf8)
-        .ok()?;
-
-    let to_stderr = String::from_utf8(autoproof_output.stderr)
-        .inspect_err(log_failure_converting_to_utf8)
-        .ok()?;
 
     if !to_stderr.is_empty() {
         info!(

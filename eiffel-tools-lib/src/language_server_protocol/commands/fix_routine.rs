@@ -150,6 +150,7 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
                     name_subclass(class.name()),
                     Some(feature.name().clone()),
                     60,
+                    false, // verbose: not used in this code path
                 )
                 .await;
 
