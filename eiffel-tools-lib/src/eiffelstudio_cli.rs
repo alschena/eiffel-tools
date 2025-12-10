@@ -63,8 +63,12 @@ pub fn verify(
 
         let autoproof_cli = autoproof_cli.unwrap();
 
+        // Build command string for error messages
+        let command_string = format!("{} -batch -autoproof {}", autoproof_cli, cli_args);
+
         // Spawn the child process
         let mut child_opt = Some(match tokio::process::Command::new(&autoproof_cli)
+            .arg("-batch")
             .arg("-autoproof")
             .arg(&cli_args)
             .stdout(std::process::Stdio::piped())
@@ -74,8 +78,8 @@ pub fn verify(
             Ok(child) => child,
             Err(e) => {
                 warn!(
-                    "fails to spawn the autoproof command `ec -autoproof {}` with error {:#?}",
-                    cli_args, e
+                    "fails to spawn the autoproof command `{}` with error {:#?}",
+                    command_string, e
                 );
                 return Ok(None);
             }
@@ -102,12 +106,12 @@ pub fn verify(
                     Ok(output) => output,
                     Err(e) => {
                         warn!(
-                            "fails to wait for autoproof command `ec -autoproof {}` with error {:#?}",
-                            cli_args, e
+                            "fails to wait for autoproof command `{}` with error {:#?}",
+                            command_string, e
                         );
                         // Try to kill by PID if we have it
                         if let Some(pid) = child_pid {
-                            kill_process_by_pid(pid, &cli_args).await;
+                            kill_process_by_pid(pid, &command_string).await;
                         }
                         return Ok(None);
                     }
@@ -116,7 +120,7 @@ pub fn verify(
                 // Always try to kill the process by PID after wait_with_output completes
                 // This handles EiffelStudio bugs where the process doesn't fully terminate
                 if let Some(pid) = child_pid {
-                    kill_process_by_pid(pid, &cli_args).await;
+                    kill_process_by_pid(pid, &command_string).await;
                 }
 
                 let result = format_output(output, verbose);
@@ -126,8 +130,8 @@ pub fn verify(
                 // Timeout occurred - try to read output from the child
                 warn!(
                     target: "autoproof",
-                    "AutoProof verification timeout after {} seconds for `ec -autoproof {}`",
-                    max_secs, cli_args
+                    "AutoProof verification timeout after {} seconds for `{}`",
+                    max_secs, command_string
                 );
                 
                 // Try to read output from the child if we still have it
@@ -173,7 +177,7 @@ pub fn verify(
                     let _ = child.wait().await;
                 } else if let Some(pid) = child_pid {
                     // Child was already taken, try to kill by PID
-                    kill_process_by_pid(pid, &cli_args).await;
+                    kill_process_by_pid(pid, &command_string).await;
                 }
                 
                 // Print any output we managed to collect
@@ -216,7 +220,7 @@ pub fn verify(
                 // The child was already handled above
                 if let Some(pid) = child_pid {
                     // Child was already taken (shouldn't happen), but try to kill by PID anyway
-                    kill_process_by_pid(pid, &cli_args).await;
+                    kill_process_by_pid(pid, &command_string).await;
                 }
                 
                 // Return timeout error by using timeout on a never-completing future
@@ -234,7 +238,7 @@ pub fn verify(
 }
 
 /// Kill a process by PID (platform-specific)
-async fn kill_process_by_pid(pid: u32, cli_args: &str) {
+async fn kill_process_by_pid(pid: u32, command_string: &str) {
     #[cfg(unix)]
     {
         use std::process::Command;
@@ -245,8 +249,8 @@ async fn kill_process_by_pid(pid: u32, cli_args: &str) {
             .output();
         info!(
             target: "autoproof",
-            "Attempted to kill AutoProof process {} (and children) for `ec -autoproof {}`",
-            pid, cli_args
+            "Attempted to kill AutoProof process {} (and children) for `{}`",
+            pid, command_string
         );
     }
     #[cfg(not(unix))]
@@ -255,8 +259,8 @@ async fn kill_process_by_pid(pid: u32, cli_args: &str) {
         // The child handle should have been used instead
         warn!(
             target: "autoproof",
-            "Cannot kill process by PID on this platform for `ec -autoproof {}`",
-            cli_args
+            "Cannot kill process by PID on this platform for `{}`",
+            command_string
         );
     }
 }
