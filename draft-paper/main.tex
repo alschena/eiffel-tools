@@ -54,12 +54,13 @@
 
 \maketitle
 
+\newcommand{\toolname}{Eiffel-tools}
+
 \begin{abstract}
-    This article introduces Eiffel-tools, a language server implementation that uses large language models to aid the development of statically verified software.
-    It analyzes Eiffel projects.
+    This article introduces \toolname{}, a language server implementation that uses large language models to aid the development of statically verified software in Eiffel language. 
     It defines various interactive and non-interactive commands to produce code or specifications.
     The language server uses language and project specific knowledge to direct the large language model.
-    It crafts rich programmatic prompts for the input and corrects or refuses the output.
+    It crafts rich programmatic prompts for the input and corrects or refuses the output. 
 
 \end{abstract}
 
@@ -69,18 +70,11 @@
 
 \section{Introduction}
 
-While large language models have demonstrated impressive capabilities
-in code generation and automated assistance, their effectiveness in
-specialized domains such as formal verification is limited by the lack
-of publicly available resources. Existing tools for Eiffel, described in~\secref{related-work},
-focus on generating contracts for dynamic checks and do not address the
-needs of model-based, statically verified specifications required by
-AutoProof, explained in~\secref{eiffel-and-autoproof}. Similarly, prior repair tools depend on
+While Large Language Models (LLMs) have demonstrated impressive capabilities in code generation and automated assistance, their effectiveness in specialized domains such as formal verification is limited by the lack of publicly available resources. Already existing tools for Eiffel like AutoFix~\cite{autofix} and Proof2Fix~\cite{proof2fix}, will be described more precisely in~\secref{related-work}, focus on generating contracts for dynamic checks and do not address the needs of model-based, statically verified specifications required by AutoProof~\cite{autoproof}. Similarly, prior repair tools depend on
 code substitution templates, leaving a gap in interactive or automated adaptable support
 for static verification.
 
-This paper introduces Eiffel-tools~\cite{eiffel-tools}.
-That is a server-side implementation of the language server protocol~\secref{lsp}.
+This paper introduces \toolname{}~\cite{eiffel-tools}. That is a server-side implementation of the Language Server Protocol (LSP)~\secref{lsp}.
 Eiffel-tools uses large language models, described in~\secref{llm}.
 It provides language and project specific help to the developers of Eiffel software verified using AutoProof, described in~\secref{eiffel-and-autoproof}.
 
@@ -91,26 +85,24 @@ It provides language and project specific help to the developers of Eiffel softw
 
 Eiffel~\cite{eiffel_language_and_environment} is an object-oriented programming language with first-class support for Design by Contract~\cite{design-by-contract}, allowing developers to embed preconditions, postconditions, and class invariants directly in the source code. Thus, a typical Eiffel project contains both the executable program and its formal specifications within the same codebase.
 
-While dynamic checks constitute the most common use of contracts in Eiffel, the language also supports model-based contracts, which enable the static verification of programs through AutoProof~\cite{autoproof}.
+While dynamic checks constitute the most common use of contracts in Eiffel, the language also supports model-based contracts, which enable the static verification of programs through AutoProof~\cite{autoproof}. AutoProof is an auto-active verifier for the Eiffel programming language that can prove functional correctness of Eiffel programs annotated with contracts.
 Such contracts reference entities that are axiomatically defined in the intermediate verification language Boogie~\cite{boogie-lang}.
 AutoProof builds on the existing Boogie~\cite{boogie} toolchain to verify Eiffel programs against these specifications, leveraging axiomatic definitions contained in Boogie files originally developed for Dafny~\cite{dafny}.
 
 
 \subsection{Large language models for software development}\label{llm}
 
-The recent advancements in deep learning brought large language models (LLMs) into industrial use for software development.
+The recent advancements in deep learning brought large language models into industrial use for software development.
 LLMs need proper context to provide useful information because despite their impressively coherent outputs, they are not oracles and cannot infer user intentions that are not explicitly stated.
 This paper shows that language servers are a natural place to condense language and project specific information to guide the generation of large language models.
 We expect the constructed context to compensate partially the scarcity of training data for low resources languages and boost the quality of performance for all other languages.
 
 \subsection{Language server protocol}\label{lsp}
 
-% Why?
-The language server protocol~\cite{lsp} (LSP) makes the idea of the paper portable to any project which defines formal specifications and code.
+% Why we are using LPS and ?
+The language server protocol  (LSP)~\cite{lsp} that also known as language intelligence tool makes the idea of the paper that \toolname{}~\cite{eiffel-tools} can help to create verified code in Eiffel programming language portable to any project which defines formal specifications and code. Initially LPS  was developed by Microsoft and standardized as an open standard in 2016 in a conjoint effort with RedHat and CodeEnvy~\cite{lsp_origin_1}.
 % What?
 The LSP defines a compatibility layer between source code editors and language specific functionalities.
-% By whom?
-It was developed by Microsoft and standardized as an open standard in 2016 in a conjoint effort with RedHat and CodeEnvy~\cite{lsp_origin_1}.
 % How much?
 To exemplify the success of this protocol, let us note that at the time of this writing there are 302 server side and 65 client side implementations listed on the official website~\cite{lsp}.
 
