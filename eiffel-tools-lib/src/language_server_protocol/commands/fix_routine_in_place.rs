@@ -59,7 +59,7 @@ pub async fn fix_routine_in_place(
             eprintln!("Starting attempt #{} for {}.{}", number_of_tries, class_name, feature_name);
         }
         
-        if max_number_of_tries < number_of_tries {
+        if number_of_tries > max_number_of_tries {
             info!(target: "autoproof", "Giving up on verifiying {class_name}.{}",feature_name);
             max_retries_reached = true;
             break;
@@ -82,11 +82,47 @@ pub async fn fix_routine_in_place(
             }
             ControlFlow::Continue(verifier_failure_feedback) => {
                 info!(target:"autoproof", "Try #{number_of_tries} on {class_name}.{}",feature_name);
-                if let Some(error_message) = verifier_failure_feedback {
-                    llm_interactions += 1;
+                let error_message = verifier_failure_feedback.unwrap_or_else(|| {
+                    String::from("Verification failed but no error message provided")
+                });
+                llm_interactions += 1;
+                
+                // Capture feature code before the change
+                let before_code = if let Some(class) = workspace.class(&path) {
+                    if let Some(feature) = class.features().iter().find(|ft| ft.name() == feature_name) {
+                        let file_content = tokio::fs::read(&path).await
+                            .ok()
+                            .and_then(|content| String::from_utf8(content).ok());
+                        if let Some(file_str) = file_content {
+                            feature.body_source_unchecked(file_str.as_str())
+                                .unwrap_or_else(|_| String::from("Unable to extract feature body"))
+                        } else {
+                            String::from("Unable to read file")
+                        }
+                    } else {
+                        String::from("Feature not found")
+                    }
+                } else {
+                    String::from("Class not found")
+                };
+
+                // Call LLM to generate fix
+                let llm_result = generators
+                    .fixed_routine_src(workspace, &path, feature_name, error_message.clone())
+                    .await;
+
+                let (generated_code, applied) = if let Some((ft, body)) = llm_result {
+                    let generated = body.clone();
+                    if verbose {
+                        eprintln!("[Attempt #{}] Applying code change to {}.{}", number_of_tries, class_name, feature_name);
+                    }
+                    modify_in_place::rewrite_features(&path, &[(ft.name().to_owned(), body)]).await;
                     
-                    // Capture feature code before the change
-                    let before_code = if let Some(class) = workspace.class(&path) {
+                    // Reload workspace to get updated feature
+                    workspace.reload(path.clone()).await;
+                    
+                    // Capture feature code after the change
+                    let after_code = if let Some(class) = workspace.class(&path) {
                         if let Some(feature) = class.features().iter().find(|ft| ft.name() == feature_name) {
                             let file_content = tokio::fs::read(&path).await
                                 .ok()
@@ -104,70 +140,35 @@ pub async fn fix_routine_in_place(
                         String::from("Class not found")
                     };
 
-                    // Call LLM to generate fix
-                    let llm_result = generators
-                        .fixed_routine_src(workspace, &path, feature_name, error_message.clone())
-                        .await;
-
-                    let (generated_code, applied) = if let Some((ft, body)) = llm_result {
-                        let generated = body.clone();
+                    // Record code change if it's different
+                    if before_code != after_code {
+                        let change_number = code_changes.len() as u32 + 1;
                         if verbose {
-                            eprintln!("[Attempt #{}] Applying code change to {}.{}", number_of_tries, class_name, feature_name);
+                            eprintln!("[Attempt #{}] Code change #{} for {}.{}:\nBEFORE:\n{}\nAFTER:\n{}", 
+                                number_of_tries, change_number, class_name, feature_name, before_code, after_code);
                         }
-                        modify_in_place::rewrite_features(&path, &[(ft.name().to_owned(), body)]).await;
-                        
-                        // Reload workspace to get updated feature
-                        workspace.reload(path.clone()).await;
-                        
-                        // Capture feature code after the change
-                        let after_code = if let Some(class) = workspace.class(&path) {
-                            if let Some(feature) = class.features().iter().find(|ft| ft.name() == feature_name) {
-                                let file_content = tokio::fs::read(&path).await
-                                    .ok()
-                                    .and_then(|content| String::from_utf8(content).ok());
-                                if let Some(file_str) = file_content {
-                                    feature.body_source_unchecked(file_str.as_str())
-                                        .unwrap_or_else(|_| String::from("Unable to extract feature body"))
-                                } else {
-                                    String::from("Unable to read file")
-                                }
-                            } else {
-                                String::from("Feature not found")
-                            }
-                        } else {
-                            String::from("Class not found")
-                        };
+                        code_changes.push(CodeChange {
+                            change_number,
+                            before_code: before_code.clone(),
+                            after_code: after_code.clone(),
+                        });
+                    } else if verbose {
+                        eprintln!("[Attempt #{}] No code change detected for {}.{} (before and after are identical)", 
+                            number_of_tries, class_name, feature_name);
+                    }
 
-                        // Record code change if it's different
-                        if before_code != after_code {
-                            let change_number = code_changes.len() as u32 + 1;
-                            if verbose {
-                                eprintln!("[Attempt #{}] Code change #{} for {}.{}:\nBEFORE:\n{}\nAFTER:\n{}", 
-                                    number_of_tries, change_number, class_name, feature_name, before_code, after_code);
-                            }
-                            code_changes.push(CodeChange {
-                                change_number,
-                                before_code: before_code.clone(),
-                                after_code: after_code.clone(),
-                            });
-                        } else if verbose {
-                            eprintln!("[Attempt #{}] No code change detected for {}.{} (before and after are identical)", 
-                                number_of_tries, class_name, feature_name);
-                        }
+                    (Some(generated), true)
+                } else {
+                    (None, false)
+                };
 
-                        (Some(generated), true)
-                    } else {
-                        (None, false)
-                    };
-
-                    // Record LLM interaction
-                    interactions.push(LlmInteraction {
-                        interaction_number: llm_interactions,
-                        error_message: error_message.clone(),
-                        generated_code,
-                        applied,
-                    });
-                }
+                // Record LLM interaction
+                interactions.push(LlmInteraction {
+                    interaction_number: llm_interactions,
+                    error_message: error_message.clone(),
+                    generated_code,
+                    applied,
+                });
             }
         }
     }
