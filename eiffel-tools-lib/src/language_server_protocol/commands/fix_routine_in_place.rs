@@ -18,6 +18,11 @@ pub struct LlmInteraction {
     pub verification_time_seconds: f64,
     #[serde(rename = "ai_request_time_seconds")]
     pub ai_request_time_seconds: f64,
+    // Code change information (if code was generated and applied)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -122,7 +127,7 @@ pub async fn fix_routine_in_place(
                     .await;
                 let ai_request_time = ai_request_start.elapsed().as_secs_f64();
 
-                let (generated_code, applied) = if let Some((ft, body)) = llm_result {
+                let (generated_code, applied, after_code) = if let Some((ft, body)) = llm_result {
                     let generated = body.clone();
                     if verbose {
                         eprintln!("[Attempt #{}] Applying code change to {}.{}", number_of_tries, class_name, feature_name);
@@ -151,29 +156,30 @@ pub async fn fix_routine_in_place(
                         String::from("Class not found")
                     };
 
-                    // Record code change for every interaction that generates code
-                    let change_number = code_changes.len() as u32 + 1;
                     if verbose {
                         if before_code != after_code {
-                            eprintln!("[Attempt #{}] Code change #{} for {}.{}:\nBEFORE:\n{}\nAFTER:\n{}", 
-                                number_of_tries, change_number, class_name, feature_name, before_code, after_code);
+                            eprintln!("[Attempt #{}] Code change for {}.{}:\nBEFORE:\n{}\nAFTER:\n{}", 
+                                number_of_tries, class_name, feature_name, before_code, after_code);
                         } else {
-                            eprintln!("[Attempt #{}] Code change #{} for {}.{} (before and after are identical):\nBEFORE:\n{}\nAFTER:\n{}", 
-                                number_of_tries, change_number, class_name, feature_name, before_code, after_code);
+                            eprintln!("[Attempt #{}] Code change for {}.{} (before and after are identical):\nBEFORE:\n{}\nAFTER:\n{}", 
+                                number_of_tries, class_name, feature_name, before_code, after_code);
                         }
                     }
+
+                    // Record code change for backward compatibility
+                    let change_number = code_changes.len() as u32 + 1;
                     code_changes.push(CodeChange {
                         change_number,
                         before_code: before_code.clone(),
                         after_code: after_code.clone(),
                     });
 
-                    (Some(generated), true)
+                    (Some(generated), true, Some(after_code))
                 } else {
-                    (None, false)
+                    (None, false, None)
                 };
 
-                // Record LLM interaction
+                // Record LLM interaction with code change information
                 interactions.push(LlmInteraction {
                     interaction_number: llm_interactions,
                     error_message: error_message.clone(),
@@ -181,6 +187,8 @@ pub async fn fix_routine_in_place(
                     applied,
                     verification_time_seconds: verification_time,
                     ai_request_time_seconds: ai_request_time,
+                    before_code: if applied { Some(before_code) } else { None },
+                    after_code,
                 });
             }
         }

@@ -5,7 +5,7 @@ cd buggy-java-jml-eiffel/ &&
     git restore . && \
     clear && \
     cd .. && \
-    python buggy_prepare.py > buggy-java-jml-eiffel/classes.txt && \
+    python buggy_prepare.py | sed -n "1,10p" > buggy-java-jml-eiffel/classes.txt && \
     cd buggy-java-jml-eiffel && \
     \
     ../../../../target/release/llm-correct-features --config Ace.ecf --classes classes.txt | tee sonnet.jsonl && \
@@ -13,7 +13,7 @@ cd buggy-java-jml-eiffel/ &&
     git restore . && \
     clear && \
     cd .. && \
-    python buggy_prepare.py > buggy-java-jml-eiffel/classes.txt && \
+    python buggy_prepare.py | sed -n "1,10p" > buggy-java-jml-eiffel/classes.txt && \
     cd buggy-java-jml-eiffel && \
     \
     ../../../../target/release/llm-correct-features --config Ace.ecf --classes classes.txt --model gpt-4o-mini | tee gpt4.jsonl

@@ -1,4 +1,4 @@
-./run_jml.sh && \
+# ./run_jml.sh && \
     ./run_maple.sh && \
     cp buggy-java-jml-eiffel/sonnet.jsonl jml_sonnet.jsonl && \
     cp buggy-java-jml-eiffel/gpt4.jsonl jml_gpt4.jsonl && \

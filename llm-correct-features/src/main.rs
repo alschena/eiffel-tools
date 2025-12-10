@@ -3,7 +3,7 @@ use eiffel_tools_lib::code_entities::prelude::*;
 use eiffel_tools_lib::config::System;
 use eiffel_tools_lib::generators::Generators;
 use eiffel_tools_lib::language_server_protocol::commands::fix_routine_in_place;
-use eiffel_tools_lib::language_server_protocol::commands::fix_routine_in_place::{CodeChange, LlmInteraction};
+use eiffel_tools_lib::language_server_protocol::commands::fix_routine_in_place::LlmInteraction;
 use eiffel_tools_lib::tracing::info;
 use eiffel_tools_lib::tracing::warn;
 use eiffel_tools_lib::tracing_subscriber::filter;
@@ -46,8 +46,8 @@ struct FeatureReport {
     success: bool,
     max_retries_reached: bool,
     final_status: String,
+    // Combined interactions and code_changes - each interaction includes its code change if applicable
     interactions: Vec<LlmInteraction>,
-    code_changes: Vec<CodeChange>,
     #[serde(rename = "total_elapsed_time_seconds")]
     total_elapsed_time_seconds: f64,
 }
@@ -193,8 +193,7 @@ async fn feature_by_feature(
             success: result.success,
             max_retries_reached: result.max_retries_reached,
             final_status: result.final_status,
-            interactions: result.interactions,
-            code_changes: result.code_changes,
+            interactions: result.interactions, // Now includes code change info in each interaction
             total_elapsed_time_seconds: result.total_elapsed_time_seconds,
         };
         
