@@ -99,7 +99,7 @@ We expect the constructed context to compensate partially the scarcity of traini
 
 \subsection{Language server protocol}\label{lsp}
 
-% Why we are using LPS and ?
+% Why we are using LPS and by whom it was invented?
 The language server protocol  (LSP)~\cite{lsp} that also known as language intelligence tool makes the idea of the paper that \toolname{}~\cite{eiffel-tools} can help to create verified code in Eiffel programming language portable to any project which defines formal specifications and code. Initially LPS  was developed by Microsoft and standardized as an open standard in 2016 in a conjoint effort with RedHat and CodeEnvy~\cite{lsp_origin_1}.
 % What?
 The LSP defines a compatibility layer between source code editors and language specific functionalities.
@@ -119,7 +119,7 @@ In our case, because Eiffel can define formal specifications and AutoProof can p
 \section{Design and implementation}
 
 Eiffel-tools is implemented as a language server that provides commands leveraging LLMs to generate or repair Eiffel code and specifications.
-It communicates with them through the Constructor Tech API~\cite{constructor-api}.
+It communicates with them through the Constructor Tech API~\cite{constructor-api}, the platform for research produced by Constructor Tech which provides an access to different models and was used to conduct our experiment. 
 All outputs from the LLM are syntax-checked using Tree-sitter~\cite{treesitter}~\cite{tree-sitter-eiffel}; if an output cannot be parsed, Eiffel-tools extracts the first Markdown code block as a fallback response.
 
 Eiffel-tools can also invoke AutoProof to verify existing code or LLM-generated suggestions.
@@ -793,7 +793,7 @@ In total, there are 784 buggy classes in this dataset.\newline
 The command modified 339 classes.
 After the modification 316 classes verify.
 Because of two separate bugs that have since been fixed,
-16 modified classes failed to verify and 7 classes caused AutoProof to crash.
+16 modified classes failed to verify and 7 classes caused AutoProof to crash. 
 
 \paragraph{Maple-recursive-eiffel}
 This dataset is a collection of artificial C bugs translated to Eiffel, fully specified for AutoProof.
