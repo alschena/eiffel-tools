@@ -48,6 +48,8 @@ struct FeatureReport {
     final_status: String,
     interactions: Vec<LlmInteraction>,
     code_changes: Vec<CodeChange>,
+    #[serde(rename = "total_elapsed_time_seconds")]
+    total_elapsed_time_seconds: f64,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -193,6 +195,7 @@ async fn feature_by_feature(
             final_status: result.final_status,
             interactions: result.interactions,
             code_changes: result.code_changes,
+            total_elapsed_time_seconds: result.total_elapsed_time_seconds,
         };
         
         // Output each feature report as a JSON line as soon as it's ready

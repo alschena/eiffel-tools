@@ -4,6 +4,7 @@ use crate::generators::Generators;
 use crate::workspace::Workspace;
 use serde::Serialize;
 use std::ops::ControlFlow;
+use std::time::Instant;
 use tracing::info;
 use tracing::instrument;
 
@@ -13,6 +14,10 @@ pub struct LlmInteraction {
     pub error_message: String,
     pub generated_code: Option<String>,
     pub applied: bool,
+    #[serde(rename = "verification_time_seconds")]
+    pub verification_time_seconds: f64,
+    #[serde(rename = "ai_request_time_seconds")]
+    pub ai_request_time_seconds: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -30,6 +35,7 @@ pub struct FixRoutineResult {
     pub final_status: String,
     pub interactions: Vec<LlmInteraction>,
     pub code_changes: Vec<CodeChange>,
+    pub total_elapsed_time_seconds: f64,
 }
 
 #[instrument(skip_all)]
@@ -52,6 +58,7 @@ pub async fn fix_routine_in_place(
     let mut max_retries_reached = false;
     let mut interactions = Vec::new();
     let mut code_changes = Vec::new();
+    let start_time = Instant::now();
 
     loop {
         number_of_tries += 1;
@@ -65,6 +72,7 @@ pub async fn fix_routine_in_place(
             break;
         }
 
+        let verification_start = Instant::now();
         let verification_result = modify_in_place::verification(
             class_name,
             Some(feature_name),
@@ -74,6 +82,7 @@ pub async fn fix_routine_in_place(
             verbose,
         )
         .await;
+        let verification_time = verification_start.elapsed().as_secs_f64();
 
         match verification_result {
             ControlFlow::Break(_) => {
@@ -107,9 +116,11 @@ pub async fn fix_routine_in_place(
                 };
 
                 // Call LLM to generate fix
+                let ai_request_start = Instant::now();
                 let llm_result = generators
                     .fixed_routine_src(workspace, &path, feature_name, error_message.clone())
                     .await;
+                let ai_request_time = ai_request_start.elapsed().as_secs_f64();
 
                 let (generated_code, applied) = if let Some((ft, body)) = llm_result {
                     let generated = body.clone();
@@ -140,22 +151,22 @@ pub async fn fix_routine_in_place(
                         String::from("Class not found")
                     };
 
-                    // Record code change if it's different
-                    if before_code != after_code {
-                        let change_number = code_changes.len() as u32 + 1;
-                        if verbose {
+                    // Record code change for every interaction that generates code
+                    let change_number = code_changes.len() as u32 + 1;
+                    if verbose {
+                        if before_code != after_code {
                             eprintln!("[Attempt #{}] Code change #{} for {}.{}:\nBEFORE:\n{}\nAFTER:\n{}", 
                                 number_of_tries, change_number, class_name, feature_name, before_code, after_code);
+                        } else {
+                            eprintln!("[Attempt #{}] Code change #{} for {}.{} (before and after are identical):\nBEFORE:\n{}\nAFTER:\n{}", 
+                                number_of_tries, change_number, class_name, feature_name, before_code, after_code);
                         }
-                        code_changes.push(CodeChange {
-                            change_number,
-                            before_code: before_code.clone(),
-                            after_code: after_code.clone(),
-                        });
-                    } else if verbose {
-                        eprintln!("[Attempt #{}] No code change detected for {}.{} (before and after are identical)", 
-                            number_of_tries, class_name, feature_name);
                     }
+                    code_changes.push(CodeChange {
+                        change_number,
+                        before_code: before_code.clone(),
+                        after_code: after_code.clone(),
+                    });
 
                     (Some(generated), true)
                 } else {
@@ -168,6 +179,8 @@ pub async fn fix_routine_in_place(
                     error_message: error_message.clone(),
                     generated_code,
                     applied,
+                    verification_time_seconds: verification_time,
+                    ai_request_time_seconds: ai_request_time,
                 });
             }
         }
@@ -181,6 +194,8 @@ pub async fn fix_routine_in_place(
         format!("Verification passed after {} LLM interaction(s)", llm_interactions)
     };
 
+    let total_elapsed_time = start_time.elapsed().as_secs_f64();
+
     FixRoutineResult {
         llm_interactions,
         success,
@@ -188,5 +203,6 @@ pub async fn fix_routine_in_place(
         final_status,
         interactions,
         code_changes,
+        total_elapsed_time_seconds: total_elapsed_time,
     }
 }
