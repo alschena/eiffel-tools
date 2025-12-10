@@ -62,25 +62,16 @@ MAPLE_RECURSIVE_SUM_N_4
 
 5. Set env vars `CONSTRUCTOR_APP_API_TOKEN`, `AP_COMMAND="$AP/EIFGENs/batch/F_code/ecb"`
 
-5. Run fixing
+6. Fix the `not` bug in java-jml (TODO: explanation)
+
+7. Run experiment for both datasets
 
 ``` sh
-../../../../target/release/llm-correct-features --config Ace.ecf --classes classes.txt
+./run_all.sh
 ```
 
-6. Reset the fixes
-
-``` sh
-git restore .
-```
-
-
-7. Fix the `not` bug in java-jml (TODO: explanation)
-
-8. For buggy-java-jml-eiffel dataset, run the preparation script and redirect
-output to `classes.txt`. The script will remove the comments which contain
-the fixes and will output the `CLASS_NAME.feature_name` for fixing.
-
-``` sh
-python buggy_prepare.py
-```
+8. Observe the resulting data
+* `jml_sonnet.jsonl`
+* `jml_gpt4.jsonl`
+* `maple_sonnet.jsonl`
+* `maple_gpt4.jsonl`
