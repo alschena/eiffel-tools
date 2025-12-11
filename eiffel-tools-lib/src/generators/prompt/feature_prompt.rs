@@ -99,6 +99,12 @@ mod fix_feature {
     You will receive an eiffel snippet with a comment identifying the routine to fix which contains an error message of AutoProof.
     Answer always, you have enough context from the system prompt and the user prompt.
     Respond with a correct version of the same routine.
+    IMPORTANT: You must ONLY modify the feature body (the code between 'do' and 'end') and/or the local variable declarations (the 'local' clause).
+    You must NOT modify:
+    - The feature signature (name, parameters, return type)
+    - Preconditions (the 'require' clause)
+    - Postconditions (the 'ensure' clause)
+    Preserve all contracts exactly as they are in the original code.
     "#,
             ))
         }
@@ -123,7 +129,7 @@ mod fix_feature {
             Injection(*end - *start, Source(message.to_string()).comment()),
             Injection(
                 Point { row: 0, column: 0 },
-                Source("The following feature does not verify.\nPlease, rewrite it such that the class will verify".to_string())
+                Source("The following feature does not verify.\nPlease, rewrite it such that the class will verify.\nIMPORTANT: Only modify the feature body (code between 'do' and 'end') and/or local variable declarations ('local' clause). Do NOT modify the signature, preconditions ('require'), or postconditions ('ensure').".to_string())
                     .comment(),
             ),
             Injection(
