@@ -1,0 +1,151 @@
+%An example is shown at \figref{dataflow-feature-by-feature-correction};
+
+\begin{figure}
+    \begin{tikzpicture}[node distance=20pt, every node/.style={fill=white, font=\sffamily, scale=0.6}, align=left]
+        \node (start) [code] {
+            \begin{lstlisting}
+class
+    EXAMPLE
+feature
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+
+    max (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result >= x and Result >= y
+        end
+end
+\end{lstlisting}
+        };
+        \node (start-description) [description, right of=start, xshift=135pt] {Initial feature in class};
+        \draw[->] (start-description) -- (start);
+
+        \node (prompt) [code, below of=start, yshift=-190pt] {
+\begin{lstlisting}
+class
+    EXAMPLE
+feature
+    -- <task>
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+        -- AutoProof counterexample
+
+    -- <task>
+    max (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result >= x and Result >= y
+        end
+        -- AutoProof counterexample
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (start) -- (prompt);
+        \node (prompt-description) [description, right of=prompt, xshift=130pt] {Generated prompt};
+        \draw[->] (prompt-description) -- (prompt);
+
+        \node (llm-candidate) [code, below of=prompt, yshift=-240pt] {
+            \begin{lstlisting}
+class
+    EXAMPLE
+feature
+    -- <task>
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            if x < y then
+                Result := x
+            else
+                Result := y
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+        -- AutoProof counterexample
+
+    -- <task>
+    max (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            if x < y then
+                Result := y
+            else
+                Result := x
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result >= x and Result >= y
+        end
+        -- AutoProof counterexample
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (prompt) -- (llm-candidate);
+        \node (llm-candidate-description) [description, right of=llm-candidate, xshift=140pt] {Generated llm-candidate};
+        \draw[->] (llm-candidate-description) -- (llm-candidate);
+
+        \node (verification-result) [code, below of=llm-candidate, yshift=-150pt] { Verification output };
+        \draw[->, thick] (llm-candidate) -- (verification-result);
+        \draw[->, thick] (verification-result.west) -| ([xshift=-30pt] prompt.west)
+            node[near start, below] {Reset failing features}
+            node[near start, above] {Some feature fails} -- (prompt.west);
+        \node (initial-feature-after-edits) [code, below of=verification-result, yshift=-140pt] {
+            \begin{lstlisting}
+class
+    EXAMPLE
+feature
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            if x < y then
+                Result := x
+            else
+                Result := y
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+
+    max (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            if x < y then
+                Result := y
+            else
+                Result := x
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result >= x and Result >= y
+        end
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (verification-result) -- (initial-feature-after-edits)
+            node[midway, right] {All features verify};
+        \node (initial-feature-after-edits-description) [description, right of=initial-feature-after-edits, xshift=130pt] {Feature after edits};
+        \draw[->] (initial-feature-after-edits-description) -- (initial-feature-after-edits);
+    \end{tikzpicture}
+    \caption{Dataflow of a feature in the feature by feature correction command}\label{dataflow-feature-by-feature-correction}
+\end{figure}

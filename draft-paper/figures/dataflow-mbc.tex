@@ -1,0 +1,114 @@
+%An example is shown at \figref{dataflow-model-based-contracts}.
+
+\begin{figure}
+    \begin{tikzpicture}[node distance=20pt, every node/.style={fill=white, font=\sffamily, scale=0.8}, align=left]
+        \node (start) [code] {
+            \begin{lstlisting}
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    require
+        True
+    do
+        Result := x
+    ensure
+        True
+    end
+\end{lstlisting}
+        };
+        \node (start-description) [description, right of=start, xshift=100pt] {Initial feature};
+        \draw[->] (start-description) -- (start);
+
+        \node (prompt) [code, below of=start, yshift=-100pt] {
+            \begin{lstlisting}
+-- <task>
+-- <model current class>
+-- <model argument classes>
+-- <precondition available ids>
+-- <postcondition available ids>
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    require
+        True
+        <ADD NEW PRECONDITIONS>
+    do
+        Result := x
+    ensure
+        True
+        <ADD NEW POSTCONDITIONS>
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (start) -- (prompt);
+        \node (prompt-description) [description, right of=prompt, xshift=130pt] {Generated prompt};
+        \draw[->] (prompt-description) -- (prompt);
+
+        \node (llm-candidate) [code, below of=prompt, yshift=-115pt] {
+            \begin{lstlisting}
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    require
+        True
+        llm-candidate-pre1
+        llm-candidate-pre2
+    do
+        Result := x
+    ensure
+        True
+        llm-candidate-post1
+        llm-candidate-post2
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (prompt) -- (llm-candidate);
+        \node (llm-candidate-description) [description, right of=llm-candidate, xshift=120pt] {Generated llm-candidate};
+        \draw[->] (llm-candidate-description) -- (llm-candidate);
+
+        \node (extracted-contracts) [code, below of=llm-candidate, yshift=-100pt] {
+            \begin{lstlisting}[language=]
+new-preconditions:
+  llm-candidate-pre1
+  llm-candidate-pre2
+
+new-postconditions:
+  llm-candidate-post1
+  llm-candidate-post2
+\end{lstlisting}
+        };
+        \draw[->, thick] (llm-candidate) -- (extracted-contracts);
+        \node (extracted-contracts-description) [description, right of=extracted-contracts, xshift=120pt] {Extracted contracts};
+        \draw[->] (extracted-contracts-description) -- (extracted-contracts);
+
+        \node (filtered-contracts) [code, below of=extracted-contracts, yshift=-60pt] {
+            \begin{lstlisting}[language=]
+new-preconditions:
+  llm-candidate-pre1
+
+new-postconditions:
+  llm-candidate-post2
+\end{lstlisting}
+        };
+        \draw[->, thick] (extracted-contracts) -- (filtered-contracts);
+        \node (filtered-contracts-description) [description, right of=filtered-contracts, xshift=120pt] {Filtered contracts};
+        \draw[->] (filtered-contracts-description) -- (filtered-contracts);
+
+        \node (initial-feature-after-edits) [code, below of=filtered-contracts, yshift=-80pt] {
+            \begin{lstlisting}
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    require
+        True
+    do
+        Result := x
+    ensure
+        True
+        res: (Result = x or Result = y)
+            and Result <= x and Result <= y
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (filtered-contracts) -- (initial-feature-after-edits);
+        \node (initial-feature-after-edits-description) [description, right of=initial-feature-after-edits, xshift=130pt] {Feature after edits};
+        \draw[->] (initial-feature-after-edits-description) -- (initial-feature-after-edits);
+    \end{tikzpicture}
+    \caption{Dataflow of a feature in the add model-based contracts command}\label{dataflow-model-based-contracts}
+\end{figure}
