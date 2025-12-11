@@ -11,4 +11,4 @@ cd maple-recursive-eiffel/ && rm $filename && \
     git restore . && \
     clear && \
     \
-    ../../../../target/release/llm-correct-features --config Ace.ecf --classes classes.txt --model claude-sonnet-4-5 | tee -a $filename && \
+    ../../../../target/release/llm-correct-features --config Ace.ecf --classes classes.txt --model claude-sonnet-4-5 | tee -a $filename
