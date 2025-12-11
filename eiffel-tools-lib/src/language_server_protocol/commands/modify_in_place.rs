@@ -152,6 +152,39 @@ where
     }
 }
 
+pub async fn rewrite_feature_bodies<'ft, B, I>(path: &Path, feature_bodies: I)
+where
+    B: AsRef<str> + 'ft,
+    I: IntoIterator<Item = &'ft (FeatureName, B)> + Copy,
+{
+    let maybe_rewrite_handle = tokio::fs::read(path)
+        .await
+        .inspect_err(|e| warn!("Fails to await reading {path:#?} before rewrite because {e:#?}"))
+        .ok()
+        .and_then(move |ref content| {
+            str::from_utf8(content)
+                .inspect_err(|e| warn!("Fails to convert file content to UFT-8 because {e:#?}"))
+                .ok()
+                .and_then(|initial_content| rewriting_feature_bodies(initial_content, feature_bodies))
+        })
+        .map(move |new_file| {
+            let path = path.to_owned();
+            tokio::spawn(tokio::fs::write(path, new_file))
+        });
+
+    if let Some(rewrite_handle) = maybe_rewrite_handle {
+        match rewrite_handle.await {
+            Ok(Err(e)) => {
+                warn!("Fails to rewrite feature bodies because {e:#?}")
+            }
+            Err(e) => {
+                warn!("Fails to await the rewriting of feature bodies because {e:#?}.")
+            }
+            Ok(Ok(())) => {}
+        }
+    }
+}
+
 fn rewriting_features<'ft, B, I>(initial_source: &str, features: I) -> Option<String>
 where
     B: AsRef<str> + 'ft,
@@ -180,6 +213,40 @@ where
                         })
                         .or_else(|| {
                             on_ending_feature(current_features, features, linenum, line, &mut acc)
+                        })
+                        .unwrap_or_else(|| format!("{acc}{line}\n"))
+                })
+        })
+}
+
+fn rewriting_feature_bodies<'ft, B, I>(initial_source: &str, feature_bodies: I) -> Option<String>
+where
+    B: AsRef<str> + 'ft,
+    I: IntoIterator<Item = &'ft (FeatureName, B)> + Copy,
+{
+    parser::Parser::default()
+        .class_and_tree_from_source(initial_source)
+        .inspect_err(|e| warn!("Fails to parse file rewriting feature bodies because {e:#?}"))
+        .ok()
+        .map(|(cl, _)| (initial_source, cl))
+        .map(|(initial_source, class)| {
+            let current_features = class.features();
+            initial_source
+                .lines()
+                .enumerate()
+                .fold(String::new(), |mut acc, (linenum, line)| {
+                    on_starting_body::<B, I>(current_features, feature_bodies, linenum, line, &mut acc)
+                        .or_else(|| {
+                            on_surrounding_body(
+                                current_features,
+                                feature_bodies,
+                                linenum,
+                                line,
+                                &mut acc,
+                            )
+                        })
+                        .or_else(|| {
+                            on_ending_body(current_features, feature_bodies, linenum, line, &mut acc)
                         })
                         .unwrap_or_else(|| format!("{acc}{line}\n"))
                 })
@@ -292,6 +359,123 @@ where
     B: AsRef<str> + 'ft,
 {
     features.into_iter().find(|(ft_name, _)| *ft_name == name)
+}
+
+fn on_starting_body<'fts, B, I>(
+    features: &[Feature],
+    new_bodies: I,
+    linenum: usize,
+    line: &str,
+    acc: &mut String,
+) -> Option<String>
+where
+    B: AsRef<str> + 'fts,
+    I: IntoIterator<Item = &'fts (FeatureName, B)>,
+{
+    features
+        .iter()
+        .find(|ft| {
+            ft.body_range()
+                .map(|body_range| body_range.start.row == linenum)
+                .unwrap_or(false)
+        })
+        .and_then(|ft| {
+            matching_new_feature(ft.name(), new_bodies).and_then(|(_, new_body)| {
+                ft.body_range().map(|body_range| {
+                    // Skip the "do" keyword (2 characters) when replacing
+                    let mut body_range = body_range.clone();
+                    let do_end_column = body_range.start.column + 2;
+                    body_range.start.column += 2;
+                    let indented_new_body =
+                        new_body
+                            .as_ref()
+                            .lines()
+                            .fold(String::new(), |mut acc, line| {
+                                if !acc.is_empty() {
+                                    acc.push('\t');
+                                }
+                                acc.push_str(line);
+                                acc.push('\n');
+                                acc
+                            });
+                    let indented_new_body = indented_new_body.trim_end();
+                    if body_range.end.row != body_range.start.row {
+                        // Body spans multiple lines, add newline after "do"
+                        format!(
+                            "{}{}\n{}",
+                            acc,
+                            &line[..do_end_column],
+                            indented_new_body
+                        )
+                    } else {
+                        // Body is on same line as "do", need to add newline after "do"
+                        format!(
+                            "{}{}\n{}{}",
+                            acc,
+                            &line[..do_end_column],
+                            indented_new_body,
+                            &line[body_range.end.column..]
+                        )
+                    }
+                })
+            })
+        })
+}
+
+fn on_surrounding_body<'fts, B>(
+    features: &[Feature],
+    new_bodies: impl IntoIterator<Item = &'fts (FeatureName, B)>,
+    linenum: usize,
+    line: &str,
+    acc: &mut String,
+) -> std::option::Option<std::string::String>
+where
+    B: AsRef<str> + 'fts,
+{
+    features
+        .iter()
+        .find(|ft| {
+            ft.body_range()
+                .map(|body_range| {
+                    body_range.start.row < linenum && linenum < body_range.end.row
+                })
+                .unwrap_or(false)
+        })
+        .map(|ft| {
+            if matching_new_feature(ft.name(), new_bodies).is_some() {
+                acc.to_string()
+            } else {
+                format!("{}{}\n", acc, line)
+            }
+        })
+}
+
+fn on_ending_body<'fts, B>(
+    features: &[Feature],
+    new_bodies: impl IntoIterator<Item = &'fts (FeatureName, B)>,
+    linenum: usize,
+    line: &str,
+    acc: &mut String,
+) -> std::option::Option<std::string::String>
+where
+    B: AsRef<str> + 'fts,
+{
+    features
+        .iter()
+        .find(|ft| {
+            ft.body_range()
+                .map(|body_range| body_range.end.row == linenum)
+                .unwrap_or(false)
+        })
+        .map(|ft| {
+            if matching_new_feature(ft.name(), new_bodies).is_some() {
+                ft.body_range()
+                    .map(|body_range| format!("{}{}\n", acc, &line[body_range.end.column..]))
+                    .unwrap_or_else(|| format!("{}{}\n", acc, line))
+            } else {
+                format!("{}{}\n", acc, line)
+            }
+        })
 }
 
 pub async fn clear_comments(path: &Path) {
@@ -490,6 +674,520 @@ end -- This is a comment
         assert!(
             equal_upto_trimming_lines,
             "OUTPUT: {human_readable_output}\nORACLE: {NEWTEXT}"
+        );
+    }
+
+    const FEATURE_WITH_CONTRACTS: &'static str = r#"
+class TEST_CLASS
+feature
+    compute (x: INTEGER): INTEGER
+        require
+            x >= 0
+            x < 100
+        do
+            Result := x * 2
+        ensure
+            Result >= 0
+            Result = x * 2
+        end
+end
+            "#;
+
+    const FEATURE_WITH_NEW_BODY: &'static str = r#"
+class TEST_CLASS
+feature
+    compute (x: INTEGER): INTEGER
+        require
+            x >= 0
+            x < 100
+        do
+            Result := x * 3
+        ensure
+            Result >= 0
+            Result = x * 2
+        end
+end
+            "#;
+
+    #[tokio::test]
+    async fn test_rewrite_feature_bodies_preserves_contracts() {
+        let tmp_dir = TempDir::new().expect(stringify!(
+            "Fails to create temporary directory for testing. {} {}:{}",
+            file!(),
+            line!(),
+            column!()
+        ));
+        let file = tmp_dir.child("test_preserve_contracts");
+
+        // Write initial feature with contracts
+        file.write_str(FEATURE_WITH_CONTRACTS)
+            .expect("Fails to write initial feature with contracts");
+
+        // Parse and get the feature
+        let mut parser = Parser::default();
+        let (class, tree) = parser
+            .class_and_tree_from_source(FEATURE_WITH_CONTRACTS)
+            .expect("Fails to parse test class");
+        let mut ws = Workspace::new();
+        ws.add_file((class.clone(), file.to_path_buf(), tree));
+
+        let feature = class
+            .features()
+            .iter()
+            .find(|f| f.name() == "compute")
+            .expect("Should find compute feature");
+
+        // Verify initial contracts exist
+        assert!(
+            feature.has_precondition(),
+            "Feature should have precondition"
+        );
+        assert!(
+            feature.has_postcondition(),
+            "Feature should have postcondition"
+        );
+
+        // Get the original body
+        let original_body = feature
+            .body_source_unchecked(FEATURE_WITH_CONTRACTS)
+            .expect("Should extract original body");
+
+        // Replace only the body (simulating what fix_routine_in_place does)
+        let new_body = "Result := x * 3";
+        rewrite_feature_bodies(file.path(), &[(feature.name().to_owned(), new_body)]).await;
+
+        // Reload workspace
+        ws.reload(file.to_path_buf()).await;
+
+        // Read the modified file
+        let modified_content = tokio::fs::read_to_string(file.path())
+            .await
+            .expect("Should read modified file");
+
+        // Parse the modified content
+        let (modified_class, _) = parser
+            .class_and_tree_from_source(&modified_content)
+            .expect("Should parse modified class");
+
+        let modified_feature = modified_class
+            .features()
+            .iter()
+            .find(|f| f.name() == "compute")
+            .expect("Should find compute feature after modification");
+
+        // Verify contracts are still present
+        assert!(
+            modified_feature.has_precondition(),
+            "Precondition should be preserved after body replacement"
+        );
+        assert!(
+            modified_feature.has_postcondition(),
+            "Postcondition should be preserved after body replacement"
+        );
+
+        // Verify the body was actually changed
+        let modified_body = modified_feature
+            .body_source_unchecked(modified_content.as_str())
+            .expect("Should extract modified body");
+
+        assert_ne!(
+            original_body.trim(),
+            modified_body.trim(),
+            "Body should be different after replacement"
+        );
+
+        // Verify the new body is present
+        assert!(
+            modified_body.contains("x * 3"),
+            "Modified body should contain the new computation"
+        );
+        assert!(
+            !modified_body.contains("x * 2"),
+            "Modified body should not contain the old computation"
+        );
+
+        // Verify contracts are unchanged by checking the source
+        assert!(
+            modified_content.contains("require"),
+            "Modified content should contain require clause"
+        );
+        assert!(
+            modified_content.contains("x >= 0"),
+            "Modified content should preserve precondition clause"
+        );
+        assert!(
+            modified_content.contains("x < 100"),
+            "Modified content should preserve precondition clause"
+        );
+        assert!(
+            modified_content.contains("ensure"),
+            "Modified content should contain ensure clause"
+        );
+        assert!(
+            modified_content.contains("Result >= 0"),
+            "Modified content should preserve postcondition clause"
+        );
+        assert!(
+            modified_content.contains("Result = x * 2"),
+            "Modified content should preserve postcondition clause"
+        );
+
+        // Verify the file matches our expected output (allowing for whitespace differences)
+        let expected_lines: Vec<&str> = FEATURE_WITH_NEW_BODY.lines().collect();
+        let actual_lines: Vec<&str> = modified_content.lines().collect();
+        
+        // Compare line by line, ignoring leading/trailing whitespace
+        for (expected, actual) in expected_lines.iter().zip(actual_lines.iter()) {
+            assert_eq!(
+                expected.trim(),
+                actual.trim(),
+                "Line mismatch. Expected: '{}', Actual: '{}'",
+                expected,
+                actual
+            );
+        }
+    }
+
+    const FEATURE_WITH_ORIGINAL_CONTRACTS: &'static str = r#"
+class TEST_CLASS
+feature
+    add (x, y: INTEGER): INTEGER
+        require
+            x >= 0
+            y >= 0
+        do
+            Result := x + y
+        ensure
+            Result >= x
+            Result >= y
+        end
+end
+            "#;
+
+    const LLM_FULL_FEATURE_WITH_DIFFERENT_CONTRACTS: &'static str = r#"
+class TEST_CLASS
+feature
+    add (x, y: INTEGER): INTEGER
+        require
+            x > 0
+            y > 0
+        do
+            Result := x + y + 1
+        ensure
+            Result > x + y
+        end
+end
+            "#;
+
+
+    #[tokio::test]
+    async fn test_llm_returns_full_feature_with_contracts_only_body_replaced() {
+        // This test simulates the case where LLM returns a full feature including contracts,
+        // but we extract only the body and replace it, preserving original contracts.
+        let tmp_dir = TempDir::new().expect(stringify!(
+            "Fails to create temporary directory for testing. {} {}:{}",
+            file!(),
+            line!(),
+            column!()
+        ));
+        let file = tmp_dir.child("test_llm_full_feature");
+
+        // Write initial feature with original contracts
+        file.write_str(FEATURE_WITH_ORIGINAL_CONTRACTS)
+            .expect("Fails to write initial feature");
+
+        // Parse the original feature
+        let mut parser = Parser::default();
+        let (original_class, tree) = parser
+            .class_and_tree_from_source(FEATURE_WITH_ORIGINAL_CONTRACTS)
+            .expect("Fails to parse original class");
+        let mut ws = Workspace::new();
+        ws.add_file((original_class.clone(), file.to_path_buf(), tree));
+
+        let original_feature = original_class
+            .features()
+            .iter()
+            .find(|f| f.name() == "add")
+            .expect("Should find add feature");
+
+        // Simulate LLM returning a full feature with different contracts
+        // (This is what fixed_routine_src returns: (Feature, full_feature_source))
+        let (llm_feature, llm_full_source) = {
+            let (llm_class, _) = parser
+                .class_and_tree_from_source(LLM_FULL_FEATURE_WITH_DIFFERENT_CONTRACTS)
+                .expect("Fails to parse LLM-generated feature");
+            let llm_feat = llm_class
+                .features()
+                .iter()
+                .find(|f| f.name() == "add")
+                .expect("Should find LLM-generated feature")
+                .clone();
+            (llm_feat, LLM_FULL_FEATURE_WITH_DIFFERENT_CONTRACTS.to_string())
+        };
+
+        // Simulate what fix_routine_in_place does: extract only the body
+        let body_only = llm_feature
+            .body_source_unchecked(llm_full_source.as_str())
+            .expect("Should extract body from LLM-generated full feature");
+
+        // Verify the extracted body doesn't include contracts
+        assert!(
+            !body_only.contains("require"),
+            "Extracted body should not contain require clause"
+        );
+        assert!(
+            !body_only.contains("ensure"),
+            "Extracted body should not contain ensure clause"
+        );
+        assert!(
+            body_only.contains("x + y + 1"),
+            "Extracted body should contain the new computation"
+        );
+
+        // Replace only the body (this is what rewrite_feature_bodies does)
+        rewrite_feature_bodies(file.path(), &[(original_feature.name().to_owned(), body_only)]).await;
+
+        // Read the modified file
+        let modified_content = tokio::fs::read_to_string(file.path())
+            .await
+            .expect("Should read modified file");
+
+        // Parse the modified content
+        let (modified_class, _) = parser
+            .class_and_tree_from_source(&modified_content)
+            .expect("Should parse modified class");
+
+        let modified_feature = modified_class
+            .features()
+            .iter()
+            .find(|f| f.name() == "add")
+            .expect("Should find add feature after modification");
+
+        // Verify ORIGINAL contracts are preserved (not LLM's contracts)
+        assert!(
+            modified_feature.has_precondition(),
+            "Precondition should be preserved"
+        );
+        assert!(
+            modified_feature.has_postcondition(),
+            "Postcondition should be preserved"
+        );
+
+        // Verify original precondition clauses are still there
+        assert!(
+            modified_content.contains("x >= 0"),
+            "Original precondition clause 'x >= 0' should be preserved"
+        );
+        assert!(
+            modified_content.contains("y >= 0"),
+            "Original precondition clause 'y >= 0' should be preserved"
+        );
+        // Verify LLM's different precondition clauses are NOT present
+        assert!(
+            !modified_content.contains("x > 0"),
+            "LLM's precondition clause 'x > 0' should NOT be present"
+        );
+        assert!(
+            !modified_content.contains("y > 0"),
+            "LLM's precondition clause 'y > 0' should NOT be present"
+        );
+
+        // Verify original postcondition clauses are still there
+        assert!(
+            modified_content.contains("Result >= x"),
+            "Original postcondition clause 'Result >= x' should be preserved"
+        );
+        assert!(
+            modified_content.contains("Result >= y"),
+            "Original postcondition clause 'Result >= y' should be preserved"
+        );
+        // Verify LLM's different postcondition clause is NOT present
+        assert!(
+            !modified_content.contains("Result > x + y"),
+            "LLM's postcondition clause 'Result > x + y' should NOT be present"
+        );
+
+        // Verify the body was updated with LLM's body
+        let modified_body = modified_feature
+            .body_source_unchecked(modified_content.as_str())
+            .expect("Should extract modified body");
+
+        assert!(
+            modified_body.contains("x + y + 1"),
+            "Modified body should contain LLM's computation. Body was: {:?}",
+            modified_body
+        );
+        // Note: The body might contain "x + y" as part of "x + y + 1", so we check more specifically
+        let body_trimmed = modified_body.trim();
+        assert!(
+            body_trimmed.contains("+ 1") || body_trimmed.contains("x + y + 1"),
+            "Modified body should contain '+ 1' or 'x + y + 1'. Body was: {:?}",
+            modified_body
+        );
+
+        // Verify the key aspects: contracts preserved and body updated
+        // (We don't do exact line-by-line comparison due to potential whitespace differences)
+        // The important thing is that contracts are preserved and body is updated, which we've already verified above
+    }
+
+    #[tokio::test]
+    async fn test_llm_returns_just_body_only_body_replaced() {
+        // This test simulates the case where LLM returns just the body (no contracts),
+        // which should work directly with rewrite_feature_bodies.
+        let tmp_dir = TempDir::new().expect(stringify!(
+            "Fails to create temporary directory for testing. {} {}:{}",
+            file!(),
+            line!(),
+            column!()
+        ));
+        let file = tmp_dir.child("test_llm_just_body");
+
+        // Write initial feature with contracts
+        file.write_str(FEATURE_WITH_ORIGINAL_CONTRACTS)
+            .expect("Fails to write initial feature");
+
+        // Parse the original feature
+        let mut parser = Parser::default();
+        let (original_class, tree) = parser
+            .class_and_tree_from_source(FEATURE_WITH_ORIGINAL_CONTRACTS)
+            .expect("Fails to parse original class");
+        let mut ws = Workspace::new();
+        ws.add_file((original_class.clone(), file.to_path_buf(), tree));
+
+        let original_feature = original_class
+            .features()
+            .iter()
+            .find(|f| f.name() == "add")
+            .expect("Should find add feature");
+
+        // Simulate LLM returning just the body (no contracts, no feature signature)
+        // This is what body_source_unchecked would return
+        let llm_body_only = "Result := x + y + 1";
+
+        // Replace only the body directly (this simulates the case where
+        // body extraction already happened or LLM returned just body)
+        rewrite_feature_bodies(file.path(), &[(original_feature.name().to_owned(), llm_body_only)]).await;
+
+        // Read the modified file
+        let modified_content = tokio::fs::read_to_string(file.path())
+            .await
+            .expect("Should read modified file");
+
+        // Parse the modified content
+        let (modified_class, _) = parser
+            .class_and_tree_from_source(&modified_content)
+            .expect("Should parse modified class");
+
+        let modified_feature = modified_class
+            .features()
+            .iter()
+            .find(|f| f.name() == "add")
+            .expect("Should find add feature after modification");
+
+        // Verify contracts are still present (unchanged)
+        assert!(
+            modified_feature.has_precondition(),
+            "Precondition should be preserved when LLM returns just body"
+        );
+        assert!(
+            modified_feature.has_postcondition(),
+            "Postcondition should be preserved when LLM returns just body"
+        );
+
+        // Verify original precondition clauses are still there
+        assert!(
+            modified_content.contains("x >= 0"),
+            "Original precondition clause 'x >= 0' should be preserved"
+        );
+        assert!(
+            modified_content.contains("y >= 0"),
+            "Original precondition clause 'y >= 0' should be preserved"
+        );
+
+        // Verify original postcondition clauses are still there
+        assert!(
+            modified_content.contains("Result >= x"),
+            "Original postcondition clause 'Result >= x' should be preserved"
+        );
+        assert!(
+            modified_content.contains("Result >= y"),
+            "Original postcondition clause 'Result >= y' should be preserved"
+        );
+
+        // Verify the body was updated
+        let modified_body = modified_feature
+            .body_source_unchecked(modified_content.as_str())
+            .expect("Should extract modified body");
+
+        assert!(
+            modified_body.contains("x + y + 1"),
+            "Modified body should contain LLM's computation. Body was: {:?}",
+            modified_body
+        );
+        // Note: "x + y" is part of "x + y + 1", so we check that the new computation is present
+        let body_trimmed = modified_body.trim();
+        assert!(
+            body_trimmed.contains("+ 1") || body_trimmed.contains("x + y + 1"),
+            "Modified body should contain '+ 1' or 'x + y + 1'. Body was: {:?}",
+            modified_body
+        );
+
+        // Verify feature signature is unchanged
+        assert!(
+            modified_content.contains("add (x, y: INTEGER): INTEGER"),
+            "Feature signature should be unchanged"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_body_extraction_from_full_feature_preserves_contracts() {
+        // This test directly tests the body extraction logic that happens
+        // in fix_routine_in_place when LLM returns a full feature
+        let mut parser = Parser::default();
+
+        // Parse LLM's full feature response (with contracts)
+        let (llm_class, _) = parser
+            .class_and_tree_from_source(LLM_FULL_FEATURE_WITH_DIFFERENT_CONTRACTS)
+            .expect("Fails to parse LLM-generated feature");
+
+        let llm_feature = llm_class
+            .features()
+            .iter()
+            .find(|f| f.name() == "add")
+            .expect("Should find LLM-generated feature");
+
+        // Extract body from full feature (simulating fix_routine_in_place behavior)
+        let extracted_body = llm_feature
+            .body_source_unchecked(LLM_FULL_FEATURE_WITH_DIFFERENT_CONTRACTS)
+            .expect("Should extract body from full feature");
+
+        // Verify extracted body contains only the computation, not contracts
+        assert!(
+            !extracted_body.contains("require"),
+            "Extracted body should not contain 'require' keyword"
+        );
+        assert!(
+            !extracted_body.contains("ensure"),
+            "Extracted body should not contain 'ensure' keyword"
+        );
+        assert!(
+            !extracted_body.contains("x > 0"),
+            "Extracted body should not contain precondition clauses"
+        );
+        assert!(
+            !extracted_body.contains("Result > x + y"),
+            "Extracted body should not contain postcondition clauses"
+        );
+        assert!(
+            extracted_body.contains("x + y + 1"),
+            "Extracted body should contain the computation"
+        );
+
+        // Verify the extracted body is just the statement(s), not the full feature
+        let trimmed_body = extracted_body.trim();
+        assert!(
+            trimmed_body == "Result := x + y + 1" || trimmed_body.contains("Result := x + y + 1"),
+            "Extracted body should be just the computation statement"
         );
     }
 }

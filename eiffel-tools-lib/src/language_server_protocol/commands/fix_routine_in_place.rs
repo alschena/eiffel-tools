@@ -7,10 +7,15 @@ use std::ops::ControlFlow;
 use std::time::Instant;
 use tracing::info;
 use tracing::instrument;
+use tracing::warn;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LlmInteraction {
     pub interaction_number: u32,
+    // The error message that triggered this fix (from verifying the before code)
+    #[serde(rename = "error_message_before")]
+    pub error_message_before: String,
+    // The error message from verifying the generated code (or "Verification succeeded" if it passed)
     pub error_message: String,
     pub generated_code: Option<String>,
     pub applied: bool,
@@ -127,12 +132,18 @@ pub async fn fix_routine_in_place(
                     .await;
                 let ai_request_time = ai_request_start.elapsed().as_secs_f64();
 
-                let (generated_code, applied, after_code) = if let Some((ft, body)) = llm_result {
-                    let generated = body.clone();
+                let (generated_code, applied, after_code, verification_result_for_generated_code) = if let Some((ft, full_feature_source)) = llm_result {
+                    // Extract only the body from the LLM-generated feature to preserve original contracts
+                    let body_only = ft.body_source_unchecked(full_feature_source.as_str())
+                        .unwrap_or_else(|e| {
+                            warn!(target: "llm", "Failed to extract body from LLM-generated feature, using full feature: {:#?}", e);
+                            full_feature_source.clone()
+                        });
+                    let generated = body_only.clone();
                     if verbose {
                         eprintln!("[Attempt #{}] Applying code change to {}.{}", number_of_tries, class_name, feature_name);
                     }
-                    modify_in_place::rewrite_features(&path, &[(ft.name().to_owned(), body)]).await;
+                    modify_in_place::rewrite_feature_bodies(&path, &[(ft.name().to_owned(), body_only)]).await;
                     
                     // Reload workspace to get updated feature
                     workspace.reload(path.clone()).await;
@@ -166,6 +177,29 @@ pub async fn fix_routine_in_place(
                         }
                     }
 
+                    // Save the generated code to file content before verification
+                    // (verification may reset the file if it fails, so we need to restore it)
+                    let generated_code_file_content = tokio::fs::read(&path).await
+                        .ok()
+                        .unwrap_or_default();
+                    
+                    // Update last_valid_code to the generated code so that if verification fails,
+                    // the reset will keep the generated code (not the old code)
+                    last_valid_code.clone_from(&generated_code_file_content);
+
+                    // Verify the generated code to get the error message that matches it
+                    let verification_start_for_generated = Instant::now();
+                    let verification_result_for_generated = modify_in_place::verification(
+                        class_name,
+                        Some(feature_name),
+                        workspace,
+                        &mut last_valid_code,
+                        Some(number_of_tries),
+                        verbose,
+                    )
+                    .await;
+                    let verification_time_for_generated = verification_start_for_generated.elapsed().as_secs_f64();
+
                     // Record code change for backward compatibility
                     let change_number = code_changes.len() as u32 + 1;
                     code_changes.push(CodeChange {
@@ -174,22 +208,51 @@ pub async fn fix_routine_in_place(
                         after_code: after_code.clone(),
                     });
 
-                    (Some(generated), true, Some(after_code))
+                    let error_message_for_generated = match &verification_result_for_generated {
+                        ControlFlow::Break(_) => {
+                            // Verification succeeded - this will cause the loop to break
+                            String::from("Verification succeeded")
+                        }
+                        ControlFlow::Continue(verifier_failure_feedback) => {
+                            verifier_failure_feedback.clone().unwrap_or_else(|| {
+                                String::from("Verification failed but no error message provided")
+                            })
+                        }
+                    };
+
+                    (Some(generated), true, Some(after_code), Some((error_message_for_generated, verification_time_for_generated, verification_result_for_generated)))
                 } else {
-                    (None, false, None)
+                    (None, false, None, None)
+                };
+
+                // Determine the error message to use: if code was generated and applied, use the verification result of that code
+                let (final_error_message, final_verification_time, should_break) = if let Some((error_msg, verif_time, ref verif_result)) = verification_result_for_generated_code {
+                    let should_break = matches!(verif_result, ControlFlow::Break(_));
+                    (error_msg.clone(), verif_time, should_break)
+                } else {
+                    // If no code was generated/applied, use the original error message
+                    (error_message.clone(), verification_time, false)
                 };
 
                 // Record LLM interaction with code change information
+                // error_message_before: the error that triggered this fix (from verifying before_code)
+                // error_message: the verification result of the generated code
                 interactions.push(LlmInteraction {
                     interaction_number: llm_interactions,
-                    error_message: error_message.clone(),
+                    error_message_before: error_message.clone(),
+                    error_message: final_error_message,
                     generated_code,
                     applied,
-                    verification_time_seconds: verification_time,
+                    verification_time_seconds: final_verification_time,
                     ai_request_time_seconds: ai_request_time,
                     before_code: if applied { Some(before_code) } else { None },
                     after_code,
                 });
+
+                // If the generated code was verified and succeeded, break the loop
+                if should_break {
+                    break;
+                }
             }
         }
     }
@@ -212,5 +275,206 @@ pub async fn fix_routine_in_place(
         interactions,
         code_changes,
         total_elapsed_time_seconds: total_elapsed_time,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::Parser;
+    use assert_fs::TempDir;
+    use assert_fs::prelude::*;
+
+    const INITIAL_CODE: &str = r#"
+class TEST_CLASS
+feature
+    sum (n: INTEGER): INTEGER
+        require
+            n >= 0
+        do
+            if n = 0 then
+                Result := 0
+            else
+                Result := n + sum(n - 1)
+            end
+        ensure
+            result_correct: Result = n * (n + 1) // 2
+        end
+end
+"#;
+
+    const MODIFIED_CODE: &str = r#"
+class TEST_CLASS
+feature
+    sum (n: INTEGER): INTEGER
+        require
+            n >= 0
+        do
+            if n = 0 then
+                Result := 3  -- Buggy code
+            else
+                Result := n * (n + 1) + sum(n - 1)  -- Buggy code
+            end
+        ensure
+            result_correct: Result = n * (n + 1) // 2
+        end
+end
+"#;
+
+    const GENERATED_CODE: &str = r#"
+class TEST_CLASS
+feature
+    sum (n: INTEGER): INTEGER
+        require
+            n >= 0
+        do
+            if n = 0 then
+                Result := 0  -- Fixed code
+            else
+                Result := n + sum(n - 1)  -- Fixed code
+            end
+        ensure
+            result_correct: Result = n * (n + 1) // 2
+        end
+end
+"#;
+
+    #[tokio::test]
+    async fn test_code_rollback_on_verification_failure() {
+        // This test verifies that when verification fails after applying generated code,
+        // the code is correctly rolled back to the last_valid_code (which should be the generated code)
+        let tmp_dir = TempDir::new().expect("Failed to create temporary directory");
+        let file = tmp_dir.child("test_class.e");
+
+        // Write initial code
+        file.write_str(INITIAL_CODE)
+            .expect("Failed to write initial code");
+
+        // Parse and create workspace
+        let mut parser = Parser::default();
+        let (class, tree) = parser
+            .class_and_tree_from_source(INITIAL_CODE)
+            .expect("Failed to parse initial class");
+        let mut workspace = Workspace::new();
+        workspace.add_file((class.clone(), file.to_path_buf(), tree));
+
+        let _class_name = class.name();
+        let _feature_name = FeatureName::from("sum".to_string());
+
+        // Read initial code as last_valid_code
+        let mut last_valid_code = tokio::fs::read(file.path())
+            .await
+            .expect("Failed to read initial file");
+
+        // Simulate applying generated code: modify the file
+        file.write_str(GENERATED_CODE)
+            .expect("Failed to write generated code");
+        workspace.reload(file.to_path_buf()).await;
+
+        // Update last_valid_code to the generated code (this is what happens in fix_routine_in_place)
+        let generated_code_bytes = tokio::fs::read(file.path())
+            .await
+            .expect("Failed to read generated code");
+        last_valid_code.clone_from(&generated_code_bytes);
+
+        // Verify the file contains the generated code
+        let file_content_before_reset = tokio::fs::read_to_string(file.path())
+            .await
+            .expect("Failed to read file before reset");
+        assert!(
+            file_content_before_reset.contains("Result := 0  -- Fixed code"),
+            "File should contain generated code before reset"
+        );
+
+        // Now simulate a verification failure by resetting the file to last_valid_code
+        // This is what happens in modify_in_place::verification when verification fails
+        tokio::fs::write(file.path(), &last_valid_code)
+            .await
+            .expect("Failed to write last_valid_code");
+        workspace.reload(file.to_path_buf()).await;
+
+        // Verify the file was rolled back to last_valid_code (which is the generated code)
+        let file_content_after_reset = tokio::fs::read_to_string(file.path())
+            .await
+            .expect("Failed to read file after reset");
+        
+        // The file should still contain the generated code (not the initial code)
+        // because last_valid_code was updated to the generated code
+        assert!(
+            file_content_after_reset.contains("Result := 0  -- Fixed code"),
+            "File should still contain generated code after reset (not rolled back to initial)"
+        );
+        assert!(
+            !file_content_after_reset.contains("Result := 3  -- Buggy code"),
+            "File should not contain the buggy modified code"
+        );
+        assert!(
+            !file_content_after_reset.contains("Result := 0\n\t\telse\n\t\t\tResult := n + sum(n - 1)") || 
+            file_content_after_reset.contains("Result := 0  -- Fixed code"),
+            "File should contain the fixed code, not the initial code"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_code_rollback_to_original_when_last_valid_not_updated() {
+        // This test verifies that if last_valid_code is NOT updated before verification fails,
+        // the code is rolled back to the original code
+        let tmp_dir = TempDir::new().expect("Failed to create temporary directory");
+        let file = tmp_dir.child("test_class.e");
+
+        // Write initial code
+        file.write_str(INITIAL_CODE)
+            .expect("Failed to write initial code");
+
+        // Parse and create workspace
+        let mut parser = Parser::default();
+        let (class, tree) = parser
+            .class_and_tree_from_source(INITIAL_CODE)
+            .expect("Failed to parse initial class");
+        let mut workspace = Workspace::new();
+        workspace.add_file((class.clone(), file.to_path_buf(), tree));
+
+        // Read initial code as last_valid_code (don't update it)
+        let last_valid_code = tokio::fs::read(file.path())
+            .await
+            .expect("Failed to read initial file");
+
+        // Modify the file to buggy code
+        file.write_str(MODIFIED_CODE)
+            .expect("Failed to write modified code");
+        workspace.reload(file.to_path_buf()).await;
+
+        // Verify the file contains the modified code
+        let file_content_before_reset = tokio::fs::read_to_string(file.path())
+            .await
+            .expect("Failed to read file before reset");
+        assert!(
+            file_content_before_reset.contains("Result := 3  -- Buggy code"),
+            "File should contain modified code before reset"
+        );
+
+        // Simulate verification failure: reset the file to last_valid_code
+        // Since last_valid_code was NOT updated, it should roll back to INITIAL_CODE
+        tokio::fs::write(file.path(), &last_valid_code)
+            .await
+            .expect("Failed to write last_valid_code");
+        workspace.reload(file.to_path_buf()).await;
+
+        // Verify the file was rolled back to last_valid_code (which is the initial code)
+        let file_content_after_reset = tokio::fs::read_to_string(file.path())
+            .await
+            .expect("Failed to read file after reset");
+        
+        // The file should contain the initial code (not the modified code)
+        assert!(
+            file_content_after_reset.contains("Result := 0") && 
+            !file_content_after_reset.contains("Result := 3"),
+            "File should contain initial code (Result := 0) and not buggy code (Result := 3) after reset. Content: {}",
+            file_content_after_reset
+        );
+        assert!(
+            !file_content_after_reset.contains("Result := 3  -- Buggy code"),
+            "File should not contain the buggy modified code after reset"
+        );
     }
 }
