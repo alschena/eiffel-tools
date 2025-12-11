@@ -340,7 +340,12 @@ impl Feature {
                 let local_text = self.source_in_range_unchecked(source, local_range)?;
                 let trimmed = local_text.trim();
                 // Check if the extracted text contains a local clause
-                if trimmed.starts_with("local") || trimmed.contains("\nlocal") || trimmed.contains("\tlocal") {
+                // Be more flexible: check for "local" keyword (case-insensitive, with optional whitespace)
+                let normalized = trimmed.to_lowercase();
+                if normalized.starts_with("local") 
+                    || normalized.contains("\nlocal") 
+                    || normalized.contains("\tlocal")
+                    || normalized.contains(" local") {
                     Ok(Some(trimmed.to_string()))
                 } else {
                     Ok(None)

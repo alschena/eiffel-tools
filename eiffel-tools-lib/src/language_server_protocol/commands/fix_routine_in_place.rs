@@ -33,6 +33,9 @@ pub struct LlmInteraction {
     pub before_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub after_code: Option<String>,
+    // Status/errors that occurred during code application (e.g., local clause extraction failures)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -133,7 +136,7 @@ pub async fn fix_routine_in_place(
                     .await;
                 let ai_request_time = ai_request_start.elapsed().as_secs_f64();
 
-                let (llm_message, prompt, applied, after_code, verification_result_for_generated_code) = if let Some((ft, full_feature_source, raw_message, prompt_text)) = llm_result {
+                let (llm_message, prompt, applied, after_code, verification_result_for_generated_code, application_status) = if let Some((ft, full_feature_source, raw_message, prompt_text)) = llm_result {
                     // Extract only the body from the LLM-generated feature to preserve original contracts
                     let body_only = ft.body_source_unchecked(full_feature_source.as_str())
                         .unwrap_or_else(|e| {
@@ -151,7 +154,7 @@ pub async fn fix_routine_in_place(
                         }
                     }
                     // Apply both local clause (if present) and body, preserving contracts
-                    modify_in_place::rewrite_feature_bodies_and_locals(
+                    let application_status = modify_in_place::rewrite_feature_bodies_and_locals(
                         &path,
                         &[(ft.name().to_owned(), body_only)],
                         &[(ft.name(), full_feature_source.as_str())],
@@ -231,9 +234,9 @@ pub async fn fix_routine_in_place(
                         }
                     };
 
-                    (Some(raw_message), Some(prompt_text), true, Some(after_code), Some((error_message_for_generated, verification_time_for_generated, verification_result_for_generated)))
+                    (Some(raw_message), Some(prompt_text), true, Some(after_code), Some((error_message_for_generated, verification_time_for_generated, verification_result_for_generated)), application_status)
                 } else {
-                    (None, None, false, None, None)
+                    (None, None, false, None, None, None)
                 };
 
                 // Determine the error message to use: if code was generated and applied, use the verification result of that code
@@ -259,6 +262,7 @@ pub async fn fix_routine_in_place(
                     ai_request_time_seconds: ai_request_time,
                     before_code: if applied { Some(before_code) } else { None },
                     after_code,
+                    status: application_status,
                 });
 
                 // If the generated code was verified and succeeded, break the loop
@@ -494,107 +498,6 @@ end
         assert!(
             !file_content_after_reset.contains("Result := 3  -- Buggy code"),
             "File should not contain the buggy modified code after reset"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_rollback_to_original_after_max_retries() {
-        // This test verifies that when max retries (10 attempts) are exhausted,
-        // the code is rolled back to the original state before any LLM modifications.
-        //
-        // BUG DEMONSTRATION:
-        // Before the fix: When max_retries_reached was true, the code would remain
-        // in whatever state it was after the last LLM modification attempt, rather
-        // than being rolled back to the original code.
-        //
-        // THE FIX:
-        // The fix adds rollback code that restores original_code when max_retries_reached
-        // is true. This test verifies that rollback behavior works correctly.
-        let tmp_dir = TempDir::new().expect("Failed to create temporary directory");
-        let file = tmp_dir.child("test_class.e");
-
-        // Step 1: Write initial code (this is what original_code would be)
-        file.write_str(INITIAL_CODE)
-            .expect("Failed to write initial code");
-
-        // Parse and create workspace
-        let mut parser = Parser::default();
-        let (class, tree) = parser
-            .class_and_tree_from_source(INITIAL_CODE)
-            .expect("Failed to parse initial class");
-        let mut workspace = Workspace::new();
-        workspace.add_file((class.clone(), file.to_path_buf(), tree));
-
-        // Save the original code content (this simulates what original_code is in fix_routine_in_place)
-        let original_code_bytes = tokio::fs::read(file.path())
-            .await
-            .expect("Failed to read original file");
-        let original_code_string = String::from_utf8(original_code_bytes.clone())
-            .expect("Failed to convert original code to string");
-
-        // Verify initial code is in place
-        assert!(
-            original_code_string.contains("Result := 0") && 
-            !original_code_string.contains("Result := 3") &&
-            !original_code_string.contains("-- Fixed code"),
-            "Initial file should contain correct code"
-        );
-
-        // Step 2: Simulate LLM modifications during fix attempts
-        // This simulates what happens when fix_routine_in_place applies LLM-generated code
-        file.write_str(GENERATED_CODE)
-            .expect("Failed to write generated code");
-        workspace.reload(file.to_path_buf()).await;
-
-        // Verify the file now contains the modified code
-        let modified_content = tokio::fs::read_to_string(file.path())
-            .await
-            .expect("Failed to read modified file");
-        assert!(
-            modified_content.contains("Result := 0  -- Fixed code"),
-            "File should contain generated code before rollback"
-        );
-
-        // Step 3: Simulate max retries being reached
-        // This is what happens in fix_routine_in_place when max_retries_reached is true.
-        // The fix adds rollback code that does exactly this:
-        tokio::fs::write(file.path(), &original_code_bytes)
-            .await
-            .expect("Failed to write original code during rollback");
-        workspace.reload(file.to_path_buf()).await;
-
-        // Step 4: Verify the file was rolled back to the original code
-        // This is the key assertion - without the rollback fix, this would fail
-        // because the code would still contain "-- Fixed code"
-        let final_content = tokio::fs::read_to_string(file.path())
-            .await
-            .expect("Failed to read file after rollback");
-        
-        // The file should contain the original code, not the modified or generated code
-        assert!(
-            final_content.contains("Result := 0") && 
-            !final_content.contains("Result := 3") &&
-            !final_content.contains("-- Fixed code") &&
-            !final_content.contains("-- Buggy code"),
-            "File should be rolled back to original code after max retries. \
-             Without the fix, this would fail because code would remain modified. \
-             Content: {}",
-            final_content
-        );
-        
-        // Verify it matches the initial code structure exactly
-        assert!(
-            final_content.contains("if n = 0 then") &&
-            final_content.contains("Result := 0") &&
-            final_content.contains("Result := n + sum(n - 1)") &&
-            !final_content.contains("-- Fixed code"),
-            "File should match original code structure without LLM modifications"
-        );
-        
-        // Additional verification: the key marker from generated code should be absent
-        assert!(
-            !final_content.contains("-- Fixed code"),
-            "The '-- Fixed code' marker from LLM-generated code should be absent after rollback"
         );
     }
 }

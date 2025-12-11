@@ -3,6 +3,9 @@ use crate::eiffelstudio_cli::VerificationResult;
 use crate::eiffelstudio_cli::verify;
 use crate::parser;
 use crate::workspace::Workspace;
+use anyhow::anyhow;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::path::PathBuf;
@@ -277,11 +280,12 @@ pub async fn rewrite_feature_bodies_and_locals<'ft, B, I>(
     path: &Path,
     feature_bodies: I,
     llm_feature_sources: &[(&'ft FeatureName, &'ft str)],
-) where
+) -> Option<String>
+where
     B: AsRef<str> + 'ft,
     I: IntoIterator<Item = &'ft (FeatureName, B)> + Copy,
 {
-    let maybe_rewrite_handle = tokio::fs::read(path)
+    let (maybe_new_content, status) = tokio::fs::read(path)
         .await
         .inspect_err(|e| warn!("Fails to await reading {path:#?} before rewrite because {e:#?}"))
         .ok()
@@ -289,25 +293,22 @@ pub async fn rewrite_feature_bodies_and_locals<'ft, B, I>(
             str::from_utf8(content)
                 .inspect_err(|e| warn!("Fails to convert file content to UFT-8 because {e:#?}"))
                 .ok()
-                .and_then(|initial_content| {
+                .map(|initial_content| {
                     rewriting_feature_bodies_and_locals(initial_content, feature_bodies, llm_feature_sources)
                 })
         })
-        .map(move |new_file| {
-            let path = path.to_owned();
-            tokio::spawn(tokio::fs::write(path, new_file))
-        });
+        .unwrap_or((None, None));
 
-    if let Some(rewrite_handle) = maybe_rewrite_handle {
-        match rewrite_handle.await {
-            Ok(Err(e)) => {
-                warn!("Fails to rewrite feature bodies and locals because {e:#?}")
-            }
+    if let Some(new_content) = maybe_new_content {
+        match tokio::fs::write(path, new_content).await {
+            Ok(_) => status,
             Err(e) => {
-                warn!("Fails to await the rewriting of feature bodies and locals because {e:#?}.")
+                warn!("Fails to rewrite feature bodies and locals because {e:#?}");
+                Some(format!("Failed to write file: {:#?}", e))
             }
-            Ok(Ok(())) => {}
         }
+    } else {
+        status
     }
 }
 
@@ -394,19 +395,25 @@ fn rewriting_feature_bodies_and_locals<'ft, B, I>(
     initial_source: &str,
     feature_bodies: I,
     llm_feature_sources: &[(&'ft FeatureName, &'ft str)],
-) -> Option<String>
+) -> (Option<String>, Option<String>)
 where
     B: AsRef<str> + 'ft,
     I: IntoIterator<Item = &'ft (FeatureName, B)> + Copy,
 {
+    // #region agent log
+    if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
+        let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"ENTRY","location":"modify_in_place.rs:394","message":"rewriting_feature_bodies_and_locals called","data":{{"llm_feature_sources_count":{}}},"timestamp":{}}}"#, llm_feature_sources.len(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    }
+    // #endregion
     parser::Parser::default()
         .class_and_tree_from_source(initial_source)
         .inspect_err(|e| warn!("Fails to parse file rewriting feature bodies and locals because {e:#?}"))
         .ok()
-        .and_then(|(cl, _)| {
+        .map(|(cl, _)| {
             // Build new file content by processing features in order using parser ranges
             let mut result = String::new();
             let mut last_pos = Point { row: 0, column: 0 };
+            let mut status_messages = Vec::new();
             
             for feature in cl.features() {
                 let feature_range = feature.range();
@@ -509,36 +516,158 @@ where
                     }
                     
                     if let Some((_, llm_source)) = llm_feature_sources.iter().find(|(name, _)| **name == *feature.name()) {
-                        // Parse LLM source to get the feature and extract local clause using parser
-                        if let Ok((llm_class, _)) = parser::Parser::default().class_and_tree_from_source(llm_source) {
-                            if let Some(llm_feature) = llm_class.features().iter().find(|f| f.name() == feature.name()) {
-                                if let Ok(Some(llm_local)) = llm_feature.local_clause_source_unchecked(*llm_source) {
-                                    // If there's an existing local clause, replace its contents
-                                    if existing_local_range.is_some() {
-                                        // Simply replace the entire local_declarations block with LLM's version
-                                        // Extract the full local clause from LLM (including "local" keyword)
-                                        let llm_local_full = llm_local.trim();
-                                        
-                                        // Local clause should be at 2 tabs (standard Eiffel indentation)
-                                        // Trim leading newlines to avoid double newlines
-                                        let llm_local_trimmed = llm_local_full.trim_start_matches('\n');
-                                        // For local clause: "local" keyword at 2 tabs, variable declarations at 3 tabs
-                                        let indented_local = indent_local_clause(llm_local_trimmed, 2);
-                                        
-                                        result.push_str(&indented_local);
-                                        if !indented_local.ends_with('\n') {
-                                            result.push('\n');
+                        // #region agent log
+                        if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
+                            let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"A","location":"modify_in_place.rs:511","message":"Attempting to parse LLM source","data":{{"feature_name":"{}","llm_source_length":{}}},"timestamp":{}}}"#, feature.name(), llm_source.len(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+                        }
+                        // #endregion
+                        // Parse LLM source as a feature (not a class) since it's a feature-only snippet
+                        // Try parsing as feature first (for feature-only snippets), fall back to class parsing
+                        let mut parser = parser::Parser::default();
+                        let llm_feature_result = parser.to_feature(llm_source)
+                            .and_then(|parsed| match parsed {
+                                parser::Parsed::Correct(feat) => Ok(feat),
+                                parser::Parsed::HasErrorNodes(_, _) => {
+                                    Err(anyhow!("Feature parsing had error nodes"))
+                                }
+                            });
+                        
+                        // #region agent log
+                        if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
+                            let parse_success = llm_feature_result.is_ok();
+                            let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"A","location":"modify_in_place.rs:523","message":"Feature parsing result","data":{{"feature_name":"{}","parse_success":{}}},"timestamp":{}}}"#, feature.name(), parse_success, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+                        }
+                        // #endregion
+                        
+                        match llm_feature_result {
+                            Ok(llm_feature) => {
+                                // #region agent log
+                                if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
+                                    let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"B","location":"modify_in_place.rs:525","message":"Successfully parsed as feature, extracting local clause","data":{{"feature_name":"{}"}},"timestamp":{}}}"#, feature.name(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+                                }
+                                // #endregion
+                                // Successfully parsed as feature - extract local clause
+                                match llm_feature.local_clause_source_unchecked(*llm_source) {
+                                    Ok(Some(llm_local)) => {
+                                        // #region agent log
+                                        if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
+                                            let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"B","location":"modify_in_place.rs:527","message":"Local clause extracted successfully","data":{{"feature_name":"{}","has_existing_local":{},"local_clause_length":{}}},"timestamp":{}}}"#, feature.name(), existing_local_range.is_some(), llm_local.len(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
                                         }
-                                    } else {
-                                        // No existing local clause - insert new one before body with proper indentation (2 tabs)
-                                        // Trim leading newlines to avoid double newlines
-                                        let llm_local_trimmed = llm_local.trim_start_matches('\n');
-                                        // For local clause: "local" keyword at 2 tabs, variable declarations at 3 tabs
-                                        let indented_local = indent_local_clause(llm_local_trimmed, 2);
-                                        result.push_str(&indented_local);
-                                        if !indented_local.ends_with('\n') {
-                                            result.push('\n');
+                                        // #endregion
+                                        // If there's an existing local clause, replace its contents
+                                        if existing_local_range.is_some() {
+                                            // Simply replace the entire local_declarations block with LLM's version
+                                            // Extract the full local clause from LLM (including "local" keyword)
+                                            let llm_local_full = llm_local.trim();
+                                            
+                                            // Local clause should be at 2 tabs (standard Eiffel indentation)
+                                            // Trim leading newlines to avoid double newlines
+                                            let llm_local_trimmed = llm_local_full.trim_start_matches('\n');
+                                            // For local clause: "local" keyword at 2 tabs, variable declarations at 3 tabs
+                                            let indented_local = indent_local_clause(llm_local_trimmed, 2);
+                                            
+                                            result.push_str(&indented_local);
+                                            if !indented_local.ends_with('\n') {
+                                                result.push('\n');
+                                            }
+                                        } else {
+                                            // No existing local clause - insert new one before body with proper indentation (2 tabs)
+                                            // Trim leading newlines to avoid double newlines
+                                            let llm_local_trimmed = llm_local.trim().trim_start_matches('\n');
+                                            // For local clause: "local" keyword at 2 tabs, variable declarations at 3 tabs
+                                            let indented_local = indent_local_clause(llm_local_trimmed, 2);
+                                            result.push_str(&indented_local);
+                                            if !indented_local.ends_with('\n') {
+                                                result.push('\n');
+                                            }
                                         }
+                                        // #region agent log
+                                        if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
+                                            let result_contains_local = result.contains("local");
+                                            let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"C","location":"modify_in_place.rs:554","message":"Local clause inserted into result","data":{{"feature_name":"{}","result_contains_local":{},"result_length":{}}},"timestamp":{}}}"#, feature.name(), result_contains_local, result.len(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+                                        }
+                                        // #endregion
+                                    }
+                                    Ok(None) => {
+                                        // #region agent log
+                                        if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
+                                            let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"B","location":"modify_in_place.rs:556","message":"LLM feature has no local clause","data":{{"feature_name":"{}"}},"timestamp":{}}}"#, feature.name(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+                                        }
+                                        // #endregion
+                                        // LLM feature doesn't have a local clause - this is fine, nothing to do
+                                    }
+                                    Err(e) => {
+                                        let error_msg = format!(
+                                            "Failed to extract local clause from LLM feature {}: {:#?}",
+                                            feature.name(),
+                                            e
+                                        );
+                                        warn!("{}", error_msg);
+                                        status_messages.push(error_msg);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                // #region agent log
+                                if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
+                                    let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"A","location":"modify_in_place.rs:570","message":"Feature parsing failed, trying class parsing","data":{{"feature_name":"{}","error":"{:?}"}},"timestamp":{}}}"#, feature.name(), e, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+                                }
+                                // #endregion
+                                // Failed to parse as feature - try parsing as class (for full class snippets)
+                                match parser::Parser::default().class_and_tree_from_source(llm_source) {
+                                    Ok((llm_class, _)) => {
+                                        if let Some(llm_feature) = llm_class.features().iter().find(|f| f.name() == feature.name()) {
+                                            match llm_feature.local_clause_source_unchecked(*llm_source) {
+                                                Ok(Some(llm_local)) => {
+                                                    // If there's an existing local clause, replace its contents
+                                                    if existing_local_range.is_some() {
+                                                        let llm_local_full = llm_local.trim();
+                                                        let llm_local_trimmed = llm_local_full.trim_start_matches('\n');
+                                                        let indented_local = indent_local_clause(llm_local_trimmed, 2);
+                                                        result.push_str(&indented_local);
+                                                        if !indented_local.ends_with('\n') {
+                                                            result.push('\n');
+                                                        }
+                                                    } else {
+                                                        let llm_local_trimmed = llm_local.trim().trim_start_matches('\n');
+                                                        let indented_local = indent_local_clause(llm_local_trimmed, 2);
+                                                        result.push_str(&indented_local);
+                                                        if !indented_local.ends_with('\n') {
+                                                            result.push('\n');
+                                                        }
+                                                    }
+                                                }
+                                                Ok(None) => {
+                                                    // LLM feature doesn't have a local clause - this is fine, nothing to do
+                                                }
+                                                Err(e) => {
+                                                    let error_msg = format!(
+                                                        "Failed to extract local clause from LLM feature {}: {:#?}",
+                                                        feature.name(),
+                                                        e
+                                                    );
+                                                    warn!("{}", error_msg);
+                                                    status_messages.push(error_msg);
+                                                }
+                                            }
+                                        } else {
+                                            let error_msg = format!(
+                                                "LLM source parsed as class but feature {} not found",
+                                                feature.name()
+                                            );
+                                            warn!("{}", error_msg);
+                                            status_messages.push(error_msg);
+                                        }
+                                    }
+                                    Err(class_parse_err) => {
+                                        let error_msg = format!(
+                                            "Failed to parse LLM source for feature {} as feature or class. Feature parse error: {:#?}, Class parse error: {:#?}",
+                                            feature.name(),
+                                            e,
+                                            class_parse_err
+                                        );
+                                        warn!("{}", error_msg);
+                                        status_messages.push(error_msg);
                                     }
                                 }
                             }
@@ -671,8 +800,14 @@ where
                 }
             }
             
-            Some(result)
+            let status = if status_messages.is_empty() {
+                None
+            } else {
+                Some(status_messages.join("; "))
+            };
+            (Some(result), status)
         })
+        .unwrap_or((None, None))
 }
 
 fn rewriting_features<'ft, B, I>(initial_source: &str, features: I) -> Option<String>
@@ -1585,9 +1720,8 @@ feature
 end
             "#;
 
-    const LLM_FEATURE_WITH_LOCAL_AND_DIFFERENT_CONTRACTS: &'static str = r#"
-class TEST_CLASS
-feature
+    // LLM returns only the feature (not wrapped in a class) - this is realistic
+    const LLM_FEATURE_ONLY_WITH_LOCAL_AND_DIFFERENT_CONTRACTS: &'static str = r#"
     compute (a, b: INTEGER): INTEGER
         require
             a > 0
@@ -1602,7 +1736,6 @@ feature
         ensure
             Result > a + b
         end
-end
             "#;
 
     const EXPECTED_LOCAL_APPLIED_CONTRACTS_PRESERVED: &'static str = r#"
@@ -1656,19 +1789,15 @@ end
             .find(|f| f.name() == "compute")
             .expect("Should find compute feature");
 
-        // Simulate LLM returning a full feature with local variables and different contracts
-        let (llm_feature, llm_full_source) = {
-            let (llm_class, _) = parser
-                .class_and_tree_from_source(LLM_FEATURE_WITH_LOCAL_AND_DIFFERENT_CONTRACTS)
-                .expect("Fails to parse LLM-generated feature");
-            let llm_feat = llm_class
-                .features()
-                .iter()
-                .find(|f| f.name() == "compute")
-                .expect("Should find LLM-generated feature")
-                .clone();
-            (llm_feat, LLM_FEATURE_WITH_LOCAL_AND_DIFFERENT_CONTRACTS.to_string())
+        // Simulate LLM returning a feature-only snippet (not a full class) with local variables
+        let llm_feature = match parser
+            .to_feature(LLM_FEATURE_ONLY_WITH_LOCAL_AND_DIFFERENT_CONTRACTS)
+            .expect("Should parse feature-only snippet")
+        {
+            parser::Parsed::Correct(feat) => feat,
+            parser::Parsed::HasErrorNodes(_, _) => panic!("Feature should parse correctly"),
         };
+        let llm_full_source = LLM_FEATURE_ONLY_WITH_LOCAL_AND_DIFFERENT_CONTRACTS.to_string();
 
         // Simulate what fix_routine_in_place does: extract only the body
         let body_only = llm_feature
@@ -1701,7 +1830,7 @@ end
 
         // Verify local clause can be extracted from LLM source using parser
         let local_clause = llm_feature
-            .local_clause_source_unchecked(llm_full_source.as_str())
+            .local_clause_source_unchecked(LLM_FEATURE_ONLY_WITH_LOCAL_AND_DIFFERENT_CONTRACTS)
             .expect("Should extract local clause from LLM-generated feature");
         assert!(
             local_clause.is_some(),
@@ -1840,9 +1969,8 @@ feature
 end
             "#;
 
-    const LLM_FEATURE_WITH_DIFFERENT_LOCAL: &'static str = r#"
-class TEST_CLASS
-feature
+    // LLM returns only the feature (not wrapped in a class) - this is realistic
+    const LLM_FEATURE_ONLY_WITH_DIFFERENT_LOCAL: &'static str = r#"
     compute (a, b: INTEGER): INTEGER
         require
             a >= 0
@@ -1858,7 +1986,6 @@ feature
             Result >= a
             Result >= b
         end
-end
             "#;
 
     const EXPECTED_LOCAL_REPLACED: &'static str = r#"
@@ -1926,30 +2053,25 @@ end
             "Original local clause should contain old_var"
         );
 
-        // Simulate LLM returning a full feature with different local variables
-        let (llm_feature, llm_full_source) = {
-            let (llm_class, _) = parser
-                .class_and_tree_from_source(LLM_FEATURE_WITH_DIFFERENT_LOCAL)
-                .expect("Fails to parse LLM-generated feature");
-            let llm_feat = llm_class
-                .features()
-                .iter()
-                .find(|f| f.name() == "compute")
-                .expect("Should find LLM-generated feature")
-                .clone();
-            (llm_feat, LLM_FEATURE_WITH_DIFFERENT_LOCAL.to_string())
+        // Simulate LLM returning a feature-only snippet (not a full class) with different local variables
+        let llm_feature = match parser
+            .to_feature(LLM_FEATURE_ONLY_WITH_DIFFERENT_LOCAL)
+            .expect("Should parse feature-only snippet")
+        {
+            parser::Parsed::Correct(feat) => feat,
+            parser::Parsed::HasErrorNodes(_, _) => panic!("Feature should parse correctly"),
         };
 
         // Extract body from LLM feature
         let body_only = llm_feature
-            .body_source_unchecked(llm_full_source.as_str())
-            .expect("Should extract body from LLM-generated full feature");
+            .body_source_unchecked(LLM_FEATURE_ONLY_WITH_DIFFERENT_LOCAL)
+            .expect("Should extract body from LLM-generated feature");
 
         // Apply both local clause and body
         rewrite_feature_bodies_and_locals(
             file.path(),
             &[(original_feature.name().to_owned(), body_only)],
-            &[(original_feature.name(), llm_full_source.as_str())],
+            &[(original_feature.name(), LLM_FEATURE_ONLY_WITH_DIFFERENT_LOCAL)],
         ).await;
 
         // Read the modified file
@@ -2013,9 +2135,8 @@ end
         );
     }
 
-    const LLM_FEATURE_WITHOUT_LOCAL: &'static str = r#"
-class TEST_CLASS
-feature
+    // LLM returns only the feature (not wrapped in a class) - this is realistic
+    const LLM_FEATURE_ONLY_WITHOUT_LOCAL: &'static str = r#"
     compute (a, b: INTEGER): INTEGER
         require
             a >= 0
@@ -2026,7 +2147,6 @@ feature
             Result >= a
             Result >= b
         end
-end
             "#;
 
     const EXPECTED_LOCAL_REMOVED: &'static str = r#"
@@ -2088,23 +2208,18 @@ end
             "Original feature should have a local clause"
         );
 
-        // Simulate LLM returning a full feature WITHOUT local variables
-        let (llm_feature, llm_full_source) = {
-            let (llm_class, _) = parser
-                .class_and_tree_from_source(LLM_FEATURE_WITHOUT_LOCAL)
-                .expect("Fails to parse LLM-generated feature");
-            let llm_feat = llm_class
-                .features()
-                .iter()
-                .find(|f| f.name() == "compute")
-                .expect("Should find LLM-generated feature")
-                .clone();
-            (llm_feat, LLM_FEATURE_WITHOUT_LOCAL.to_string())
+        // Simulate LLM returning a feature-only snippet (not a full class) WITHOUT local variables
+        let llm_feature = match parser
+            .to_feature(LLM_FEATURE_ONLY_WITHOUT_LOCAL)
+            .expect("Should parse feature-only snippet")
+        {
+            parser::Parsed::Correct(feat) => feat,
+            parser::Parsed::HasErrorNodes(_, _) => panic!("Feature should parse correctly"),
         };
 
         // Verify LLM feature has NO local clause
         let llm_local = llm_feature
-            .local_clause_source_unchecked(llm_full_source.as_str())
+            .local_clause_source_unchecked(LLM_FEATURE_ONLY_WITHOUT_LOCAL)
             .expect("Should check for local clause in LLM feature");
         assert!(
             llm_local.is_none(),
@@ -2113,14 +2228,14 @@ end
 
         // Extract body from LLM feature
         let body_only = llm_feature
-            .body_source_unchecked(llm_full_source.as_str())
-            .expect("Should extract body from LLM-generated full feature");
+            .body_source_unchecked(LLM_FEATURE_ONLY_WITHOUT_LOCAL)
+            .expect("Should extract body from LLM-generated feature");
 
         // Apply body (and no local clause since LLM didn't provide one)
         rewrite_feature_bodies_and_locals(
             file.path(),
             &[(original_feature.name().to_owned(), body_only)],
-            &[(original_feature.name(), llm_full_source.as_str())],
+            &[(original_feature.name(), LLM_FEATURE_ONLY_WITHOUT_LOCAL)],
         ).await;
 
         // Read the modified file
@@ -2167,9 +2282,8 @@ feature
 end
             "#;
 
-    const LLM_FEATURE_NO_PRECONDITION_NEW_LOCAL: &'static str = r#"
-class TEST_CLASS
-feature
+    // LLM returns only the feature (not wrapped in a class) - this is realistic
+    const LLM_FEATURE_ONLY_NO_PRECONDITION_NEW_LOCAL: &'static str = r#"
     compute (a, b: INTEGER): INTEGER
         local
             new_temp: INTEGER
@@ -2177,7 +2291,6 @@ feature
             new_temp := a + b
             Result := new_temp
         end
-end
             "#;
 
     const EXPECTED_NO_PRECONDITION_LOCAL_REPLACED: &'static str = r#"
@@ -2232,30 +2345,25 @@ end
             "Original feature should have a local clause"
         );
 
-        // Simulate LLM returning a full feature with different local variable
-        let (llm_feature, llm_full_source) = {
-            let (llm_class, _) = parser
-                .class_and_tree_from_source(LLM_FEATURE_NO_PRECONDITION_NEW_LOCAL)
-                .expect("Fails to parse LLM-generated feature");
-            let llm_feat = llm_class
-                .features()
-                .iter()
-                .find(|f| f.name() == "compute")
-                .expect("Should find LLM-generated feature")
-                .clone();
-            (llm_feat, LLM_FEATURE_NO_PRECONDITION_NEW_LOCAL.to_string())
+        // Simulate LLM returning a feature-only snippet (not a full class) with different local variable
+        let llm_feature = match parser
+            .to_feature(LLM_FEATURE_ONLY_NO_PRECONDITION_NEW_LOCAL)
+            .expect("Should parse feature-only snippet")
+        {
+            parser::Parsed::Correct(feat) => feat,
+            parser::Parsed::HasErrorNodes(_, _) => panic!("Feature should parse correctly"),
         };
 
         // Extract body from LLM feature
         let body_only = llm_feature
-            .body_source_unchecked(llm_full_source.as_str())
-            .expect("Should extract body from LLM-generated full feature");
+            .body_source_unchecked(LLM_FEATURE_ONLY_NO_PRECONDITION_NEW_LOCAL)
+            .expect("Should extract body from LLM-generated feature");
 
         // Apply both local clause and body
         rewrite_feature_bodies_and_locals(
             file.path(),
             &[(original_feature.name().to_owned(), body_only)],
-            &[(original_feature.name(), llm_full_source.as_str())],
+            &[(original_feature.name(), LLM_FEATURE_ONLY_NO_PRECONDITION_NEW_LOCAL)],
         ).await;
 
         // Read the modified file
@@ -2351,5 +2459,296 @@ end
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_llm_suggests_adding_local_but_not_applied() {
+        // This test demonstrates the bug: when LLM suggests adding a local variable
+        // to a feature that doesn't have one, the local clause is not applied.
+        // This matches the scenario from the JSON data where llm_message includes
+        // "local\n        l_k: INTEGER\n" but after_code doesn't have it.
+        let tmp_dir = TempDir::new().expect(stringify!(
+            "Fails to create temporary directory for testing. {} {}:{}",
+            file!(),
+            line!(),
+            column!()
+        ));
+        let file = tmp_dir.child("test_add_local_bug");
+
+        const FEATURE_WITHOUT_LOCAL: &'static str = r#"
+class MAPLE_RECURSIVE_SUM_N_4
+feature
+    sum (a_n: INTEGER): INTEGER
+        require
+            argument_non_negative: a_n >= 0
+        do
+            if a_n = 0 then
+                Result := 0
+            else
+                l_k := sum (a_n - 1)
+                Result := l_k + a_n
+            end
+        ensure
+            correct_result: 2 * Result = a_n * (a_n + 1)
+        end
+end
+            "#;
+
+
+        // Write initial feature without local
+        file.write_str(FEATURE_WITHOUT_LOCAL)
+            .expect("Fails to write initial feature");
+
+        // Parse the original feature
+        let mut parser = Parser::default();
+        let (original_class, tree) = parser
+            .class_and_tree_from_source(FEATURE_WITHOUT_LOCAL)
+            .expect("Fails to parse original class");
+        let mut ws = Workspace::new();
+        ws.add_file((original_class.clone(), file.to_path_buf(), tree));
+
+        let original_feature = original_class
+            .features()
+            .iter()
+            .find(|f| f.name() == "sum")
+            .expect("Should find sum feature");
+
+        // Verify original feature has NO local clause
+        let original_local = original_feature
+            .local_clause_source_unchecked(FEATURE_WITHOUT_LOCAL)
+            .expect("Should check for local clause");
+        assert!(
+            original_local.is_none(),
+            "Original feature should NOT have a local clause"
+        );
+
+        // Simulate LLM returning a feature-only snippet (not a full class) with local variable
+        // This is what the LLM actually returns - just the feature, not wrapped in a class
+        const LLM_FEATURE_ONLY_WITH_LOCAL: &'static str = r#"
+    sum (a_n: INTEGER): INTEGER
+        require
+            argument_non_negative: a_n >= 0
+        local
+            l_k: INTEGER
+        do
+            if a_n = 0 then
+                Result := 0
+            else
+                l_k := sum (a_n - 1)
+                Result := l_k + a_n
+            end
+        ensure
+            correct_result: 2 * Result = a_n * (a_n + 1)
+        end
+            "#;
+
+        // Parse the feature-only snippet using to_feature (not class_and_tree_from_source)
+        let llm_feature = match parser
+            .to_feature(LLM_FEATURE_ONLY_WITH_LOCAL)
+            .expect("Should parse feature-only snippet")
+        {
+            parser::Parsed::Correct(feat) => feat,
+            parser::Parsed::HasErrorNodes(_, _) => panic!("Feature should parse correctly"),
+        };
+        let llm_full_source = LLM_FEATURE_ONLY_WITH_LOCAL.to_string();
+
+        // Verify LLM feature HAS a local clause
+        let llm_local = llm_feature
+            .local_clause_source_unchecked(llm_full_source.as_str())
+            .expect("Should extract local clause from LLM feature");
+        assert!(
+            llm_local.is_some(),
+            "LLM feature should have a local clause"
+        );
+        let llm_local_text = llm_local.unwrap();
+        assert!(
+            llm_local_text.contains("l_k: INTEGER"),
+            "LLM local clause should contain l_k"
+        );
+
+        // Extract body from LLM feature
+        let body_only = llm_feature
+            .body_source_unchecked(llm_full_source.as_str())
+            .expect("Should extract body from LLM-generated full feature");
+
+        // Apply both local clause and body (this is what rewrite_feature_bodies_and_locals does)
+        rewrite_feature_bodies_and_locals(
+            file.path(),
+            &[(original_feature.name().to_owned(), body_only)],
+            &[(original_feature.name(), llm_full_source.as_str())],
+        ).await;
+
+        // Read the modified file
+        let modified_content = tokio::fs::read_to_string(file.path())
+            .await
+            .expect("Should read modified file");
+
+        // THIS IS THE BUG: The local clause should be present but it's not
+        // Verify NEW local clause IS present (this will fail, demonstrating the bug)
+        assert!(
+            modified_content.contains("local"),
+            "BUG DEMONSTRATED: The 'local' clause should be present but it's missing. Modified content:\n{}",
+            modified_content
+        );
+        assert!(
+            modified_content.contains("l_k: INTEGER"),
+            "BUG DEMONSTRATED: Local variable 'l_k' should be present but it's missing. Modified content:\n{}",
+            modified_content
+        );
+
+        // Verify the body uses the local variable
+        assert!(
+            modified_content.contains("l_k := sum (a_n - 1)"),
+            "Body should use the local variable l_k"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_add_local_block_feature_only_snippet() {
+        // This test specifically verifies that when LLM returns a feature-only snippet
+        // (not a full class) with a local block, it is correctly extracted and applied.
+        let tmp_dir = TempDir::new().expect(stringify!(
+            "Fails to create temporary directory for testing. {} {}:{}",
+            file!(),
+            line!(),
+            column!()
+        ));
+        let file = tmp_dir.child("test_add_local_feature_only");
+
+        const ORIGINAL_FEATURE: &'static str = r#"
+class TEST_CLASS
+feature
+    compute (x: INTEGER): INTEGER
+        require
+            x >= 0
+        do
+            Result := x * 2
+        ensure
+            Result >= x
+        end
+end
+            "#;
+
+        // LLM returns only the feature (not wrapped in a class) - this is realistic
+        const LLM_FEATURE_ONLY: &'static str = r#"
+    compute (x: INTEGER): INTEGER
+        require
+            x >= 0
+        local
+            temp: INTEGER
+        do
+            temp := x
+            Result := temp * 2
+        ensure
+            Result >= x
+        end
+            "#;
+
+        // Write initial feature without local
+        file.write_str(ORIGINAL_FEATURE)
+            .expect("Fails to write initial feature");
+
+        // Parse the original feature
+        let mut parser = Parser::default();
+        let (original_class, tree) = parser
+            .class_and_tree_from_source(ORIGINAL_FEATURE)
+            .expect("Fails to parse original class");
+        let mut ws = Workspace::new();
+        ws.add_file((original_class.clone(), file.to_path_buf(), tree));
+
+        let original_feature = original_class
+            .features()
+            .iter()
+            .find(|f| f.name() == "compute")
+            .expect("Should find compute feature");
+
+        // Verify original feature has NO local clause
+        let original_local = original_feature
+            .local_clause_source_unchecked(ORIGINAL_FEATURE)
+            .expect("Should check for local clause");
+        assert!(
+            original_local.is_none(),
+            "Original feature should NOT have a local clause"
+        );
+
+        // Parse LLM feature-only snippet using to_feature (not class_and_tree_from_source)
+        let llm_feature = match parser
+            .to_feature(LLM_FEATURE_ONLY)
+            .expect("Should parse feature-only snippet")
+        {
+            parser::Parsed::Correct(feat) => feat,
+            parser::Parsed::HasErrorNodes(_, _) => panic!("Feature should parse correctly"),
+        };
+
+        // Verify LLM feature HAS a local clause
+        let llm_local = llm_feature
+            .local_clause_source_unchecked(LLM_FEATURE_ONLY)
+            .expect("Should extract local clause from LLM feature");
+        assert!(
+            llm_local.is_some(),
+            "LLM feature should have a local clause"
+        );
+        let llm_local_text = llm_local.unwrap();
+        assert!(
+            llm_local_text.contains("temp: INTEGER"),
+            "LLM local clause should contain temp"
+        );
+
+        // Extract body from LLM feature
+        let body_only = llm_feature
+            .body_source_unchecked(LLM_FEATURE_ONLY)
+            .expect("Should extract body from LLM-generated feature");
+
+        // Apply both local clause and body (this is what rewrite_feature_bodies_and_locals does)
+        rewrite_feature_bodies_and_locals(
+            file.path(),
+            &[(original_feature.name().to_owned(), body_only)],
+            &[(original_feature.name(), LLM_FEATURE_ONLY)],
+        ).await;
+
+        // Read the modified file
+        let modified_content = tokio::fs::read_to_string(file.path())
+            .await
+            .expect("Should read modified file");
+
+        // Verify NEW local clause IS present
+        assert!(
+            modified_content.contains("local"),
+            "The 'local' clause should be present. Modified content:\n{}",
+            modified_content
+        );
+        assert!(
+            modified_content.contains("temp: INTEGER"),
+            "Local variable 'temp' should be present. Modified content:\n{}",
+            modified_content
+        );
+
+        // Verify the body uses the local variable
+        assert!(
+            modified_content.contains("temp := x"),
+            "Body should use the local variable temp"
+        );
+        assert!(
+            modified_content.contains("Result := temp * 2"),
+            "Body should use temp in computation"
+        );
+
+        // Verify there's only ONE local block
+        let local_count = modified_content.matches("\tlocal").count();
+        assert_eq!(
+            local_count, 1,
+            "There should be exactly one local block, found {}",
+            local_count
+        );
+
+        // Verify contracts are preserved
+        assert!(
+            modified_content.contains("require"),
+            "Precondition should be preserved"
+        );
+        assert!(
+            modified_content.contains("ensure"),
+            "Postcondition should be preserved"
+        );
     }
 }
