@@ -18,3 +18,7 @@ serde_json = "1.0"
 
 # Concurrent futures processing
 futures = "0.3"
+
+[dev-dependencies]
+# For integration tests
+assert_fs = "1.0"

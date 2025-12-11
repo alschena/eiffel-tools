@@ -16,14 +16,14 @@ mod constructor_api;
 #[derive(Debug)]
 pub struct Generators {
     llms: Vec<Arc<constructor_api::Llm>>,
-    model: constructor_api::EnumLanguageModel,
+    model: String,
 }
 
 impl Default for Generators {
     fn default() -> Self {
         Self {
             llms: Vec::new(),
-            model: constructor_api::EnumLanguageModel::default(),
+            model: "claude-sonnet-4-0".to_string(),
         }
     }
 }
@@ -37,7 +37,7 @@ impl Generators {
         self.llms.push(Arc::new(llm));
     }
 
-    pub fn with_model(model: constructor_api::EnumLanguageModel) -> Self {
+    pub fn with_model(model: String) -> Self {
         Self {
             llms: Vec::new(),
             model,
@@ -45,14 +45,13 @@ impl Generators {
     }
 
     /// Create a Generators instance with a model specified by name string.
-    /// If the model name is not recognized, uses the default model.
     pub fn with_model_name(model_name: &str) -> Self {
-        Self::with_model(constructor_api::EnumLanguageModel::from_str(model_name))
+        Self::with_model(model_name.to_string())
     }
 
     /// Get the model name as a string.
-    pub fn model_name(&self) -> &'static str {
-        self.model.as_str()
+    pub fn model_name(&self) -> &str {
+        &self.model
     }
 
     fn default_completion_parameters(&self) -> constructor_api::CompletionParameters {
@@ -186,18 +185,22 @@ mod feature_focused {
             path: &Path,
             name_routine: &'ft FeatureName,
             error_message: String,
-        ) -> Option<(Feature, String)> {
-            let prompt = prompt::FeaturePrompt::try_new_for_feature_fixes(
+        ) -> Option<(Feature, String, String, String)> {
+            let feature_prompt = prompt::FeaturePrompt::try_new_for_feature_fixes(
                 workspace,
                 path,
                 name_routine,
                 error_message,
             )
-            .await?
-            .into();
+            .await?;
+            
+            // Convert prompt to string representation for JSON output
+            let prompt_string = feature_prompt.to_string();
+            
+            let prompt_messages: Vec<constructor_api::MessageOut> = feature_prompt.into();
 
             let mut params = self.default_completion_parameters();
-            params.messages = prompt;
+            params.messages = prompt_messages;
             params.n = Some(5);
             let completion_response = self
                 .complete(params)
@@ -205,10 +208,31 @@ mod feature_focused {
                 .into_iter()
                 .inspect(|response| info!(target: "llm", "LLM response {response:#?}"));
 
-            completion_response
-                .flat_map(|response| response.markdown_to_code())
-                .filter_map(filter_unparsable)
-                .next()
+            // Process responses to extract code and find first parsable feature
+            // We need to track which response/choice produced the parsable code to get its raw message
+            let responses: Vec<_> = completion_response.collect();
+            if responses.is_empty() {
+                return None;
+            }
+            
+            // Try each response and its choices to find the first parsable feature
+            for response in responses.iter() {
+                // Get the raw message from the first choice of this response
+                let raw_message = response
+                    .choices
+                    .first()
+                    .map(|choice| choice.message.content.clone())
+                    .unwrap_or_default();
+                
+                // Try to extract code from this response and find parsable feature
+                for code in response.markdown_to_code() {
+                    if let Some((feature, full_source)) = filter_unparsable(code) {
+                        return Some((feature, full_source, raw_message, prompt_string.clone()));
+                    }
+                }
+            }
+            
+            None
         }
     }
 }
@@ -347,7 +371,7 @@ impl Generators {
     pub fn mock() -> Self {
         Generators {
             llms: Vec::new(),
-            model: constructor_api::EnumLanguageModel::default(),
+            model: "claude-sonnet-4-0".to_string(),
         }
     }
 }

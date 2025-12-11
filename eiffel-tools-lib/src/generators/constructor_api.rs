@@ -14,88 +14,6 @@ struct ModelProvider {
     name: String,
 }
 
-#[allow(unused)]
-#[derive(Serialize, Debug, Default, Clone)]
-pub enum EnumLanguageModel {
-    #[serde(rename = "gemini-2.0-flash-001")]
-    GeminiFlash,
-    #[serde(rename = "gemini-1.5-pro")]
-    GeminiPro,
-    #[serde(rename = "learnlm-1.5-pro-experimental")]
-    LearnlmProExperimental,
-    #[serde(rename = "claude-opus-4-0")]
-    ClaudeOpus,
-    #[serde(rename = "claude-3-5-haiku-20241022")]
-    ClaudeHaiku,
-    #[default]
-    #[serde(rename = "claude-sonnet-4-0")]
-    ClaudeSonnet,
-    #[serde(rename = "deepseek/deepseek-chat")]
-    DeepSeekChat,
-    #[serde(rename = "deepseek/deepseek-r1")]
-    DeepSeekR1,
-    #[serde(rename = "gpt-4o-mini")]
-    Gpt4OMini,
-    #[serde(rename = "gpt-4o-2024-08-06")]
-    Gpt40,
-    #[serde(rename = "o1-2024-12-17")]
-    O1,
-    #[serde(rename = "o3-mini")]
-    O3Mini,
-    #[serde(rename = "o3")]
-    O3,
-    #[serde(rename = "o4-mini")]
-    O4Mini,
-    #[serde(rename = "qwen/qwen3-235b-a22b")]
-    Qwen3,
-}
-
-impl EnumLanguageModel {
-    /// Parse a model name string to EnumLanguageModel.
-    /// Returns the default (ClaudeSonnet) if the string doesn't match any known model.
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "gemini-2.0-flash-001" => EnumLanguageModel::GeminiFlash,
-            "gemini-1.5-pro" => EnumLanguageModel::GeminiPro,
-            "learnlm-1.5-pro-experimental" => EnumLanguageModel::LearnlmProExperimental,
-            "claude-opus-4-0" => EnumLanguageModel::ClaudeOpus,
-            "claude-3-5-haiku-20241022" => EnumLanguageModel::ClaudeHaiku,
-            "claude-sonnet-4-0" => EnumLanguageModel::ClaudeSonnet,
-            "deepseek/deepseek-chat" => EnumLanguageModel::DeepSeekChat,
-            "deepseek/deepseek-r1" => EnumLanguageModel::DeepSeekR1,
-            "gpt-4o-mini" => EnumLanguageModel::Gpt4OMini,
-            "gpt-4o-2024-08-06" => EnumLanguageModel::Gpt40,
-            "o1-2024-12-17" => EnumLanguageModel::O1,
-            "o3-mini" => EnumLanguageModel::O3Mini,
-            "o3" => EnumLanguageModel::O3,
-            "o4-mini" => EnumLanguageModel::O4Mini,
-            "qwen/qwen3-235b-a22b" => EnumLanguageModel::Qwen3,
-            _ => EnumLanguageModel::default(),
-        }
-    }
-
-    /// Get the model name as a string (the serialized form).
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            EnumLanguageModel::GeminiFlash => "gemini-2.0-flash-001",
-            EnumLanguageModel::GeminiPro => "gemini-1.5-pro",
-            EnumLanguageModel::LearnlmProExperimental => "learnlm-1.5-pro-experimental",
-            EnumLanguageModel::ClaudeOpus => "claude-opus-4-0",
-            EnumLanguageModel::ClaudeHaiku => "claude-3-5-haiku-20241022",
-            EnumLanguageModel::ClaudeSonnet => "claude-sonnet-4-0",
-            EnumLanguageModel::DeepSeekChat => "deepseek/deepseek-chat",
-            EnumLanguageModel::DeepSeekR1 => "deepseek/deepseek-r1",
-            EnumLanguageModel::Gpt4OMini => "gpt-4o-mini",
-            EnumLanguageModel::Gpt40 => "gpt-4o-2024-08-06",
-            EnumLanguageModel::O1 => "o1-2024-12-17",
-            EnumLanguageModel::O3Mini => "o3-mini",
-            EnumLanguageModel::O3 => "o3",
-            EnumLanguageModel::O4Mini => "o4-mini",
-            EnumLanguageModel::Qwen3 => "qwen/qwen3-235b-a22b",
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 struct LanguageModel {
     id: String,
@@ -225,9 +143,9 @@ impl OpenAIResponseFormat {
     }
 }
 
-#[derive(Serialize, Debug, Default, Clone)]
+#[derive(Serialize, Debug, Clone)]
 pub struct CompletionParameters {
-    pub model: EnumLanguageModel,
+    pub model: String,
     pub messages: Vec<MessageOut>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
@@ -250,6 +168,25 @@ pub struct CompletionParameters {
     // property name*: Any
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<OpenAIResponseFormat>,
+}
+
+impl Default for CompletionParameters {
+    fn default() -> Self {
+        Self {
+            model: "claude-sonnet-4-0".to_string(),
+            messages: Vec::new(),
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+            n: None,
+            response_format: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -17,7 +17,12 @@ pub struct LlmInteraction {
     pub error_message_before: String,
     // The error message from verifying the generated code (or "Verification succeeded" if it passed)
     pub error_message: String,
-    pub generated_code: Option<String>,
+    // The prompt sent to the LLM (system + user messages)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    // The raw LLM message/response (the full text response from the LLM)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_message: Option<String>,
     pub applied: bool,
     #[serde(rename = "verification_time_seconds")]
     pub verification_time_seconds: f64,
@@ -106,18 +111,12 @@ pub async fn fix_routine_in_place(
                 });
                 llm_interactions += 1;
                 
-                // Capture feature code before the change
+                // Capture feature code before the change (full feature including local variables, contracts, etc.)
                 let before_code = if let Some(class) = workspace.class(&path) {
                     if let Some(feature) = class.features().iter().find(|ft| ft.name() == feature_name) {
-                        let file_content = tokio::fs::read(&path).await
-                            .ok()
-                            .and_then(|content| String::from_utf8(content).ok());
-                        if let Some(file_str) = file_content {
-                            feature.body_source_unchecked(file_str.as_str())
-                                .unwrap_or_else(|_| String::from("Unable to extract feature body"))
-                        } else {
-                            String::from("Unable to read file")
-                        }
+                        feature.source_unchecked(&path)
+                            .await
+                            .unwrap_or_else(|_| String::from("Unable to extract feature source"))
                     } else {
                         String::from("Feature not found")
                     }
@@ -132,34 +131,50 @@ pub async fn fix_routine_in_place(
                     .await;
                 let ai_request_time = ai_request_start.elapsed().as_secs_f64();
 
-                let (generated_code, applied, after_code, verification_result_for_generated_code) = if let Some((ft, full_feature_source)) = llm_result {
+                let (llm_message, prompt, applied, after_code, verification_result_for_generated_code) = if let Some((ft, full_feature_source, raw_message, prompt_text)) = llm_result {
                     // Extract only the body from the LLM-generated feature to preserve original contracts
                     let body_only = ft.body_source_unchecked(full_feature_source.as_str())
                         .unwrap_or_else(|e| {
                             warn!(target: "llm", "Failed to extract body from LLM-generated feature, using full feature: {:#?}", e);
                             full_feature_source.clone()
                         });
-                    let generated = body_only.clone();
+                    // Extract local clause from LLM-generated feature (if present) using parser
+                    let local_clause = ft.local_clause_source_unchecked(full_feature_source.as_str())
+                        .ok()
+                        .flatten();
                     if verbose {
                         eprintln!("[Attempt #{}] Applying code change to {}.{}", number_of_tries, class_name, feature_name);
+                        if let Some(ref local) = local_clause {
+                            eprintln!("[Attempt #{}] LLM suggested local clause: {}", number_of_tries, local);
+                        }
                     }
-                    modify_in_place::rewrite_feature_bodies(&path, &[(ft.name().to_owned(), body_only)]).await;
+                    // Apply both local clause (if present) and body, preserving contracts
+                    modify_in_place::rewrite_feature_bodies_and_locals(
+                        &path,
+                        &[(ft.name().to_owned(), body_only)],
+                        &[(ft.name(), full_feature_source.as_str())],
+                    ).await;
                     
                     // Reload workspace to get updated feature
                     workspace.reload(path.clone()).await;
+
+                    // Save the generated code to file content before verification
+                    // (verification may reset the file if it fails, so we need to restore it)
+                    // This is the exact file content that will be sent to verification
+                    let generated_code_file_content = tokio::fs::read(&path).await
+                        .ok()
+                        .unwrap_or_default();
                     
-                    // Capture feature code after the change
+                    // Capture feature code after the change (full feature including local variables, contracts, etc.)
+                    // This must be captured from the actual file content that will be sent to verification
+                    // We use source_unchecked which reads from the file - this ensures we get the exact content
+                    // that verification will see (read right before verification starts)
                     let after_code = if let Some(class) = workspace.class(&path) {
                         if let Some(feature) = class.features().iter().find(|ft| ft.name() == feature_name) {
-                            let file_content = tokio::fs::read(&path).await
-                                .ok()
-                                .and_then(|content| String::from_utf8(content).ok());
-                            if let Some(file_str) = file_content {
-                                feature.body_source_unchecked(file_str.as_str())
-                                    .unwrap_or_else(|_| String::from("Unable to extract feature body"))
-                            } else {
-                                String::from("Unable to read file")
-                            }
+                            // Read directly from file to ensure we get the exact content sent to verification
+                            feature.source_unchecked(&path)
+                                .await
+                                .unwrap_or_else(|_| String::from("Unable to extract feature source"))
                         } else {
                             String::from("Feature not found")
                         }
@@ -176,12 +191,6 @@ pub async fn fix_routine_in_place(
                                 number_of_tries, class_name, feature_name, before_code, after_code);
                         }
                     }
-
-                    // Save the generated code to file content before verification
-                    // (verification may reset the file if it fails, so we need to restore it)
-                    let generated_code_file_content = tokio::fs::read(&path).await
-                        .ok()
-                        .unwrap_or_default();
                     
                     // Update last_valid_code to the generated code so that if verification fails,
                     // the reset will keep the generated code (not the old code)
@@ -220,9 +229,9 @@ pub async fn fix_routine_in_place(
                         }
                     };
 
-                    (Some(generated), true, Some(after_code), Some((error_message_for_generated, verification_time_for_generated, verification_result_for_generated)))
+                    (Some(raw_message), Some(prompt_text), true, Some(after_code), Some((error_message_for_generated, verification_time_for_generated, verification_result_for_generated)))
                 } else {
-                    (None, false, None, None)
+                    (None, None, false, None, None)
                 };
 
                 // Determine the error message to use: if code was generated and applied, use the verification result of that code
@@ -241,7 +250,8 @@ pub async fn fix_routine_in_place(
                     interaction_number: llm_interactions,
                     error_message_before: error_message.clone(),
                     error_message: final_error_message,
-                    generated_code,
+                    prompt,
+                    llm_message,
                     applied,
                     verification_time_seconds: final_verification_time,
                     ai_request_time_seconds: ai_request_time,

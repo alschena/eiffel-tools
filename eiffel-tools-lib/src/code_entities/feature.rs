@@ -313,6 +313,42 @@ impl Feature {
 
         self.source_in_range_unchecked(source, body)
     }
+
+    /// Extract the local clause from a feature source (the text between precondition and body)
+    /// Uses parser ranges to find the exact position between precondition end and body start
+    pub fn local_clause_source_unchecked<T: Borrow<str>>(&self, source: T) -> Result<Option<String>> {
+        // Get the end of precondition block using parser range
+        let local_start = self
+            .preconditions
+            .as_ref()
+            .map(|pre| pre.range().end.clone())
+            .or_else(|| {
+                // If no precondition, check if there's a return type or parameters that end before body
+                // For now, use feature start as fallback - local would come after signature
+                Some(self.range().start)
+            });
+        
+        // Get the start of body using parser range
+        let local_end = self
+            .body_range()
+            .map(|body_range| body_range.start.clone());
+
+        match (local_start, local_end) {
+            (Some(start), Some(end)) if end.row > start.row || (end.row == start.row && end.column > start.column) => {
+                // There's space between precondition end and body start - extract that range
+                let local_range = Range { start, end };
+                let local_text = self.source_in_range_unchecked(source, local_range)?;
+                let trimmed = local_text.trim();
+                // Check if the extracted text contains a local clause
+                if trimmed.starts_with("local") || trimmed.contains("\nlocal") || trimmed.contains("\tlocal") {
+                    Ok(Some(trimmed.to_string()))
+                } else {
+                    Ok(None)
+                }
+            }
+            _ => Ok(None),
+        }
+    }
 }
 
 impl Display for Feature {

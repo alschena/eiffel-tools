@@ -169,11 +169,11 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
                     {
                         // all candidates are generating from the initial feature,
                         // not the programmatically generated redefinition in the artificial subclass.
-                        if let Some((feature, candidate_text)) = generators
+                        if let Some((feature, candidate_text, _llm_message, _prompt)) = generators
                             .fixed_routine_src(workspace, path, feature.name(), error_message)
                             .await
                         {
-                            match feature.body_source_unchecked(candidate_text) {
+                            match feature.body_source_unchecked(candidate_text.as_str()) {
                                 Ok(body_src) => {
                                     feature_verified = Some(body_src.clone());
                                     info!(target: "llm", "Writing feature body candidate to subclass file:\n{}", body_src);

@@ -21,6 +21,16 @@ async fn feature_source(path: &Path, feature: &Feature) -> Option<Source> {
         .map(Source)
 }
 
+impl FeaturePrompt {
+    /// Get the prompt as a string representation (system + user messages)
+    pub fn to_string(&self) -> String {
+        format!(
+            "System: {}\n\nUser: {}",
+            self.system_message.0, self.user_message.0
+        )
+    }
+}
+
 impl From<FeaturePrompt> for Vec<constructor_api::MessageOut> {
     fn from(value: FeaturePrompt) -> Self {
         let FeaturePrompt {
