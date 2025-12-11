@@ -1,0 +1,132 @@
+%An example is shown at \figref{dataflow-feature-body}.
+
+\begin{figure}
+    \begin{tikzpicture}[node distance=20pt, every node/.style={fill=white, font=\sffamily, scale=0.8}, align=left]
+        \node (start) [code] {
+            \begin{lstlisting}
+class
+    EXAMPLE
+feature
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+end
+\end{lstlisting}
+        };
+        \node (start-description) [description, right of=start, xshift=130pt] {Initial feature in class};
+        \draw[->] (start-description) -- (start);
+
+        \node (prompt) [code, below of=start, yshift=-100pt] {
+            \begin{lstlisting}
+-- <task>
+-- <model current class>
+-- <model argument classes>
+-- <precondition available ids>
+-- <postcondition available ids>
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    do
+        <ADD BODY>
+    ensure
+        res: (Result = x or Result = y)
+            and Result <= x and Result <= y
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (start) -- (prompt);
+        \node (prompt-description) [description, right of=prompt, xshift=130pt] {Generated prompt};
+        \draw[->] (prompt-description) -- (prompt);
+
+        \node (llm-candidate) [code, below of=prompt, yshift=-100pt] {
+            \begin{lstlisting}
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    do
+        if x < y then
+            Result := x
+        else
+            Result := y
+        end
+    ensure
+        res: (Result = x or Result = y)
+            and Result <= x and Result <= y
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (prompt) -- (llm-candidate);
+        \node (llm-candidate-description) [description, right of=llm-candidate, xshift=140pt] {Generated llm-candidate};
+        \draw[->] (llm-candidate-description) -- (llm-candidate);
+
+        \node (extracted-body) [code, below of=llm-candidate, yshift=-70pt] {
+            \begin{lstlisting}
+if x < y then
+    Result := x
+else
+    Result := y
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (llm-candidate) -- (extracted-body);
+        \node (extracted-body-description) [description, right of=extracted-body, xshift=120pt] {Extracted body};
+        \draw[->] (extracted-body-description) -- (extracted-body);
+
+        \node (mid-artifact) [code, below of=extracted-body, yshift=-90pt] {
+            \begin{lstlisting}
+class
+    LLM_INSTRUMENTED_EXAMPLE
+inherit
+    EXAMPLE redefine min end
+feature
+    min (x, y: INTEGER): INTEGER
+        do
+            if x < y then
+                Result := x
+            else
+                Result := y
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (extracted-body) -- (mid-artifact);
+        \node (mid-artifact-description) [description, right of=mid-artifact, xshift=160pt] {Instrumented feature redefinition};
+        \draw[->] (mid-artifact-description) -- (mid-artifact);
+
+        \node (verification-result) [code, below of=mid-artifact, yshift=-80pt] { Verification output};
+        \draw[->, thick] (mid-artifact) -- (verification-result);
+        \draw[->, thick] (verification-result.west) -| ([xshift=-30pt] prompt.west)
+            node[near start, above] {Fails} -- (prompt.west);
+        \node (initial-feature-after-edits) [code, below of=verification-result, yshift=-70pt] {
+            \begin{lstlisting}
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    require
+        True
+    do
+        if x < y then
+            Result := x
+        else
+            Result := y
+        end
+    ensure
+        True
+        res: (Result = x or Result = y)
+            and Result <= x and Result <= y
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (verification-result) -- (initial-feature-after-edits)
+            node[midway, right] {Succeds};
+        \node (initial-feature-after-edits-description) [description, right of=initial-feature-after-edits, xshift=130pt] {Feature after edits};
+        \draw[->] (initial-feature-after-edits-description) -- (initial-feature-after-edits);
+    \end{tikzpicture}
+    \caption{Dataflow of a feature in the fix feature body command}\label{dataflow-feature-body}
+\end{figure}
