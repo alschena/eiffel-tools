@@ -185,7 +185,7 @@ mod feature_focused {
             path: &Path,
             name_routine: &'ft FeatureName,
             error_message: String,
-        ) -> Option<(Feature, String, String, String)> {
+        ) -> Option<(Feature, String, String, String, Vec<String>)> {
             let feature_prompt = prompt::FeaturePrompt::try_new_for_feature_fixes(
                 workspace,
                 path,
@@ -215,6 +215,8 @@ mod feature_focused {
                 return None;
             }
             
+            let mut rejected_suggestions = Vec::new();
+            
             // Try each response and its choices to find the first parsable feature
             for response in responses.iter() {
                 // Get the raw message from the first choice of this response
@@ -226,8 +228,11 @@ mod feature_focused {
                 
                 // Try to extract code from this response and find parsable feature
                 for code in response.markdown_to_code() {
-                    if let Some((feature, full_source)) = filter_unparsable(code) {
-                        return Some((feature, full_source, raw_message, prompt_string.clone()));
+                    if let Some((feature, full_source)) = filter_unparsable(code.clone()) {
+                        return Some((feature, full_source, raw_message, prompt_string.clone(), rejected_suggestions));
+                    } else {
+                        // This suggestion was rejected (unparsable), collect it
+                        rejected_suggestions.push(code);
                     }
                 }
             }

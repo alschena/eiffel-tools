@@ -36,6 +36,9 @@ pub struct LlmInteraction {
     // Status/errors that occurred during code application (e.g., local clause extraction failures)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    // Suggestions that were rejected before verification (e.g., unparsable code)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rejected_suggestions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -136,7 +139,7 @@ pub async fn fix_routine_in_place(
                     .await;
                 let ai_request_time = ai_request_start.elapsed().as_secs_f64();
 
-                let (llm_message, prompt, applied, after_code, verification_result_for_generated_code, application_status) = if let Some((ft, full_feature_source, raw_message, prompt_text)) = llm_result {
+                let (llm_message, prompt, applied, after_code, verification_result_for_generated_code, application_status, rejected_suggestions) = if let Some((ft, full_feature_source, raw_message, prompt_text, rejected)) = llm_result {
                     // Extract only the body from the LLM-generated feature to preserve original contracts
                     let body_only = ft.body_source_unchecked(full_feature_source.as_str())
                         .unwrap_or_else(|e| {
@@ -234,9 +237,9 @@ pub async fn fix_routine_in_place(
                         }
                     };
 
-                    (Some(raw_message), Some(prompt_text), true, Some(after_code), Some((error_message_for_generated, verification_time_for_generated, verification_result_for_generated)), application_status)
+                    (Some(raw_message), Some(prompt_text), true, Some(after_code), Some((error_message_for_generated, verification_time_for_generated, verification_result_for_generated)), application_status, rejected)
                 } else {
-                    (None, None, false, None, None, None)
+                    (None, None, false, None, None, None, Vec::new())
                 };
 
                 // Determine the error message to use: if code was generated and applied, use the verification result of that code
@@ -263,6 +266,7 @@ pub async fn fix_routine_in_place(
                     before_code: if applied { Some(before_code) } else { None },
                     after_code,
                     status: application_status,
+                    rejected_suggestions,
                 });
 
                 // If the generated code was verified and succeeded, break the loop

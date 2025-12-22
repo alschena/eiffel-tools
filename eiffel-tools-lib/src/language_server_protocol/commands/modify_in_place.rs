@@ -4,8 +4,6 @@ use crate::eiffelstudio_cli::verify;
 use crate::parser;
 use crate::workspace::Workspace;
 use anyhow::anyhow;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::path::PathBuf;
@@ -400,11 +398,6 @@ where
     B: AsRef<str> + 'ft,
     I: IntoIterator<Item = &'ft (FeatureName, B)> + Copy,
 {
-    // #region agent log
-    if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
-        let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"ENTRY","location":"modify_in_place.rs:394","message":"rewriting_feature_bodies_and_locals called","data":{{"llm_feature_sources_count":{}}},"timestamp":{}}}"#, llm_feature_sources.len(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-    }
-    // #endregion
     parser::Parser::default()
         .class_and_tree_from_source(initial_source)
         .inspect_err(|e| warn!("Fails to parse file rewriting feature bodies and locals because {e:#?}"))
@@ -516,11 +509,6 @@ where
                     }
                     
                     if let Some((_, llm_source)) = llm_feature_sources.iter().find(|(name, _)| **name == *feature.name()) {
-                        // #region agent log
-                        if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
-                            let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"A","location":"modify_in_place.rs:511","message":"Attempting to parse LLM source","data":{{"feature_name":"{}","llm_source_length":{}}},"timestamp":{}}}"#, feature.name(), llm_source.len(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-                        }
-                        // #endregion
                         // Parse LLM source as a feature (not a class) since it's a feature-only snippet
                         // Try parsing as feature first (for feature-only snippets), fall back to class parsing
                         let mut parser = parser::Parser::default();
@@ -532,28 +520,11 @@ where
                                 }
                             });
                         
-                        // #region agent log
-                        if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
-                            let parse_success = llm_feature_result.is_ok();
-                            let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"A","location":"modify_in_place.rs:523","message":"Feature parsing result","data":{{"feature_name":"{}","parse_success":{}}},"timestamp":{}}}"#, feature.name(), parse_success, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-                        }
-                        // #endregion
-                        
                         match llm_feature_result {
                             Ok(llm_feature) => {
-                                // #region agent log
-                                if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
-                                    let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"B","location":"modify_in_place.rs:525","message":"Successfully parsed as feature, extracting local clause","data":{{"feature_name":"{}"}},"timestamp":{}}}"#, feature.name(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-                                }
-                                // #endregion
                                 // Successfully parsed as feature - extract local clause
                                 match llm_feature.local_clause_source_unchecked(*llm_source) {
                                     Ok(Some(llm_local)) => {
-                                        // #region agent log
-                                        if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
-                                            let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"B","location":"modify_in_place.rs:527","message":"Local clause extracted successfully","data":{{"feature_name":"{}","has_existing_local":{},"local_clause_length":{}}},"timestamp":{}}}"#, feature.name(), existing_local_range.is_some(), llm_local.len(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-                                        }
-                                        // #endregion
                                         // If there's an existing local clause, replace its contents
                                         if existing_local_range.is_some() {
                                             // Simply replace the entire local_declarations block with LLM's version
@@ -581,19 +552,8 @@ where
                                                 result.push('\n');
                                             }
                                         }
-                                        // #region agent log
-                                        if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
-                                            let result_contains_local = result.contains("local");
-                                            let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"C","location":"modify_in_place.rs:554","message":"Local clause inserted into result","data":{{"feature_name":"{}","result_contains_local":{},"result_length":{}}},"timestamp":{}}}"#, feature.name(), result_contains_local, result.len(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-                                        }
-                                        // #endregion
                                     }
                                     Ok(None) => {
-                                        // #region agent log
-                                        if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
-                                            let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"B","location":"modify_in_place.rs:556","message":"LLM feature has no local clause","data":{{"feature_name":"{}"}},"timestamp":{}}}"#, feature.name(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-                                        }
-                                        // #endregion
                                         // LLM feature doesn't have a local clause - this is fine, nothing to do
                                     }
                                     Err(e) => {
@@ -608,11 +568,6 @@ where
                                 }
                             }
                             Err(e) => {
-                                // #region agent log
-                                if let Ok(mut log_file) = OpenOptions::new().create(true).append(true).open("/home/ilgiz/uni/eiffel-tools/.cursor/debug.log") {
-                                    let _ = writeln!(log_file, r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"A","location":"modify_in_place.rs:570","message":"Feature parsing failed, trying class parsing","data":{{"feature_name":"{}","error":"{:?}"}},"timestamp":{}}}"#, feature.name(), e, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-                                }
-                                // #endregion
                                 // Failed to parse as feature - try parsing as class (for full class snippets)
                                 match parser::Parser::default().class_and_tree_from_source(llm_source) {
                                     Ok((llm_class, _)) => {
