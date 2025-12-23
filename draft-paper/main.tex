@@ -1,13 +1,19 @@
-\documentclass[10pt, conference]{IEEEtran}
-\IEEEoverridecommandlockouts
+%here all related to old template commented:
+% \documentclass[10pt, conference]{IEEEtran}
+% \IEEEoverridecommandlockouts
 % The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
 %Template version as of 6/27/2024
+%\documentclass[10pt, conference]{IEEEtran}
 
-\usepackage{cite}
+%new template for Springer Lecture Notes in Computer Science
+\documentclass[runningheads]{llncs}
+\usepackage[T1]{fontenc}
+%\usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
-\usepackage{algorithmic}
+%\usepackage{algorithmic} %need to check or change
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 \usepackage{graphicx}
-
 \usepackage{listings}
 \usepackage{eiffel}
 \lstset{
@@ -34,23 +40,51 @@
 
 \usepackage{textcomp}
 \usepackage{xcolor}
-\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
-    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+% \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+%     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 
 \newcommand{\secref}[1]{Section~\ref{#1}}
 \newcommand{\figref}[1]{Figure~\ref{#1}}
 
 \begin{document}
 
-\title{Large language models and language server protocol, a match made in context}
+%\title{Large language models and language server protocol, a match made in context} old template
+% \author{\IEEEauthorblockN{Alessandro Schena}
+%     \IEEEauthorblockA{\textit{Chair of software engineering} \\
+%         \textit{Constructor Institute of Technology}\\
+%         Schaffhausen, Switzerland \\
+%         ORCID: 0009-0005-1793-9107}
+%     \IEEEauthorblockN{Ilgiz Mustafin}    
+%     \IEEEauthorblockA{\textit{Constructor Institute of Technology}\\
+%         Schaffhausen, Switzerland \\
+%         \textit{Constructor Knowledge Labs}\\
+%         Bremen, Germany\\
+%         ilgiz.mustafin@constructor.org \\
+%         ORCID: 0009-0007-0476-5966 }
+% }
 
-% \author{\IEEEauthorblockN{1\textsuperscript{st} Anonymous} % If the publishing venue requires anonymity
-\author{\IEEEauthorblockN{1\textsuperscript{st} Alessandro Schena}
-    \IEEEauthorblockA{\textit{Chair of software engineering} \\
-        \textit{Constructor Institute of Technology}\\
-        Schaffhausen, Switzerland \\
-        ORCID: 0009-0005-1793-9107}
+
+\title{LLM and LSP: a match made in context}
+\author{
+Alessandro Schena\inst{1}\orcidID{0009-0005-1793-9107} \newline
+Ilgiz Mustafin\inst{1,2}\orcidID{0009-0007-0476-5966} \newline
+Julia Kotovich\inst{2}\orcidID{0000-0003-3739-6304}
 }
+\authorrunning{A. Schena et al.}
+
+\institute{
+Constructor Institute of Technology, Schaffhausen, Switzerland \and Constructor Knowledge Labs, Bremen, Germany \\ 
+\email{Schena.alessandro.97@gmail.com}, \email{Ilgiz.Mustafin@constructor.org}, \email{Julia.Kotovich@constructor.org}
+}
+
+% \institute{
+% Constructor Institute of Technology, Schaffhausen, Switzerland \\
+% \email{Schena.alessandro.97@gmail.com} \and
+% Constructor Institute of Technology, Schaffhausen, Switzerland \\
+% \email{ilgiz.mustafin@constructor.org} \and
+% Constructor Institute of Technology, Schaffhausen, Switzerland \\
+% \email{Julia.Kotovich@constructor.org}
+% }
 
 \maketitle
 
@@ -60,14 +94,15 @@
     This article introduces \toolname{}, a LSP language server implementation that uses Large Language Models (LLM) to aid the development of statically verified software in Eiffel language. 
     It defines various interactive and non-interactive commands to produce code or specifications.
     The language server uses language and project specific knowledge to direct the LLM. LSP can verify features 
-
     
     It crafts rich programmatic prompts for the input and corrects or refuses the output. Then it applies to the code until the program pass verification. 
+
+\keywords{LLM \and LSP \and software verification \and design-by-contract\and Eiffel \and AutoProof.}
 \end{abstract}
 
-\begin{IEEEkeywords}
-    LLM, LSP, software verification, design-by-contract, Eiffel, AutoProof.
-\end{IEEEkeywords}
+% \begin{IEEEkeywords}
+%     LLM, LSP, software verification, design-by-contract, Eiffel, AutoProof.
+% \end{IEEEkeywords}
 
 \section{Introduction}
 
@@ -77,7 +112,7 @@ This paper introduces \toolname{}~\cite{eiffel-tools}, which can fulfill the rol
 
 The remainder of this paper is structured as follows. ~\secref{background} provides the necessary background, introducing the core concepts related to the Eiffel programming language, large language models, and LSP-based tooling in greater detail. ~\secref{related-work} reviews related work in automated program repair, LLM-assisted development, and contract-driven methodologies. ~\secref{design-and-implementation} presents the design and implementation of our experimental setup, describing how contract-guided repair is operationalized using LLMs. ~\secref{results-and-discussion} outlines the evaluation methodology, followed by ~\secref{evaluation}, which reports and discusses the results. ~\secref{limitations} addresses threats to validity and limitations of the study. Finally, ~\secref{future-work} outlines directions for future work.
 
---- here I suggest to finish INTRO
+%--- here I suggest to finish INTRO
 
 In this study we a conducting experiment for the Eiffel programming language, which natively support Design by Contract. The concept of Design by Contract nowadays is perfectly aligned with the modern spec-driven development ~\cite{10.1007/978-3-031-75434-0_9}. This is a software engineering approach in which formal specifications serve as the primary source of truth for designing, implementing, and validating software components. For such approach the results are fewer surprises, more accurate and higher-quality code.
 
@@ -303,12 +338,8 @@ Since there are no publicly available dataset of Eiffel code with annotated erro
 
 \subsection{Buggy-java-jml-eiffel}
 This dataset is a collection of Java bugs~\cite{buggy-java-jml} specified via the Java Modelling Language (JML)~\cite{jml} translated to Eiffel, specified for AutoProof.
-As the dataset includes commented fixes for the bugs, we refined it to prevent the language models from being prompted with the correct solutions.\newline
-In total, there are 784 buggy classes in this dataset.\newline
-The command modified 339 classes.
-After the modification 316 classes verify.
-Because of two separate bugs that have since been fixed,
-16 modified classes failed to verify and 7 classes caused AutoProof to crash. 
+As the dataset includes commented fixes for the bugs, we refined it to prevent the language models from being prompted with the correct solutions. In total, there are 784 buggy classes in this dataset. The command modified 339 classes. After the modification 316 classes verify.
+Because of two separate bugs that have since been fixed, 16 modified classes failed to verify and 7 classes caused AutoProof to crash. 
 
 \subsection{Maple-recursive-eiffel}
 This dataset is a collection of artificial C bugs translated to Eiffel, fully specified for AutoProof.
@@ -317,6 +348,11 @@ The command modified all 26 classes.\newline
 After the modification all 26 classes verify.
 
 \section{Results and Discussion}\label{results-and-discussion}
+
+846 features out of 2 datasets and 2 models. Claude Connet 4.5 solved 
+there two datasets and in sum
+success rate for Claude Connet 4.5
+
 
 
 \section{Limitations and threats to validity}\label{limitations}
