@@ -16,6 +16,14 @@
 \usepackage{graphicx}
 \usepackage{listings}
 \usepackage{eiffel}
+
+% If you use the hyperref package, please uncomment the following two lines
+% to display URLs in blue roman font according to Springer's eBook style:
+\usepackage{hyperref}
+\usepackage{color}
+\renewcommand\UrlFont{\color{blue}\rmfamily}
+\urlstyle{rm}
+
 \lstset{
   language=OOSC2Eiffel,
   basicstyle=\linespread{0.9}\footnotesize,
@@ -64,84 +72,123 @@
 % }
 
 
-\title{LLM and LSP: a match made in context}
+\title{Large Language Models and Language Server Protocol: a match made in context}
+\titlerunning{LLMs and LSP: a match made in context}
 \author{
-Alessandro Schena\inst{1}\orcidID{0009-0005-1793-9107} \newline
-Ilgiz Mustafin\inst{1,2}\orcidID{0009-0007-0476-5966} \newline
-Julia Kotovich\inst{2}\orcidID{0000-0003-3739-6304}
+Alessandro Schena\inst{1}\orcidID{0009-0005-1793-9107} \and
+Ilgiz Mustafin\inst{1,2}\orcidID{0009-0007-0476-5966} \and
+Julia Kotovich\inst{1,3}\orcidID{0000-0003-3739-6304}
 }
-\authorrunning{A. Schena et al.}
+% \authorrunning{A. Schena et al.}
 
 \institute{
-Constructor Institute of Technology, Schaffhausen, Switzerland \and Constructor Knowledge Labs, Bremen, Germany \\ 
-\email{Schena.alessandro.97@gmail.com}, \email{Ilgiz.Mustafin@constructor.org}, \email{Julia.Kotovich@constructor.org}
+  Constructor Institute of Technology, Schaffhausen, Switzerland
+  \email{Schena.alessandro.97@gmail.com}, \email{Ilgiz.Mustafin@constructor.org}, \email{Julia.Kotovich@constructor.org} \and
+  Constructor Knowledge Labs, Bremen, Germany \and
+  Constructor University, Bremen, Germany
 }
-
-% \institute{
-% Constructor Institute of Technology, Schaffhausen, Switzerland \\
-% \email{Schena.alessandro.97@gmail.com} \and
-% Constructor Institute of Technology, Schaffhausen, Switzerland \\
-% \email{ilgiz.mustafin@constructor.org} \and
-% Constructor Institute of Technology, Schaffhausen, Switzerland \\
-% \email{Julia.Kotovich@constructor.org}
-% }
 
 \maketitle
 
 \newcommand{\toolname}{Eiffel-tools}
 
 \begin{abstract}
-    This article introduces \toolname{}, a LSP language server implementation that uses Large Language Models (LLM) to aid the development of statically verified software in Eiffel language. 
-    It defines various interactive and non-interactive commands to produce code or specifications.
-    The language server uses language and project specific knowledge to direct the LLM. LSP can verify features 
-    
-    It crafts rich programmatic prompts for the input and corrects or refuses the output. Then it applies to the code until the program pass verification. 
+  This article introduces \toolname{}, an LSP language server implementation
+  that uses Large Language Models (LLM) to aid the development of statically verified software in the Eiffel language. 
+  Our tool provides various interactive and non-interactive commands to produce code or specifications.
+  The language server uses language and project specific knowledge to direct the LLM
+  and use the program verifier.
+  
+  It crafts rich programmatic prompts for the input and corrects or refuses the output. Then it applies to the code until the program pass verification. 
 
-\keywords{LLM \and LSP \and software verification \and design-by-contract\and Eiffel \and AutoProof.}
+  \keywords{LLM \and LSP \and Software verification \and Design by Contract \and Eiffel \and AutoProof}
 \end{abstract}
 
-% \begin{IEEEkeywords}
-%     LLM, LSP, software verification, design-by-contract, Eiffel, AutoProof.
-% \end{IEEEkeywords}
-
 \section{Introduction}
+Specification-driven development (SDD) is getting more attention with the growing
+use of Large Language Models (LLMs) for development \cite{10.1007/978-3-031-75434-0_9}. In this approach,
+the development is done in a natural language by writing specifications while
+the program code is then generated automatically
+from the specifications.
 
-While the number of people worldwide using the LLMs for the regular basis is growing exponentially, the study~\cite{becker2025measuringimpactearly2025ai} shows that in reality AI tools increases completion time by 19\% - AI tooling slowed developers down. Especially the situation become worse with the low-resource programming languages for which LLMs have less data to learn~\cite{joel2025surveyllmbasedcodegeneration}, making it necessary to introduce additional tooling that, on the one hand, can better structure and contextualize code as input to the model, and, on the other hand, can help developers benefit from model capabilities in their coding workflows. 
+Expressing specifications using a formal language, even partially \cite{meyer2022handbook},
+opens the door for various analysis tools. For example,
+using Design by Contract \cite{design-by-contract} in Eiffel,
+the program's state is checked against specifications during the execution.
+This allows test runs of the program to show the presence of implementation
+errors.
 
-This paper introduces \toolname{}~\cite{eiffel-tools}, which can fulfill the role of the aforementioned necessary tool. LSP is a server-side implementation of the Language Server Protocol (LSP)~\secref{lsp}, that is used between a code editor and a language server that typically provides functionalities such as auto complete. refactoring, code generation, code specification, verification, and related development assistance. Combining LSP-based infrastructure with the capabilities of LLMs enables the implementation of substantially more advanced development features; and when contractual specifications are incorporated into this integration, the resulting system can provide even more powerful and semantically grounded support for software process and analysis.
+A more advanced analysis such as formal verification allows finding inconsistencies between specifications
+and implementation statically, without running the code. This allows finding errors
+even earlier and mathematically proving the absence of errors. Still,
+errors in specifications can lead to invalid but correct programs.
 
-The remainder of this paper is structured as follows. ~\secref{background} provides the necessary background, introducing the core concepts related to the Eiffel programming language, large language models, and LSP-based tooling in greater detail. ~\secref{related-work} reviews related work in automated program repair, LLM-assisted development, and contract-driven methodologies. ~\secref{design-and-implementation} presents the design and implementation of our experimental setup, describing how contract-guided repair is operationalized using LLMs. ~\secref{results-and-discussion} outlines the evaluation methodology, followed by ~\secref{evaluation}, which reports and discusses the results. ~\secref{limitations} addresses threats to validity and limitations of the study. Finally, ~\secref{future-work} outlines directions for future work.
+Modern SDD relies heavily on LLMs. While code generation by LLMs
+might work well for high-resource (a lot of data available for LLM training)
+programming languages, not all of them have formal verification tools available.
+
+Eiffel belongs to low-resource (relatively little training data)
+programming languages, which might lead to a decreased performance
+of LLMs when working with code in such languages \cite{joel2025surveyllmbasedcodegeneration}.
+To mitigate this issue, special tools can be implemented which take the role
+of an adapter: on the one hand, the tool must structure and contextualize the
+code for the model, on the other hand, the tool must present model's
+outputs to allow the user to benefit more from the LLM.
+
+This paper introduces \toolname{} \cite{eiffel-tools}, which can fulfill the role of the aforementioned necessary tool.
+\toolname{} implements the Language Server Protocol (LSP) to allow convenient
+integration of the advanced LLM and static verification features into
+various code editors.
+
+In this paper we highlight the ``fix feature body'' command available in the tool.
+The command tries to fix the body of the procedure using LLM and verifier.
+The tool presents the relevant parts of the code to the LLM and sets up
+the interaction loop between the LLM and the verifier.
+
+We present the evaluation of this command using two datasets of buggy
+programs with correct specifications and compare the performance of two LLMs.
+One model is faster and smaller, another is slower and bigger.
+
+The remainder of this paper is structured as follows. \secref{background} provides the necessary background, introducing the core concepts related to the Eiffel programming language, large language models, and LSP-based tooling in greater detail.
+\secref{related-work} reviews related work in automated program repair, LLM-assisted development, and contract-driven methodologies.
+\secref{design-and-implementation} presents the design and implementation of our experimental setup, describing how contract-guided repair is operationalized using LLMs.
+\secref{results-and-discussion} outlines the evaluation methodology, followed by \secref{evaluation}, which reports and discusses the results.
+\secref{limitations} addresses threats to validity and limitations of the study.
+Finally, \secref{future-work} outlines directions for future work.
 
 %--- here I suggest to finish INTRO
 
-In this study we a conducting experiment for the Eiffel programming language, which natively support Design by Contract. The concept of Design by Contract nowadays is perfectly aligned with the modern spec-driven development ~\cite{10.1007/978-3-031-75434-0_9}. This is a software engineering approach in which formal specifications serve as the primary source of truth for designing, implementing, and validating software components. For such approach the results are fewer surprises, more accurate and higher-quality code.
+% Already existing tools for Eiffel like AutoFix~\cite{autofix} and Proof2Fix~\cite{proof2fix}, will be described more precisely in~\secref{related-work}, focus on generating contracts for dynamic checks and do not address the needs of model-based, statically verified specifications required by AutoProof~\cite{autoproof}. Similarly, prior repair tools depend on
+% code substitution templates, leaving a gap in interactive or automated adaptable support
+% for static verification.
 
 
+% Eiffel-tools uses large language models, described in~\secref{llm}.
+% It provides language and project specific help to the developers of Eiffel software verified using AutoProof, described in~\secref{eiffel-and-autoproof}.
 
-%While Large Language Models (LLMs) have demonstrated impressive capabilities in code generation and automated assistance, their effectiveness in specialized domains such as formal verification is limited by the lack of publicly available resources. 
-
-
-Already existing tools for Eiffel like AutoFix~\cite{autofix} and Proof2Fix~\cite{proof2fix}, will be described more precisely in~\secref{related-work}, focus on generating contracts for dynamic checks and do not address the needs of model-based, statically verified specifications required by AutoProof~\cite{autoproof}. Similarly, prior repair tools depend on
-code substitution templates, leaving a gap in interactive or automated adaptable support
-for static verification.
-
-
-Eiffel-tools uses large language models, described in~\secref{llm}.
-It provides language and project specific help to the developers of Eiffel software verified using AutoProof, described in~\secref{eiffel-and-autoproof}.
-
-As an idea we can reference here this study ~\cite{huang2025aimodelshelpproduce}
+% As an idea we can reference here this study ~\cite{huang2025aimodelshelpproduce}
 
 \section{Background}\label{background}
-
+This section provides the background information about the Eiffel programming
+language and the related technologies.
 
 \subsection{Eiffel and AutoProof}\label{eiffel-and-autoproof}
 
-Eiffel~\cite{eiffel_language_and_environment} is an object-oriented programming language with first-class support for Design by Contract~\cite{design-by-contract}, allowing developers to embed preconditions, postconditions, and class invariants directly in the source code. Thus, a typical Eiffel project contains both the executable program and its formal specifications within the same codebase.
+Eiffel~\cite{eiffel_language_and_environment} is an object-oriented programming language with first-class support for Design by Contract~\cite{design-by-contract}, allowing developers to embed preconditions, postconditions, and class invariants directly in the source code. Thus, a typical Eiffel project contains both the executable program and its formal specifications within the same codebase. For this reason, we consider Eiffel to be natively suitable for SDD.
 
-While dynamic checks constitute the most common use of contracts in Eiffel, the language also supports model-based contracts, which enable the static verification of programs through AutoProof~\cite{autoproof}. AutoProof is an auto-active verifier for the Eiffel programming language that can prove functional correctness of Eiffel programs annotated with contracts.
-Such contracts reference entities that are axiomatically defined in the intermediate verification language Boogie~\cite{boogie-lang}.
-AutoProof builds on the existing Boogie~\cite{boogie} toolchain to verify Eiffel programs against these specifications, leveraging axiomatic definitions contained in Boogie files originally developed for Dafny~\cite{dafny}.
+The common use of contracts in Eiffel is dynamic checking. When the program
+is executed in testing or development environment, the contracts are checked
+at the respective points in the program. For example, before executing the call
+of the procedure, procedure's preconditions
+are checked. These checks are not executed in the finalized production version
+of the program.
 
+Another application of contracts is using model-based contracts for static verification of programs through AutoProof \cite{autoproof}.
+AutoProof is an auto-active verifier for the Eiffel programming language that can prove functional correctness of Eiffel programs annotated with contracts.
+Model-based contracts are not executable and instead they are checked mathematically
+by an SMT solver. This allows proving correctness of the program in many cases at once,
+in contrast with testing and dynamic execution where it might be impossible
+to test the program in all possible states.
 
 \subsection{Large language models for software development}\label{llm}
 
@@ -153,7 +200,7 @@ We expect the constructed context to compensate partially the scarcity of traini
 \subsection{Language server protocol}\label{lsp}
 
 % Why we are using LPS and by whom it was invented?
-The language server protocol  (LSP)~\cite{lsp} that also known as language intelligence tool makes the idea of the paper that \toolname{}~\cite{eiffel-tools} can help to create verified code in Eiffel programming language portable to any project which defines formal specifications and code. Initially LPS  was developed by Microsoft and standardized as an open standard in 2016 in a conjoint effort with RedHat and CodeEnvy~\cite{lsp_origin_1}.
+The language server protocol  (LSP)~\cite{lsp} that also known as language intelligence tool makes the idea of the paper that \toolname{}~\cite{eiffel-tools} can help to create verified code in Eiffel programming language portable to any project which defines formal specifications and code. Initially LSP was developed by Microsoft and standardized as an open standard in 2016 in a conjoint effort with RedHat and CodeEnvy~\cite{lsp_origin_1}.
 % What?
 The LSP defines a compatibility layer between source code editors and language specific functionalities.
 % How much?
@@ -186,7 +233,7 @@ Others work on the automatic generation of specifications
 ~\cite{yang2024autoverus}
 ~\cite{liu2024propertygpt}
 ~\cite{yao2023leveraging}.
-The most relevant related work we could find in the literature guides LLMs through monitors~\cite{monitors}.\@ It uses language servers externally, mainly their completion engines, to dynamically mask the streaming output of large language models.
+The most relevant related work we could find in the literature guides LLMs through monitors~\cite{monitors}. It uses language servers externally, mainly their completion engines, to dynamically mask the streaming output of large language models.
 Their work adds to the benefits of fine-tuning the LLMs.
 With the same philosophy, our work defines where and how the LLMs may find language and project specific knowledge, which adds benefit to fine-tuning and dynamic masking.
 
@@ -201,11 +248,11 @@ They both propose candidate fixes that may be the substitution of a template for
 
 \section{Design and implementation}\label{design-and-implementation}
 
-Eiffel-tools is implemented as a language server that provides commands leveraging LLMs to generate or repair Eiffel code and specifications.
+\toolname{} is implemented as a language server that provides commands leveraging LLMs to generate or repair Eiffel code and specifications.
 It communicates with them through the Constructor Tech API~\cite{constructor-api}, the platform for research produced by Constructor Tech which provides an access to different models and was used to conduct our experiment. 
-All outputs from the LLM are syntax-checked using Tree-sitter~\cite{treesitter}~\cite{tree-sitter-eiffel}; if an output cannot be parsed, Eiffel-tools extracts the first Markdown code block as a fallback response.
+All outputs from the LLM are syntax-checked using Tree-sitter~\cite{treesitter}~\cite{tree-sitter-eiffel}; if an output cannot be parsed, \toolname{} extracts the first Markdown code block as a fallback response.
 
-Eiffel-tools can also invoke AutoProof to verify existing code or LLM-generated suggestions.
+\toolname{} can also invoke AutoProof to verify existing code or LLM-generated suggestions.
 Because AutoProof may not terminate on some inputs, Eiffel-tools runs it with timeouts: any verification exceeding a time limit is killed, and if the code was LLM-generated, the tool reverts it to its previous stable state upon failure.
 
 For organizational clarity, Eiffel-tools commands are classified along two dimensions:
@@ -259,7 +306,7 @@ Specifically, we remove contracts which:
 Finally, Eiffel-tools instructs the LSP client to insert the remaining valid contracts into the feature, appending them after any existing contracts.
 
 An example is shown at \figref{dataflow-model-based-contracts}.
-\input{figures/dataflow-mbc}
+% \input{figures/dataflow-mbc}
 
 \subsubsection{Fix feature body}\label{fix-feature-body}
 This command generates an implementation for a feature that satisfies its model-based specifications.
@@ -271,7 +318,7 @@ If a candidate body passes verification, Eiffel-tools copies that body into the 
 Unless a candidate succeeds, no changes are applied to the original feature.
 
 An example is shown at \figref{dataflow-feature-body}.
-\input{draft-paper/figures/dataflow-fixbody}
+% \input{figures/dataflow-fixbody}
 
 \subsection{Non-interactive commands}
 
@@ -300,7 +347,7 @@ If verification still fails, the original is restored and another candidate is t
 This process repeats until a candidate verifies or a maximum number of attempts is reached.
 
 An example is shown at \figref{dataflow-feature-by-feature-correction};
-\input{draft-paper/figures/dataflow-feature-by-feature}
+% \input{figures/dataflow-feature-by-feature}
 
 \subsubsection{Class by class correction}\label{class-by-class}
 This command takes an Eiffel configuration file and a list of classes.
@@ -322,7 +369,7 @@ Each feature in the class prompt is formatted with its associated counterexample
 -- <AUTOPROOF COUNTEREXAMPLE ABOUT FEATURE>
 \end{lstlisting}
 
-\input{draft-paper/figures/dataflow-class-by-class}
+% \input{figures/dataflow-class-by-class}
 
 \section{Evaluation}\label{evaluation}
 
