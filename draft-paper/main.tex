@@ -218,10 +218,11 @@ In our case, because Eiffel can define formal specifications and AutoProof can p
 
 \section{Related work}\label{related-work}
 
-The research area applying LLMs to software engineering is flourishing
-~\cite{braberman2024tasks}
-~\cite{hou2024large}
-~\cite{zhang2024unifyingperspectivesnlpsoftware}.
+The research area applying LLMs to software engineering is flourishing, with a rapidly expanding body of work addressing a wide range of development and analysis tasks. In this work ~\cite{braberman2025generativetransformationspatternsllmnative}, authors provides a systematic taxonomy of generative transformations and their compositional patterns in LLM-native applications, primarily as an analytical framework. Another study ~\cite{hou2024large} study investigates a systematic literature review on LLM for SE, with a particular focus on understanding how LLMs can be exploited to optimize processes and outcomes. In addition, the authors ~\cite{zhang2024unifyingperspectivesnlpsoftware} systematically review recent advances in applying LLMs to software engineering, including their use in requirements, testing, deployment, and operations, and identify key challenges and future directions.
+
+This work ~\cite{fan2023largelanguagemodelssoftware} focuses on the investigation of the emerging area of LLMS for SE and their applications and highlighting the importance of hybrid techniques, such as traditional SE plus LLMs for the reliable, efficient and affective  software development process. 
+
+
 Many groups focus on generating qualitative code either with classical or with agentic LLMs frameworks
 ~\cite{mukherjee2024towards}
 ~\cite{brandfonbrener2024vermcts}
@@ -233,20 +234,18 @@ Others work on the automatic generation of specifications
 ~\cite{yang2024autoverus}
 ~\cite{liu2024propertygpt}
 ~\cite{yao2023leveraging}.
+
 The most relevant related work we could find in the literature guides LLMs through monitors~\cite{monitors}. It uses language servers externally, mainly their completion engines, to dynamically mask the streaming output of large language models.
 Their work adds to the benefits of fine-tuning the LLMs.
 With the same philosophy, our work defines where and how the LLMs may find language and project specific knowledge, which adds benefit to fine-tuning and dynamic masking.
 
-There are CITADEL~\cite{citadel} and AutoInfer~\cite{autoinfer} to automatically generate Eiffel specifications.
-Citadel is an Eiffel front end for Daikon~\cite{daikon}.
-AutoInfer~\cite{autoinfer} is another tool that generates Eiffel contracts using data mining and contract templates.
+There are CITADEL~\cite{citadel} and AutoInfer~\cite{autoinfer} to automatically generate Eiffel specifications. Citadel is an Eiffel front end for Daikon~\cite{daikon}. AutoInfer~\cite{autoinfer} is another tool that generates Eiffel contracts using data mining and contract templates.
 However, these tools generate specifications for dynamic checks, not model-based specifications for static verification.
-On the side of automatic repair of Eiffel programs there is AutoFix~\cite{autofix} and Proof2Fix~\cite{proof2fix}.
-AutoFix uses random testing through AutoTest~\cite{autotest} to identify the faults.
-Proof2Fix identifies faults using AutoProof.
-They both propose candidate fixes that may be the substitution of a template for code edits or the strengthening of the preconditions or weakening of the postconditions for contracts edits.
+
+On the side of automatic repair of Eiffel programs there is AutoFix~\cite{autofix} and Proof2Fix~\cite{proof2fix}. AutoFix uses random testing through AutoTest~\cite{autotest} to identify the faults. Proof2Fix identifies faults using AutoProof. They both propose candidate fixes that may be the substitution of a template for code edits or the strengthening of the preconditions or weakening of the postconditions for contracts edits.
 
 \section{Design and implementation}\label{design-and-implementation}
+
 \toolname{} is an LSP language server which provides several novel
 commands using LLMs and a static verifier to generate or repair Eiffel code and
 specifications.
