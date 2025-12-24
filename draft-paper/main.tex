@@ -218,31 +218,20 @@ In our case, because Eiffel can define formal specifications and AutoProof can p
 
 \section{Related work}\label{related-work}
 
-The research area applying LLMs to software engineering is flourishing, with a rapidly expanding body of work addressing a wide range of development and analysis tasks. In this work ~\cite{braberman2025generativetransformationspatternsllmnative}, authors provides a systematic taxonomy of generative transformations and their compositional patterns in LLM-native applications, primarily as an analytical framework. Another study ~\cite{hou2024large} study investigates a systematic literature review on LLM for SE, with a particular focus on understanding how LLMs can be exploited to optimize processes and outcomes. In addition, the authors ~\cite{zhang2024unifyingperspectivesnlpsoftware} systematically review recent advances in applying LLMs to software engineering, including their use in requirements, testing, deployment, and operations, and identify key challenges and future directions.
+The research area applying LLMs to software engineering is flourishing, with a rapidly expanding body of work addressing a wide range of development and analysis tasks. In this work ~\cite{braberman2025generativetransformationspatternsllmnative}, the authors provide a systematic taxonomy of generative transformations and their compositional patterns in LLM-native applications, primarily as an analytical framework. Another study ~\cite{hou2024large} conducts a systematic literature review of LLM applications in SE, with a particular focus on understanding how LLMs can be exploited to optimize processes and outcomes. Complementary to these studies, the authors ~\cite{zhang2024unifyingperspectivesnlpsoftware} systematically review recent advances in LLM applications for software engineering. They analyze applications in requirements, testing, deployment, and operations, and identify key challenges and future directions.
 
-This work ~\cite{fan2023largelanguagemodelssoftware} focuses on the investigation of the emerging area of LLMS for SE and their applications and highlighting the importance of hybrid techniques, such as traditional SE plus LLMs for the reliable, efficient and affective  software development process. 
+This study ~\cite{fan2023largelanguagemodelssoftware} emphasizes on the investigation of the emerging area of LLMs for SE and their applications, highlighting the importance of hybrid techniques, such as traditional SE plus LLMs for the reliable and efficient software development. 
 
+Many groups focus on generating qualitative code either with classical or with agentic LLMs frameworks. As an example, in the work ~\cite{mukherjee2024towards} the authors propose a specification-verification tool, that help automate the process. In this work ~\cite{brandfonbrener2024vermcts}, the authors go further by integrating a verifier into the search algorithm, which evaluates partial programs at each step to provide intermediate feedback and approximate an upper bound on the value function. Beyond this, another study ~\cite{sun2024clover} proposes a closed-loop approach combining large language models and formal verification tools to check the consistency of generated code, docstrings, and formal annotations, achieving high accuracy in detecting correct and incorrect programs.
 
-Many groups focus on generating qualitative code either with classical or with agentic LLMs frameworks
-~\cite{mukherjee2024towards}
-~\cite{brandfonbrener2024vermcts}
-~\cite{sun2024clover}.
-Others work on the automatic generation of specifications
-~\cite{translating_natural_language_comments_to_formal_program_specifications}
-~\cite{enchanting_program_specification_synthesis_by_large_languae_models_using_static_analysis_and_program_verification}
-~\cite{specgen_automated_generation_of_formal_program_specifications_via_large_language_models}
-~\cite{yang2024autoverus}
-~\cite{liu2024propertygpt}
-~\cite{yao2023leveraging}.
+We further discuss other works on the automatic generation of specifications. In this work ~\cite{translating_natural_language_comments_to_formal_program_specifications}, the authors present a tool that automatically synthesizes formal program specifications from natural language comments by aligning comment words with specification tokens, significantly outperforming existing approaches and improving downstream software engineering tasks. Another study ~\cite{enchanting_program_specification_synthesis_by_large_languae_models_using_static_analysis_and_program_verification} introduces an automated approach leveraging static analysis, program verification, and LLMs to iteratively synthesize satisfiable and adequate specifications. This approach significantly outperforms existing methods and successfully verifies complex real-world programs. Further work ~\cite{specgen_automated_generation_of_formal_program_specifications_via_large_language_models} presents a two-phase approach leveraging LLMs and mutation-based heuristics to generate verifiable formal specifications for complex programs, outperforming existing LLM-based and template-driven methods. In the next work ~\cite{yang2024autoverus} authors introduce a system using orchestrated LLM agents to automatically generate correctness proofs for Rust code. Beyond this, authors of the study ~\cite{yao2023leveraging} propose a GPT-4-based prototype that combines LLM reasoning with static analysis to iteratively generate invariants and proof structures for formal verification, significantly reducing manual effort. Last but not least, ~\cite{liu2024propertygpt} the authors present PropertyGPT, an LLM-based tool that generates, ranks, and formally verifies program properties, achieving high-quality outputs, detecting real-world vulnerabilities, and uncovering zero-day bugs.
 
-The most relevant related work we could find in the literature guides LLMs through monitors~\cite{monitors}. It uses language servers externally, mainly their completion engines, to dynamically mask the streaming output of large language models.
-Their work adds to the benefits of fine-tuning the LLMs.
-With the same philosophy, our work defines where and how the LLMs may find language and project specific knowledge, which adds benefit to fine-tuning and dynamic masking.
+The most relevant related work we could find in the literature guides LLMs through monitors~\cite{monitors}. This approach uses language servers externally, primarily leveraging their completion engines, to dynamically mask the streaming output of large language models, which further enhances fine-tuning and dynamic masking. With the same philosophy, our work defines where and how the LLMs may find language and project specific knowledge, which adds benefit to fine-tuning and dynamic masking.
 
 There are CITADEL~\cite{citadel} and AutoInfer~\cite{autoinfer} to automatically generate Eiffel specifications. Citadel is an Eiffel front end for Daikon~\cite{daikon}. AutoInfer~\cite{autoinfer} is another tool that generates Eiffel contracts using data mining and contract templates.
 However, these tools generate specifications for dynamic checks, not model-based specifications for static verification.
 
-On the side of automatic repair of Eiffel programs there is AutoFix~\cite{autofix} and Proof2Fix~\cite{proof2fix}. AutoFix uses random testing through AutoTest~\cite{autotest} to identify the faults. Proof2Fix identifies faults using AutoProof. They both propose candidate fixes that may be the substitution of a template for code edits or the strengthening of the preconditions or weakening of the postconditions for contracts edits.
+On the side of automatic repair of Eiffel programs there is AutoFix~\cite{autofix} and Proof2Fix~\cite{proof2fix}. AutoFix uses random testing through AutoTest~\cite{autotest} to identify the faults. Proof2Fix identifies faults using AutoProof. They both propose candidate fixes that may be the substitution of a template for code edits or the strengthening of the preconditions or weakening of the postconditions for contracts edits. However, these tools are limited to Eiffel and do not generalize to LLM-guided, project- and language-specific specification and verification workflows, which is the focus of our approach.
 
 \section{Design and implementation}\label{design-and-implementation}
 
@@ -441,13 +430,11 @@ In total, it contains 26 buggy classes.\newline
 The command modified all 26 classes.\newline
 After the modification all 26 classes verify.
 
-\section{Results and Discussion}\label{results-and-discussion}
+% \section{Results and Discussion}\label{results-and-discussion}
 
-846 features out of 2 datasets and 2 models. Claude Connet 4.5 solved 
-there two datasets and in sum
-success rate for Claude Connet 4.5
-
-
+% 846 features out of 2 datasets and 2 models. Claude Connet 4.5 solved 
+% there two datasets and in sum
+% success rate for Claude Connet 4.5
 
 \section{Limitations and threats to validity}\label{limitations}
 
