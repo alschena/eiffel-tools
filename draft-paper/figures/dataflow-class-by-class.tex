@@ -1,6 +1,6 @@
 \begin{figure}
-    \begin{tikzpicture}[node distance=20pt, every node/.style={fill=white, font=\sffamily, scale=0.6}, align=left]
-        \node (start) [code] {
+    \begin{tikzpicture}[, every node/.style={font=\sffamily, scale=0.6, text width=7cm}, align=left]
+        \node (start) [code, label=below:Initial feature in class] {
             \begin{lstlisting}
 class
     EXAMPLE
@@ -25,10 +25,8 @@ feature
 end
 \end{lstlisting}
         };
-        \node (start-description) [description, right of=start, xshift=135pt] {Initial feature in class};
-        \draw[->] (start-description) -- (start);
 
-        \node (prompt) [code, below of=start, yshift=-190pt] {
+        \node (prompt) [code, right=of start, yshift=-190pt, label=below:Generated prompt] {
 \begin{lstlisting}
 class
     EXAMPLE
@@ -58,10 +56,8 @@ end
 \end{lstlisting}
         };
         \draw[->, thick] (start) -- (prompt);
-        \node (prompt-description) [description, right of=prompt, xshift=130pt] {Generated prompt};
-        \draw[->] (prompt-description) -- (prompt);
 
-        \node (llm-candidate) [code, below of=prompt, yshift=-240pt] {
+        \node (llm-candidate) [code, left=of prompt, yshift=-140pt, label=below:Generated llm-candidate] {
             \begin{lstlisting}
 class
     EXAMPLE
@@ -99,15 +95,13 @@ end
 \end{lstlisting}
         };
         \draw[->, thick] (prompt) -- (llm-candidate);
-        \node (llm-candidate-description) [description, right of=llm-candidate, xshift=140pt] {Generated llm-candidate};
-        \draw[->] (llm-candidate-description) -- (llm-candidate);
 
-        \node (verification-result) [code, below of=llm-candidate, yshift=-150pt] { Verification output };
+        \node (verification-result) [code, right=of llm-candidate, yshift=-150pt] { Verification output };
         \draw[->, thick] (llm-candidate) -- (verification-result);
-        \draw[->, thick] (verification-result.west) -| ([xshift=-30pt] prompt.west)
-            node[near start, below] {Reset failing features}
-            node[near start, above] {Some feature fails} -- (prompt.west);
-        \node (initial-feature-after-edits) [code, below of=verification-result, yshift=-140pt] {
+        \draw[->, thick] (verification-result.east) -| ([xshift=30pt] prompt.east)
+            node[midway, below, yshift=100pt] {Reset failing features}
+            node[near start, above, xshift=60pt] {Some feature fails} -- (prompt.east);
+        \node (initial-feature-after-edits) [code, left=of verification-result, yshift=-240pt, label=below:Feature after edits] {
             \begin{lstlisting}
 class
     EXAMPLE
@@ -142,8 +136,6 @@ end
         };
         \draw[->, thick] (verification-result) -- (initial-feature-after-edits)
             node[midway, right] {All features verify};
-        \node (initial-feature-after-edits-description) [description, right of=initial-feature-after-edits, xshift=130pt] {Feature after edits};
-        \draw[->] (initial-feature-after-edits-description) -- (initial-feature-after-edits);
     \end{tikzpicture}
     \caption{Dataflow of the class by class correction command}\label{dataflow-class-by-class-correction}
 \end{figure}
