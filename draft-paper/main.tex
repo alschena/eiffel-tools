@@ -341,8 +341,8 @@ If verification fails, Eiffel-tools enters a loop: it prompts the LLM for a new 
 If a candidate body passes verification, Eiffel-tools copies that body into the original feature; otherwise, the loop continues until a candidate passes or a maximum number of attempts is reached.
 Unless a candidate succeeds, no changes are applied to the original feature.
 
-% An example is shown at \figref{dataflow-feature-body}.
-% \input{figures/dataflow-fixbody}
+An example is shown at \figref{dataflow-feature-body}.
+\input{figures/dataflow-fixbody}
 
 \subsection{Non-interactive commands}
 
@@ -378,8 +378,8 @@ From each LLM response, the parser extracts a candidate feature definition.
 If verification still fails, the original is restored and another candidate is tried.
 This process repeats until a candidate verifies or a maximum number of attempts is reached.
 
-% An example is shown at \figref{dataflow-feature-by-feature-correction};
-% \input{figures/dataflow-feature-by-feature}
+An example is shown at \figref{dataflow-feature-by-feature-correction};
+\input{figures/dataflow-feature-by-feature}
 
 \subsubsection{Class by class correction}\label{class-by-class}
 This command takes an Eiffel configuration file and a list of classes.
@@ -401,7 +401,7 @@ Each feature in the class prompt is formatted with its associated counterexample
 -- <AUTOPROOF COUNTEREXAMPLE ABOUT FEATURE>
 \end{lstlisting}
 
-% \input{figures/dataflow-class-by-class}
+\input{figures/dataflow-class-by-class}
 
 \section{Evaluation}\label{evaluation}
 We evaluated the feature by feature body correction command,
