@@ -7,6 +7,7 @@ differences in features (excluding class name differences).
 import os
 import re
 import difflib
+import argparse
 from pathlib import Path
 from typing import List, Tuple, Optional
 
@@ -425,11 +426,15 @@ def compare_files(base_file: Path, numbered_file: Path) -> Optional[Tuple[List[i
     return (all_diff_line_nums, numbered_lines, numbered_class_line_num, feature_name)
 
 
-def main():
-    base_dir = Path(__file__).parent / "buggy-java-jml-eiffel"
+def main(base_dir_path: str):
+    base_dir = Path(base_dir_path)
     
     if not base_dir.exists():
         print(f"Directory {base_dir} does not exist", file=os.sys.stderr)
+        return
+    
+    if not base_dir.is_dir():
+        print(f"Path {base_dir} is not a directory", file=os.sys.stderr)
         return
     
     # Iterate through all folders in buggy-java-jml-eiffel
@@ -590,9 +595,28 @@ def run_tests():
 
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+    parser = argparse.ArgumentParser(
+        description="Compare numbered Eiffel files with their base files and identify differences in features."
+    )
+    parser.add_argument(
+        "base_dir",
+        type=str,
+        nargs="?",
+        help="Path to the base directory containing Eiffel files (e.g., buggy-java-jml-eiffel). Required unless --test is used."
+    )
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Run test suite instead of processing files"
+    )
+    
+    args = parser.parse_args()
+    
+    if args.test:
         success = run_tests()
         sys.exit(0 if success else 1)
     else:
-        main()
+        if not args.base_dir:
+            parser.error("base_dir is required when not using --test")
+        main(args.base_dir)
 
