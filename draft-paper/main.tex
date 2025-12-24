@@ -247,18 +247,51 @@ Proof2Fix identifies faults using AutoProof.
 They both propose candidate fixes that may be the substitution of a template for code edits or the strengthening of the preconditions or weakening of the postconditions for contracts edits.
 
 \section{Design and implementation}\label{design-and-implementation}
+\toolname{} is an LSP language server which provides several novel
+commands using LLMs and a static verifier to generate or repair Eiffel code and
+specifications.
 
-\toolname{} is implemented as a language server that provides commands leveraging LLMs to generate or repair Eiffel code and specifications.
-It communicates with them through the Constructor Tech API~\cite{constructor-api}, the platform for research produced by Constructor Tech which provides an access to different models and was used to conduct our experiment. 
-All outputs from the LLM are syntax-checked using Tree-sitter~\cite{treesitter}~\cite{tree-sitter-eiffel}; if an output cannot be parsed, \toolname{} extracts the first Markdown code block as a fallback response.
+The language server is implemented in Rust and avoid using a full-fledged
+Eiffel compiler for basic project understanding to achieve high performance
+and provide support to projects in inconsistent states (compilation errors,
+missing files).
+\toolname{} reads the project configuration file (ECF),
+parses it, extracts the used libraries and recursively analyses them.
+All classes used in the system are indexed (features, contracts, inheritance tree is stored)
+and available through the usual
+LSP interfaces which allows code editors, for example, to display and navigate
+between classes and features in the source code. This information is also
+integrated into LLM prompts to give the relevant context to the model.
 
-\toolname{} can also invoke AutoProof to verify existing code or LLM-generated suggestions.
-Because AutoProof may not terminate on some inputs, Eiffel-tools runs it with timeouts: any verification exceeding a time limit is killed, and if the code was LLM-generated, the tool reverts it to its previous stable state upon failure.
+Eiffel source code in files and LLM responses is parsed using an external
+parser \cite{tree-sitter-eiffel} based on Tree-sitter \cite{treesitter}.
+This allows using Tree-sitter queries to extract the relevant structures
+from the source code. For example, when LLM is used to generate code,
+the parser is used to find valid features in the responses and
+then to extract code or contracts of the found feature.
 
-For organizational clarity, Eiffel-tools commands are classified along two dimensions:
+The tool does not heavily depend on any specific LLM or an API.
+Currently an OpenAI-like \texttt{chat/completions} API is supported.
+We are using the Constructor Tech platform \cite{constructor-api} which provides access
+to several LLMs using the same \texttt{chat/completions} API to conduct
+the experiment.
+
+\toolname{} uses AutoProof to verify existing code or LLM-generated suggestions.
+Because AutoProof may not terminate on some inputs, \toolname{} runs it with timeouts: any verification exceeding a time limit is killed, and if the code was LLM-generated, the tool reverts it to its previous stable state upon failure.
+
+For organizational clarity, \toolname{} commands are classified along two dimensions:
 \begin{itemize}
-    \item \textbf{Interaction mode:}\begin{itemize} \item \emph{Interactive}, invoked as code actions by the LSP client \item \emph{non-interactive}, invoked as standalone executables.\end{itemize}
-    \item \textbf{Focus:} \begin{itemize} \item \emph{specifications} \item \emph{code} \item \emph{specification and code}\end{itemize}
+  \item By interaction mode
+        \begin{itemize}
+          \item Interactive, invoked as code actions by the LSP client
+          \item Non-interactive, invoked as standalone executables
+        \end{itemize}
+  \item By focus
+        \begin{itemize}
+          \item specifications
+          \item code
+          \item specification and code
+        \end{itemize}
 \end{itemize}
 
 \subsection{Interactive commands}
@@ -326,12 +359,20 @@ Non-interactive commands run as standalone executables, enabling batch execution
 These commands may modify the project code and specifications directly, writing changes in place.
 After each change, Eiffel-tools runs AutoProof: if AutoProof fails to verify the modified code, the tool reverts to the last stable state.
 
-\subsubsection{Feature by feature correction}\label{feature-by-feature}
-This command takes an Eiffel configuration file and a list of classes.
-It parses the entire project and attempts to verify each feature in the specified classes.
+\subsubsection{Feature by feature body correction}\label{feature-by-feature}
+This command takes an Eiffel configuration file and a list of classes or
+features in classes.
+It parses the entire project and attempts to verify each feature in the specified classes
+or only the given features.
 If a feature fails verification, the tool prompts the LLM to suggest a correction.
-It may modify both the specifications and the code of the failing feature.
-The prompt includes a task description, a list of available identifiers, the feature's code, the class invariant, and the AutoProof counterexample, i.e.\ it follows the schema:
+It may modify the code of the failing feature. The contracts cannot be changed
+and assumed to be correct.
+The LLM prompt includes the task description,
+a list of available identifiers,
+the feature's code,
+the class invariant,
+and the AutoProof counterexample (or a compilation error).
+The prompt template is the following:
 
 \begin{lstlisting}
 -- <TASK>
@@ -342,7 +383,7 @@ The prompt includes a task description, a list of available identifiers, the fea
 \end{lstlisting}
 
 From each LLM response, the parser extracts a candidate feature definition.
-Eiffel-tools backs up the original feature, replaces it with the candidate, and reruns AutoProof.
+\toolname{} backs up the original feature, replaces it with the candidate, and reruns AutoProof.
 If verification still fails, the original is restored and another candidate is tried.
 This process repeats until a candidate verifies or a maximum number of attempts is reached.
 
@@ -372,16 +413,23 @@ Each feature in the class prompt is formatted with its associated counterexample
 % \input{figures/dataflow-class-by-class}
 
 \section{Evaluation}\label{evaluation}
+We evaluated the feature by feature body correction command,
+described in \secref{feature-by-feature},
+on the datasets buggy-java-jml-eiffel~\cite{Mustafin_buggy-java-jml-eiffel_2024} and maple-recursive-eiffel~\cite{Mustafin_maple-recursive-eiffel_2024}
+using two LLMS, GPT 4.1 nano and Claude Sonnet 4.5.
 
-We evaluated feature-by-feature, described in~\secref{feature-by-feature}, on the datasets buggy-java-jml-eiffel~\cite{Mustafin_buggy-java-jml-eiffel_2024} and maple-recursive-eiffel~\cite{Mustafin_maple-recursive-eiffel_2024}.
-For this evaluation, we used exclusively Claude Sonnet 4.0 from Anthropic  and the latest version of the model Claude Sonnet 4.5 that was released on September 29, 2025 ~\cite{ClaudeSonnet4.5}. This latest model created especially for coding and for for building complex agents. All model were accessed within the Constructor Tech API. All evaluations are in Eiffel-tools repository within the corresponding  folder \verb|experiment-results|~\cite{eiffel-tools}.
+The Claude Sonnet 4.5 model from Anthropic \cite{ClaudeSonnet4.5} was created
+especially for coding and for for building complex agents. This model
+represents the ``expensive but powerful'' option in the experiment.
 
-There are tools to generate automatic fixes to buggy programs: AutoFix and Proof2Fix.
-We expand more on them in the~\secref{related-work}.
-However, we could not find a working implementation of either to compare their performance.
+The GPT 4.1 nano model from OpenAI \cite{openai-gpt4.1nano} was also created
+with the focus on coding and following instructions. Comparing with Sonnet 4.5,
+the nano model provides lower latency and a cheaper cost, so it represents the
+``cheap but fast'' option in the experiment.
 
-Since there are no publicly available dataset of Eiffel code with annotated errors exists, two alternative datasets were selected for this experiment. Both datasets were translated into Eiffel and are described detailed below.
-
+All model were accessed within the Constructor Tech API.
+All evaluations are in \toolname{} repository within the corresponding
+folder \texttt{experiment-results} \cite{eiffel-tools}.
 
 \subsection{Buggy-java-jml-eiffel}
 This dataset is a collection of Java bugs~\cite{buggy-java-jml} specified via the Java Modelling Language (JML)~\cite{jml} translated to Eiffel, specified for AutoProof.
