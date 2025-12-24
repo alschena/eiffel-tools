@@ -101,6 +101,9 @@ Julia Kotovich\inst{1,3}\orcidID{0000-0003-3739-6304}
   
   It crafts rich programmatic prompts for the input and corrects or refuses the output. Then it applies to the code until the program pass verification. 
 
+  Tool's bug fixing capability is evaluated on 2 public datasets using 2 LLMs.
+  The tool can fix 60 to 74\% of bugs by combining LLMs and a formal verifier.
+
   \keywords{LLM \and LSP \and Software verification \and Design by Contract \and Eiffel \and AutoProof}
 \end{abstract}
 
@@ -338,8 +341,8 @@ If verification fails, Eiffel-tools enters a loop: it prompts the LLM for a new 
 If a candidate body passes verification, Eiffel-tools copies that body into the original feature; otherwise, the loop continues until a candidate passes or a maximum number of attempts is reached.
 Unless a candidate succeeds, no changes are applied to the original feature.
 
-An example is shown at \figref{dataflow-feature-body}.
-\input{figures/dataflow-fixbody}
+% An example is shown at \figref{dataflow-feature-body}.
+% \input{figures/dataflow-fixbody}
 
 \subsection{Non-interactive commands}
 
@@ -375,8 +378,8 @@ From each LLM response, the parser extracts a candidate feature definition.
 If verification still fails, the original is restored and another candidate is tried.
 This process repeats until a candidate verifies or a maximum number of attempts is reached.
 
-An example is shown at \figref{dataflow-feature-by-feature-correction};
-\input{figures/dataflow-feature-by-feature}
+% An example is shown at \figref{dataflow-feature-by-feature-correction};
+% \input{figures/dataflow-feature-by-feature}
 
 \subsubsection{Class by class correction}\label{class-by-class}
 This command takes an Eiffel configuration file and a list of classes.
@@ -398,7 +401,7 @@ Each feature in the class prompt is formatted with its associated counterexample
 -- <AUTOPROOF COUNTEREXAMPLE ABOUT FEATURE>
 \end{lstlisting}
 
-\input{figures/dataflow-class-by-class}
+% \input{figures/dataflow-class-by-class}
 
 \section{Evaluation}\label{evaluation}
 We evaluated the feature by feature body correction command,
@@ -494,7 +497,7 @@ Our parser, tree sitter, refuses valid Eiffel code if it contains deprecated syn
 The heuristics we use to refuse repeating or invalid contracts, do not ensure the complete lack of logical redundancy and the removal of all invalid contracts.
 There are few benchmarks and overall online resources for Eiffel, this can significantly impact the ability of LLMs to generate output of comparable quality to more popular languages like Python or Java.
 
-The benchmarks used in our evaluation, described in~\secref{initial-evaluation}, are public and available in multiple programming languages, either C and Eiffel or Java-JML and Eiffel.
+The benchmarks used in our evaluation, described in~\secref{evaluation}, are public and available in multiple programming languages, either C and Eiffel or Java-JML and Eiffel.
 It is possible that those benchmarks leaked in the training data of some LLMs.
 
 \section{Future work}\label{future-work}
