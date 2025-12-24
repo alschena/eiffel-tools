@@ -327,7 +327,7 @@ Specifically, we remove contracts which:
 Finally, Eiffel-tools instructs the LSP client to insert the remaining valid contracts into the feature, appending them after any existing contracts.
 
 An example is shown at \figref{dataflow-model-based-contracts}.
-% \input{figures/dataflow-mbc}
+\input{figures/dataflow-mbc}
 
 \subsubsection{Fix feature body}\label{fix-feature-body}
 This command generates an implementation for a feature that satisfies its model-based specifications.
@@ -339,7 +339,7 @@ If a candidate body passes verification, Eiffel-tools copies that body into the 
 Unless a candidate succeeds, no changes are applied to the original feature.
 
 An example is shown at \figref{dataflow-feature-body}.
-% \input{figures/dataflow-fixbody}
+\input{figures/dataflow-fixbody}
 
 \subsection{Non-interactive commands}
 
@@ -376,7 +376,7 @@ If verification still fails, the original is restored and another candidate is t
 This process repeats until a candidate verifies or a maximum number of attempts is reached.
 
 An example is shown at \figref{dataflow-feature-by-feature-correction};
-% \input{figures/dataflow-feature-by-feature}
+\input{figures/dataflow-feature-by-feature}
 
 \subsubsection{Class by class correction}\label{class-by-class}
 This command takes an Eiffel configuration file and a list of classes.
@@ -398,7 +398,7 @@ Each feature in the class prompt is formatted with its associated counterexample
 -- <AUTOPROOF COUNTEREXAMPLE ABOUT FEATURE>
 \end{lstlisting}
 
-% \input{figures/dataflow-class-by-class}
+\input{figures/dataflow-class-by-class}
 
 \section{Evaluation}\label{evaluation}
 We evaluated the feature by feature body correction command,
