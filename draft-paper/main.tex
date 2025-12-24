@@ -403,7 +403,7 @@ Each feature in the class prompt is formatted with its associated counterexample
 \section{Evaluation}\label{evaluation}
 We evaluated the feature by feature body correction command,
 described in \secref{feature-by-feature},
-on the datasets buggy-java-jml-eiffel~\cite{Mustafin_buggy-java-jml-eiffel_2024} and maple-recursive-eiffel~\cite{Mustafin_maple-recursive-eiffel_2024}
+on the datasets buggy-java-jml-eiffel and maple-recursive-eiffel
 using two LLMS, GPT 4.1 nano and Claude Sonnet 4.5.
 
 The Claude Sonnet 4.5 model from Anthropic \cite{ClaudeSonnet4.5} was created
@@ -419,22 +419,65 @@ All model were accessed within the Constructor Tech API.
 All evaluations are in \toolname{} repository within the corresponding
 folder \texttt{experiment-results} \cite{eiffel-tools}.
 
-\subsection{Buggy-java-jml-eiffel}
-This dataset is a collection of Java bugs~\cite{buggy-java-jml} specified via the Java Modelling Language (JML)~\cite{jml} translated to Eiffel, specified for AutoProof.
-As the dataset includes commented fixes for the bugs, we refined it to prevent the language models from being prompted with the correct solutions. In total, there are 784 buggy classes in this dataset. The command modified 339 classes. After the modification 316 classes verify.
-Because of two separate bugs that have since been fixed, 16 modified classes failed to verify and 7 classes caused AutoProof to crash. 
+The buggy-java-jml-eiffel dataset is a translation of the BuggyJava+JML dataset \cite{buggy-java-jml}
+from Java and JML \cite{jml} to Eiffel.
+The Eiffel translation is available online at \cite{Mustafin_buggy-java-jml-eiffel_2024}.
+Examples in the dataset include
+simple algorithms (function to return the absolute value of an integer),
+array algorithms (copying an array, binary search),
+data structures (stack, queue).
 
-\subsection{Maple-recursive-eiffel}
-This dataset is a collection of artificial C bugs translated to Eiffel, fully specified for AutoProof.
-In total, it contains 26 buggy classes.\newline
-The command modified all 26 classes.\newline
-After the modification all 26 classes verify.
+In total, the dataset contains 500+ examples, but only 141 example was used
+in this evaluation due to time and technical constraints in the experiment setup.
 
-% \section{Results and Discussion}\label{results-and-discussion}
+The maple-recursive-eiffel dataset is a translation of the Maple dataset \cite{nguyen2019automatic} from C to Eiffel.
+The translation was used as a part of the evaluation benchmark in Proof2fix \cite{proof2fix}
+and is available online at \cite{Mustafin_maple-recursive-eiffel_2024}.
+Examples in the dataset include
+simple algorithms (absolute value, sum, min, max)
+and recursive functions (recursive counter).
 
-% 846 features out of 2 datasets and 2 models. Claude Connet 4.5 solved 
-% there two datasets and in sum
-% success rate for Claude Connet 4.5
+In total the dataset contains 26 examples and all of them were used in the
+evaluation.
+
+For every bug fixing task, 10 attempts were made by \toolname{}
+to fix the error. Each attempt included the initial verification,
+prompting the model with the verification result, verifying the
+suggested fix. If the suggested fix does not verify, it is kept
+and the next attempt starts with the previously suggeste fix, enabling
+a feedback loop between LLM and the verifier.
+
+\section{Results and Discussion}\label{results-and-discussion}
+In total, 141 bugs from buggy-java-jml-eiffel and 26 bugs from maple-recursive-eiffel
+(167 bugs in total) were used in the experiment to be fixed by 2 LLMs
+(Claude Sonnet 4.5 and GPT-4.1 nano).
+
+The models showed comparable efficiency in the code fixing task.
+Sonnet managed to fix 123 bugs (74\%) and GPT nano managed to fix 101 bug (60\%).
+
+The majority of successful fixes happened on the first or second attempt.
+
+\begin{table}
+\centering
+\caption{Code fixing results by two models.}\label{tab:res}
+\begin{tabular}{l|r|r}
+&  claude-sonnet-4-5 & gpt-4.1-nano \\
+\hline
+Successful fixes &  123 & 101 \\
+Mean attempts (success only) &  1.24 & 1.52 \\
+Median attempts (success only) & 1 & 1 \\
+Average time (success + failure) & 72.43s & 53.92s \\
+Average time (success only) & 22.69s & 8.10s
+\end{tabular}
+\end{table}
+
+The results show that using the nano model allows us to quickly get
+bug fixes in many cases (60\%). While a more advanced model can be used
+to fix more bugs (74\%), it takes more time per bug (18.5s longer on average).
+
+When a feature can be fixed, it is usually fixed in the first attempt (mean $< 2$).
+This means that 10 fixing attempts might be an overkill and fixing can give
+up on the 3rd attempt.
 
 \section{Limitations and threats to validity}\label{limitations}
 
