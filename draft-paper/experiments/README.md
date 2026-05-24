@@ -12,7 +12,7 @@ experiments/
 ├── scripts/
 │   ├── Ace.ecf                AutoProof ECF template (copied into each dataset)
 │   ├── setup.py               git clone + copy Ace.ecf
-│   ├── prepare.py             Identifies buggy features and strips hint comments
+│   ├── prepare.py             Identifies buggy features, outputs buggy_features.txt
 │   └── run_experiments.py     Main experiment runner
 ├── results/                   Output JSONL files (gitignored)
 │   └── <dataset>/<model_slug>/<ablation_tag>.jsonl
@@ -26,9 +26,8 @@ experiments/
 ./scripts/setup.py
 ```
 
-This pulls each dataset into its `datasets/<name>/` directory using
-`git init` + `git pull` rather than `git clone`, so the pre-existing
-`Ace.ecf` files are not disturbed. Run it again at any time to update.
+Clones each dataset into `datasets/<name>/` (skips if the directory already
+exists), then copies `scripts/Ace.ecf` into the cloned directory.
 
 ### 2. Build the tool
 

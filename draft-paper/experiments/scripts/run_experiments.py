@@ -97,7 +97,7 @@ def git_restore(dataset: Path) -> None:
 
 def run_prepare(dataset: Path) -> Path:
     """Run prepare.py, write stdout to a temp file, return its path."""
-    fd, path = tempfile.mkstemp(suffix=".txt", prefix="classes_")
+    fd, path = tempfile.mkstemp(suffix=".txt", prefix="buggy_features_")
     with os.fdopen(fd, "w") as f:
         result = subprocess.run(
             [sys.executable, str(SCRIPT_DIR / "prepare.py"), str(dataset)],
@@ -111,12 +111,12 @@ def run_prepare(dataset: Path) -> Path:
     return Path(path)
 
 
-def run_one(binary: Path, dataset: Path, classes_file: Path,
+def run_one(binary: Path, dataset: Path, features_file: Path,
             model: str, flags: list, output: Path) -> int:
     cmd = [
         str(binary),
         "--config",  str(dataset / "Ace.ecf"),
-        "--classes", str(classes_file),
+        "--classes", str(features_file),
         "--model",   model,
         "--provider", "openrouter",
         *flags,
@@ -183,24 +183,24 @@ def main():
         git_restore(dataset)
 
         try:
-            classes_file = run_prepare(dataset)
+            features_file = run_prepare(dataset)
         except RuntimeError as e:
             print(f"  ERROR in prepare: {e}", file=sys.stderr, flush=True)
             errors.append((i, str(e)))
             continue
 
-        n_classes = sum(1 for _ in open(classes_file))
-        print(f"  classes: {n_classes}", flush=True)
+        n_features = sum(1 for _ in open(features_file))
+        print(f"  features: {n_features}", flush=True)
 
         try:
-            n_records = run_one(binary, dataset, classes_file, model, flags, output)
+            n_records = run_one(binary, dataset, features_file, model, flags, output)
             rel = output.relative_to(EXPERIMENTS_DIR)
             print(f"  → {rel}  ({n_records} records)", flush=True)
         except subprocess.CalledProcessError as e:
             print(f"  ERROR: {e}", file=sys.stderr, flush=True)
             errors.append((i, str(e)))
         finally:
-            classes_file.unlink(missing_ok=True)
+            features_file.unlink(missing_ok=True)
 
     print(flush=True)
     if errors:

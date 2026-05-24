@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
-<system xmlns="http://www.eiffel.com/developers/xml/configuration-1-21-0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.eiffel.com/developers/xml/configuration-1-21-0 http://www.eiffel.com/developers/xml/configuration-1-21-0.xsd" name="test_precomp-safe" uuid="566fc02c-16a0-4951-b279-0128039a5f76" library_target="base-safe">
-	<target name="base-safe">
+<system xmlns="http://www.eiffel.com/developers/xml/configuration-1-21-0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.eiffel.com/developers/xml/configuration-1-21-0 http://www.eiffel.com/developers/xml/configuration-1-21-0.xsd" name="example" uuid="214493a4-181d-4551-96f3-d0bb7d2e33ba">
+	<target name="experiment_example">
 		<description>Base library</description>
 		<root all_classes="true"/>
+		<cluster name="code" location="." recursive="true"/>
 		<capability>
 			<concurrency use="none"/>
 		</capability>
