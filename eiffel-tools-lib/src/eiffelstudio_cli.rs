@@ -47,21 +47,16 @@ pub fn verify(
     verbose: bool,
 ) -> tokio::task::JoinHandle<Result<Option<VerificationResult>, tokio::time::error::Elapsed>> {
     tokio::spawn(async move {
-        let autoproof_cli = std::env::var("AP_COMMAND").inspect_err(
-            |e| warn!("fails to find environment variable `AP_COMMAND` pointing to the AutoProof executable with error {:#?}", e),
-        ).ok();
+        let autoproof_cli = std::env::var("AP_COMMAND")
+            .expect("AP_COMMAND environment variable must be set to the AutoProof executable path");
 
-        let cli_args = if let Some(ref _autoproof_cli) = autoproof_cli {
+        let cli_args = {
             let upcase_classname = class_name.to_string().to_uppercase();
             feature_name.as_ref().map_or_else(
                 || upcase_classname.to_string(),
                 |feature_name| format!("{}.{}", upcase_classname, feature_name),
             )
-        } else {
-            return Ok(None);
         };
-
-        let autoproof_cli = autoproof_cli.unwrap();
 
         // Build command string for error messages
         let command_string = format!("{} -batch -autoproof {}", autoproof_cli, cli_args);

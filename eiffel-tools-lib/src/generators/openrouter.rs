@@ -1,4 +1,4 @@
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::header::HeaderMap;
 use tracing::info;

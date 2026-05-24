@@ -88,8 +88,18 @@ impl Generators {
         let completion_response = tasks.join_all().await;
 
         completion_response.into_iter().filter_map(|rs| {
-            rs.inspect_err(|e| warn!(target:"llm", "An LLM request has returned the error: {e:#?}"))
-                .ok()
+            match rs {
+                Ok(response) => Some(response),
+                Err(e) => {
+                    let msg = e.to_string();
+                    // Fail fast on rate limits and auth errors — retrying won't help.
+                    if msg.contains("429") || msg.contains("Rate limit") || msg.contains("401") || msg.contains("403") {
+                        panic!("LLM API fatal error (aborting experiment): {msg}");
+                    }
+                    warn!(target:"llm", "An LLM request has returned the error: {e:#?}");
+                    None
+                }
+            }
         })
     }
 }
