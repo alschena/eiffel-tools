@@ -661,10 +661,13 @@ where
                     }
                     
                     // 5. Extract and preserve postcondition
-                    // IMPORTANT: Find the "ensure" keyword line and extract from column 0 to preserve indentation
-                    if let Some(post_start) = feature.point_start_postconditions() {
-                        if let Some(post_end) = feature.point_end_postconditions() {
-                            // Find the line containing "ensure" - it should be on the same row or the row before post_start
+                    // Guard: skip if post range is zero-length (tree-sitter spuriously points at the
+                    // feature's "end" keyword when there is no ensure clause).
+                    if let (Some(post_start), Some(post_end)) = (
+                        feature.point_start_postconditions(),
+                        feature.point_end_postconditions(),
+                    ) {
+                        if post_start < post_end {
                             let ensure_row = if post_start.row > 0 {
                                 let prev_line = initial_source.lines().nth(post_start.row - 1).unwrap_or("");
                                 if prev_line.trim().starts_with("ensure") {
@@ -680,28 +683,29 @@ where
                             result.push_str(&extract_text_in_range(initial_source, &post_range));
                         }
                     }
-                    
+
                     // 6. Add "end" for the feature (2 tabs - feature level)
                     result.push_str("\t\tend\n");
                     
-                    // Update last_pos to point after the feature's "end" keyword line
-                    // Find the feature's "end" line in the original source
-                    let feature_end_row = if let Some(post_end) = feature.point_end_postconditions().or_else(|| feature.body_range().map(|br| br.end.clone())) {
-                        // The feature's "end" should be on the line after the postcondition/body
+                    // Update last_pos to just past the feature's own "end" line in the original.
+                    // Use body_range (or a real postcondition range) to locate the feature end.
+                    // Do NOT use point_end_postconditions() when start==end (spurious tree-sitter
+                    // range pointing at the "end" keyword of a feature with no ensure clause).
+                    let real_post_end = feature.point_end_postconditions()
+                        .zip(feature.point_start_postconditions())
+                        .and_then(|(end, start)| if start < end { Some(end) } else { None });
+
+                    let feature_end_row = if let Some(post_end) = real_post_end.or_else(|| feature.body_range().map(|br| br.end.clone())) {
                         post_end.row + 1
                     } else {
-                        // Fallback: use feature_range.end row (but this might point to class "end")
                         feature_range.end.row
                     };
-                    // Make sure we don't go beyond the file
                     let lines_count = initial_source.lines().count();
                     if feature_end_row < lines_count {
                         let feature_end_line = initial_source.lines().nth(feature_end_row).unwrap_or("");
                         if feature_end_line.trim() == "end" {
-                            // Point to the end of the feature's "end" line
                             last_pos = Point { row: feature_end_row, column: feature_end_line.len() };
                         } else {
-                            // Fallback to feature_range.end
                             last_pos = feature_range.end;
                         }
                     } else {
@@ -2107,20 +2111,16 @@ end
     const EXPECTED_LOCAL_REMOVED: &'static str = r#"
 class TEST_CLASS
 feature
-
-compute (a, b: INTEGER): INTEGER
-require
+    compute (a, b: INTEGER): INTEGER
+        require
             a >= 0
             b >= 0
-
-do
-
-                Result := a + b
-ensure
+        do
+            Result := a + b
+        ensure
             Result >= a
             Result >= b
-    end
-
+        end
 end
             "#;
 
