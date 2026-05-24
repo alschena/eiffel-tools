@@ -12,10 +12,14 @@ use tracing::warn;
 mod prompt;
 
 mod constructor_api;
+mod backend;
+mod openrouter;
+
+pub use backend::LlmBackend;
 
 #[derive(Debug)]
 pub struct Generators {
-    llms: Vec<Arc<constructor_api::Llm>>,
+    llms: Vec<Arc<dyn LlmBackend>>,
     model: String,
 }
 
@@ -23,15 +27,23 @@ impl Default for Generators {
     fn default() -> Self {
         Self {
             llms: Vec::new(),
-            model: "claude-sonnet-4-0".to_string(),
+            model: "openai/gpt-oss-120b:free".to_string(), // free model on OpenRouter
         }
     }
 }
 
 impl Generators {
-    pub async fn add_new(&mut self) {
+    pub async fn add_constructor(&mut self) {
         let Ok(llm) = constructor_api::Llm::try_new().await else {
             warn!("fail to create LLM via constructor API");
+            return;
+        };
+        self.llms.push(Arc::new(llm));
+    }
+
+    pub fn add_openrouter(&mut self) {
+        let Ok(llm) = openrouter::Llm::try_new() else {
+            warn!("fail to create LLM via OpenRouter: OPENROUTER_TOKEN not set?");
             return;
         };
         self.llms.push(Arc::new(llm));

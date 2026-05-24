@@ -24,6 +24,13 @@ enum ClassOrFeature {
     ClassAndFeature(ClassName, String),
 }
 
+#[derive(clap::ValueEnum, Clone, Debug, Default)]
+enum Provider {
+    #[default]
+    Openrouter,
+    Constructor,
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -33,6 +40,8 @@ struct Args {
     classes: std::path::PathBuf,
     #[arg(long, help = "LLM model name to use (e.g., 'claude-sonnet-4-0', 'gpt-4o-mini', 'o3-mini')")]
     model: Option<String>,
+    #[arg(long, default_value = "openrouter", help = "LLM provider to use")]
+    provider: Provider,
     #[arg(long, help = "Show verbose output including verification attempts and code changes on stderr")]
     verbose: bool,
 }
@@ -125,6 +134,7 @@ async fn feature_by_feature(
         config: config_file,
         classes: classes_file,
         model: model_name,
+        provider,
         verbose,
     }: Args,
 ) {
@@ -141,7 +151,10 @@ async fn feature_by_feature(
         } else {
             Generators::default()
         };
-        generators.add_new().await;
+        match provider {
+            Provider::Openrouter => generators.add_openrouter(),
+            Provider::Constructor => generators.add_constructor().await,
+        }
         Arc::new(generators)
     };
 

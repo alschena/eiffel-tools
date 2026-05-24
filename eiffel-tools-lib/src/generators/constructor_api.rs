@@ -1,11 +1,14 @@
 use anyhow::Result;
 use anyhow::ensure;
+use async_trait::async_trait;
 use reqwest::header::HeaderMap;
 use schemars::JsonSchema;
 use schemars::schema_for;
 use serde::Deserialize;
 use serde::Serialize;
 use tracing::info;
+
+use super::backend::LlmBackend;
 
 const END_POINT: &str = r#"https://training.constructor.app/api/platform-kmapi/v1"#;
 
@@ -415,6 +418,13 @@ impl Llm {
         info!(target: "llm", "response sent by llm:\t{:#?}", response_json);
 
         Ok(response_json)
+    }
+}
+
+#[async_trait]
+impl LlmBackend for Llm {
+    async fn model_complete(&self, params: &CompletionParameters) -> Result<CompletionResponse> {
+        self.model_complete(params).await
     }
 }
 

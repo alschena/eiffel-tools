@@ -100,7 +100,7 @@ async fn class_by_class(Args { config, classes }: Args) {
 
     let generators = {
         let mut generators = Generators::default();
-        generators.add_new().await;
+        generators.add_openrouter();
         Arc::new(generators)
     };
     // let mut ws = workspace.write().await;
