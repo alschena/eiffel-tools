@@ -170,7 +170,7 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
                         // all candidates are generating from the initial feature,
                         // not the programmatically generated redefinition in the artificial subclass.
                             if let Some((feature, candidate_text, _llm_message, _prompt, _rejected)) = generators
-                                .fixed_routine_src(workspace, path, feature.name(), error_message)
+                                .fixed_routine_src(workspace, path, feature.name(), error_message, crate::generators::FixPromptParts::default())
                                 .await
                         {
                             match feature.body_source_unchecked(candidate_text.as_str()) {

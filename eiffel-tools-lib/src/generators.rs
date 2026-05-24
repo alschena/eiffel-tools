@@ -16,6 +16,7 @@ mod backend;
 mod openrouter;
 
 pub use backend::LlmBackend;
+pub use prompt::FixPromptParts;
 
 #[derive(Debug)]
 pub struct Generators {
@@ -161,6 +162,7 @@ mod feature_focused {
                 path,
                 feature_name,
                 error_message,
+                prompt::FixPromptParts::default(),
             )
             .await
             .with_context(|| "fails to make prompt to fix routine".to_string())?
@@ -197,12 +199,14 @@ mod feature_focused {
             path: &Path,
             name_routine: &'ft FeatureName,
             error_message: String,
+            parts: FixPromptParts,
         ) -> Option<(Feature, String, String, String, Vec<String>)> {
             let feature_prompt = prompt::FeaturePrompt::try_new_for_feature_fixes(
                 workspace,
                 path,
                 name_routine,
                 error_message,
+                parts,
             )
             .await?;
             

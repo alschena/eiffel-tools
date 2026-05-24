@@ -1,5 +1,6 @@
 use super::modify_in_place;
 use crate::code_entities::prelude::*;
+use crate::generators::FixPromptParts;
 use crate::generators::Generators;
 use crate::workspace::Workspace;
 use serde::Serialize;
@@ -66,6 +67,7 @@ pub async fn fix_routine_in_place(
     class_name: &ClassName,
     feature_name: &FeatureName,
     verbose: bool,
+    parts: FixPromptParts,
 ) -> FixRoutineResult {
     let path = workspace.path(class_name).to_path_buf();
     let mut last_valid_code = tokio::fs::read(&path)
@@ -135,7 +137,7 @@ pub async fn fix_routine_in_place(
                 // Call LLM to generate fix
                 let ai_request_start = Instant::now();
                 let llm_result = generators
-                    .fixed_routine_src(workspace, &path, feature_name, error_message.clone())
+                    .fixed_routine_src(workspace, &path, feature_name, error_message.clone(), parts.clone())
                     .await;
                 let ai_request_time = ai_request_start.elapsed().as_secs_f64();
 

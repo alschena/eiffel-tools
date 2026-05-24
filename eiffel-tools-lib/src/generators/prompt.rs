@@ -7,6 +7,7 @@ use std::fmt::Display;
 
 mod feature_prompt;
 pub use feature_prompt::FeaturePrompt;
+pub use feature_prompt::FixPromptParts;
 
 mod class_prompt;
 pub use class_prompt::ClassPrompt;
@@ -57,7 +58,7 @@ impl Source {
         )
     }
 
-    fn format_available_identifiers_in_feature_postconditions(
+    fn postcondition_identifiers_raw(
         workspace: &Workspace,
         class_name: &ClassName,
         feature: &Feature,
@@ -82,11 +83,11 @@ impl Source {
             .map_or_else(String::new, |ty| format!(", Result: {ty}"));
 
         Self(format!(
-            "Top level identifiers available in the pre-state of the postcondition: Current: {class_name}{formatted_current_model_in_prestate}{formatted_parameters_in_prestate}.\nIdentifiers available in the post-state for the postcondition: Current: {class_name}{formatted_current_model}{formatted_parameters}{formatted_return_type}."
-        )).comment()
+            "Top level identifiers available in the pre-state of the postcondition: Current: {class_name}{formatted_current_model_in_prestate}{formatted_parameters_in_prestate}.\nIdentifiers available in the post-state for the postcondition: Current: {class_name}{formatted_current_model}{formatted_parameters}{formatted_return_type}.\n"
+        ))
     }
 
-    fn format_available_identifiers_in_feature_preconditon(
+    fn precondition_identifiers_raw(
         workspace: &Workspace,
         class_name: &ClassName,
         feature: &Feature,
@@ -98,8 +99,24 @@ impl Source {
             Self::format_parameters(feature.parameters()).format_inline_and_append();
 
         Self(format!(
-            "Top level identifiers available in the preconditions: Current: {class_name}{formatted_current_model}{formatted_parameters }.\n"
-        )).comment()
+            "Top level identifiers available in the preconditions: Current: {class_name}{formatted_current_model}{formatted_parameters}.\n"
+        ))
+    }
+
+    fn format_available_identifiers_in_feature_postconditions(
+        workspace: &Workspace,
+        class_name: &ClassName,
+        feature: &Feature,
+    ) -> Self {
+        Self::postcondition_identifiers_raw(workspace, class_name, feature).comment()
+    }
+
+    fn format_available_identifiers_in_feature_preconditon(
+        workspace: &Workspace,
+        class_name: &ClassName,
+        feature: &Feature,
+    ) -> Self {
+        Self::precondition_identifiers_raw(workspace, class_name, feature).comment()
     }
 
     fn format_model_of_class(workspace: &Workspace, class_name: &ClassName) -> Self {
@@ -157,7 +174,7 @@ struct SystemMessage(String);
 impl From<SystemMessage> for constructor_api::MessageOut {
     fn from(value: SystemMessage) -> Self {
         let SystemMessage(content) = value;
-        constructor_api::MessageOut::new_user(content)
+        constructor_api::MessageOut::new_system(content)
     }
 }
 

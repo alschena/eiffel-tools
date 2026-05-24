@@ -1,6 +1,7 @@
 use clap::Parser;
 use eiffel_tools_lib::code_entities::prelude::*;
 use eiffel_tools_lib::config::System;
+use eiffel_tools_lib::generators::FixPromptParts;
 use eiffel_tools_lib::generators::Generators;
 use eiffel_tools_lib::language_server_protocol::commands::fix_routine_in_place;
 use eiffel_tools_lib::language_server_protocol::commands::fix_routine_in_place::LlmInteraction;
@@ -44,6 +45,19 @@ struct Args {
     provider: Provider,
     #[arg(long, help = "Show verbose output including verification attempts and code changes on stderr")]
     verbose: bool,
+    // Prompt part toggles (all enabled by default; pass flag to disable)
+    #[arg(long, help = "Omit 'The following feature does not verify' instruction")]
+    no_task_instruction: bool,
+    #[arg(long, help = "Omit 'Only modify body/locals' constraint reminder")]
+    no_modification_constraints: bool,
+    #[arg(long, help = "Omit class invariant from prompt context")]
+    no_class_invariant: bool,
+    #[arg(long, help = "Omit precondition identifier list from prompt context")]
+    no_precondition_identifiers: bool,
+    #[arg(long, help = "Omit postcondition identifier list from prompt context")]
+    no_postcondition_identifiers: bool,
+    #[arg(long, help = "Omit AutoProof error message from prompt")]
+    no_error_message: bool,
 }
 
 #[derive(Serialize)]
@@ -136,6 +150,12 @@ async fn feature_by_feature(
         model: model_name,
         provider,
         verbose,
+        no_task_instruction,
+        no_modification_constraints,
+        no_class_invariant,
+        no_precondition_identifiers,
+        no_postcondition_identifiers,
+        no_error_message,
     }: Args,
 ) {
     let system = system(&config_file);
@@ -161,6 +181,15 @@ async fn feature_by_feature(
     // Capture the model name before spawning tasks
     let model_name_str = generators.model_name().to_string();
 
+    let fix_prompt_parts = FixPromptParts {
+        task_instruction: !no_task_instruction,
+        modification_constraints: !no_modification_constraints,
+        class_invariant: !no_class_invariant,
+        precondition_identifiers: !no_precondition_identifiers,
+        postcondition_identifiers: !no_postcondition_identifiers,
+        error_message: !no_error_message,
+    };
+
     let classes_and_routines = {
         let ws = workspace.read().await;
         classes_and_routines(&ws, classes_and_features)
@@ -179,6 +208,7 @@ async fn feature_by_feature(
             let local_classname = classname.clone();
             let local_featurename = featurename.clone();
             let local_verbose = verbose;
+            let local_parts = fix_prompt_parts.clone();
 
             tokio::spawn(async move {
                 let mut ws = local_owned_workspace.write().await;
@@ -188,6 +218,7 @@ async fn feature_by_feature(
                     &local_classname,
                     &local_featurename,
                     local_verbose,
+                    local_parts,
                 )
                 .await;
                 (local_classname, local_featurename, result)

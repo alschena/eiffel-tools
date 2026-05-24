@@ -12,6 +12,32 @@ pub struct FeaturePrompt {
     user_message: UserMessage,
 }
 
+/// Controls which sections are included in the fix-feature user message.
+#[derive(Debug, Clone)]
+pub struct FixPromptParts {
+    /// "The following feature does not verify. Please rewrite it so that it verifies."
+    pub task_instruction: bool,
+    /// "IMPORTANT: Only modify body/locals. Do NOT modify signature, require, ensure."
+    pub modification_constraints: bool,
+    pub class_invariant: bool,
+    pub precondition_identifiers: bool,
+    pub postcondition_identifiers: bool,
+    pub error_message: bool,
+}
+
+impl Default for FixPromptParts {
+    fn default() -> Self {
+        Self {
+            task_instruction: true,
+            modification_constraints: true,
+            class_invariant: true,
+            precondition_identifiers: true,
+            postcondition_identifiers: true,
+            error_message: true,
+        }
+    }
+}
+
 async fn feature_source(path: &Path, feature: &Feature) -> Option<Source> {
     feature
         .source_unchecked(path)
@@ -94,49 +120,133 @@ mod fix_feature {
     impl SystemMessage {
         pub fn default_for_feature_fixes() -> Self {
             SystemMessage(String::from(
-                r#"You are a coding assistant, expert in the Eiffel programming language in writing formally verified code.
-    You have extensive training in the usage of AutoProof, the static verifier of Eiffel.
-    You will receive an eiffel snippet with a comment identifying the routine to fix which contains an error message of AutoProof.
-    Answer always, you have enough context from the system prompt and the user prompt.
-    Respond with a correct version of the same routine.
-    IMPORTANT: You must ONLY modify the feature body (the code between 'do' and 'end') and/or the local variable declarations (the 'local' clause).
-    You must NOT modify:
-    - The feature signature (name, parameters, return type)
-    - Preconditions (the 'require' clause)
-    - Postconditions (the 'ensure' clause)
-    Preserve all contracts exactly as they are in the original code.
-    "#,
+                "You are a coding assistant, expert in the Eiffel programming language and AutoProof static verifier.\n\
+                 You will receive context about a class followed by an Eiffel feature that does not verify, and the AutoProof error.\n\
+                 Respond with a corrected version of the feature.\n\
+                 IMPORTANT: You must ONLY modify the feature body (the code between 'do' and 'end') and/or the local variable declarations (the 'local' clause).\n\
+                 You must NOT modify:\n\
+                 - The feature signature (name, parameters, return type)\n\
+                 - Preconditions (the 'require' clause)\n\
+                 - Postconditions (the 'ensure' clause)\n\
+                 Preserve all contracts exactly as they are in the original code.",
             ))
         }
     }
 
-    fn injections(
+    fn task_instruction_section() -> String {
+        "The following feature does not verify.\nPlease rewrite it so that it verifies.\n"
+            .to_string()
+    }
+
+    fn modification_constraints_section() -> String {
+        "IMPORTANT: Only modify the feature body (code between 'do' and 'end') and/or local \
+         variable declarations ('local' clause). Do NOT modify the signature, preconditions \
+         ('require'), or postconditions ('ensure').\n"
+            .to_string()
+    }
+
+    fn class_invariant_section(class: &Class) -> Option<String> {
+        let invariant = Source::class_invariant(class);
+        if invariant.0.is_empty() {
+            return None;
+        }
+        let mut s = String::from("Class invariant:\n");
+        for line in invariant.0.lines() {
+            s.push('\t');
+            s.push_str(line);
+            s.push('\n');
+        }
+        Some(s)
+    }
+
+    fn precondition_identifiers_section(
         workspace: &Workspace,
         class: &Class,
         feature: &Feature,
+    ) -> Option<String> {
+        let ids = Source::precondition_identifiers_raw(workspace, class.name(), feature);
+        (!ids.0.is_empty()).then_some(ids.0)
+    }
+
+    fn postcondition_identifiers_section(
+        workspace: &Workspace,
+        class: &Class,
+        feature: &Feature,
+    ) -> Option<String> {
+        let ids = Source::postcondition_identifiers_raw(workspace, class.name(), feature);
+        (!ids.0.is_empty()).then_some(ids.0)
+    }
+
+    fn feature_code_section(source: &Source) -> String {
+        let mut s = String::from("Feature to fix:\n```eiffel\n");
+        s.push_str(&source.0);
+        if !source.0.ends_with('\n') {
+            s.push('\n');
+        }
+        s.push_str("```\n");
+        s
+    }
+
+    fn error_message_section(error_message: &str) -> Option<String> {
+        let cleaned: String = error_message
+            .lines()
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        (!cleaned.is_empty()).then(|| format!("AutoProof error:\n{cleaned}\n"))
+    }
+
+    fn build_user_message(
+        workspace: &Workspace,
+        class: &Class,
+        feature: &Feature,
+        source: &Source,
         error_message: String,
-    ) -> impl IntoIterator<Item = Injection> {
-        let message = Source(
-            error_message
-                .lines()
-                .filter(|line| !line.is_empty())
-                .fold(String::new(), |acc, line| format!("{acc}{line}\n"))
-                .trim_end()
-                .to_string(),
-        );
-        let Range { start, end } = feature.range();
-        [
-            Injection(*end - *start, Source(message.to_string()).comment()),
-            Injection(
-                Point { row: 0, column: 0 },
-                Source("The following feature does not verify.\nPlease, rewrite it such that the class will verify.\nIMPORTANT: Only modify the feature body (code between 'do' and 'end') and/or local variable declarations ('local' clause). Do NOT modify the signature, preconditions ('require'), or postconditions ('ensure').".to_string())
-                    .comment(),
-            ),
-            Injection(
-                Point { row: 0, column: 0 },
-                Source::class_invariant(class).indent().prepend_if_nonempty("This is the current class' immediate class invariant:\n").comment(),
-            ),
-        ].into_iter().chain(feature_identifiers_injections(workspace, class.name(), feature))
+        parts: &FixPromptParts,
+    ) -> UserMessage {
+        let mut msg = String::new();
+
+        if parts.task_instruction {
+            msg.push_str(&task_instruction_section());
+        }
+        if parts.modification_constraints {
+            msg.push_str(&modification_constraints_section());
+        }
+
+        let context_parts: Vec<String> = [
+            parts.class_invariant
+                .then(|| class_invariant_section(class))
+                .flatten(),
+            parts
+                .precondition_identifiers
+                .then(|| precondition_identifiers_section(workspace, class, feature))
+                .flatten(),
+            parts
+                .postcondition_identifiers
+                .then(|| postcondition_identifiers_section(workspace, class, feature))
+                .flatten(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
+        if !context_parts.is_empty() {
+            msg.push_str("\nContext:\n");
+            for part in context_parts {
+                msg.push_str(&part);
+            }
+        }
+
+        msg.push('\n');
+        msg.push_str(&feature_code_section(source));
+
+        if parts.error_message {
+            if let Some(s) = error_message_section(&error_message) {
+                msg.push_str(&s);
+            }
+        }
+
+        UserMessage(msg)
     }
 
     impl FeaturePrompt {
@@ -145,6 +255,7 @@ mod fix_feature {
             filepath: &Path,
             feature_name: &FeatureName,
             error_message: String,
+            parts: FixPromptParts,
         ) -> Option<Self> {
             let Some(class) = workspace.class(filepath) else {
                 warn!("There is no class at {filepath:#?}");
@@ -157,14 +268,18 @@ mod fix_feature {
                 );
                 return None;
             };
-            let injections = injections(workspace, class, feature, error_message)
-                .into_iter()
-                .collect();
             let source = feature_source(filepath, feature).await?;
 
             Some(Self {
                 system_message: SystemMessage::default_for_feature_fixes(),
-                user_message: injected_into_source(injections, source).into(),
+                user_message: build_user_message(
+                    workspace,
+                    class,
+                    feature,
+                    &source,
+                    error_message,
+                    &parts,
+                ),
             })
         }
     }
