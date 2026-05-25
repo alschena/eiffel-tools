@@ -38,10 +38,10 @@ pub struct LlmInteraction {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct CodeChange {
-    pub change_number: u32,
-    pub before_code: String,
-    pub after_code: String,
+pub(crate) struct CodeChange {
+    pub(crate) change_number: u32,
+    pub(crate) before_code: String,
+    pub(crate) after_code: String,
 }
 
 #[derive(Debug, Clone)]
@@ -51,7 +51,7 @@ pub struct FixRoutineResult {
     pub max_retries_reached: bool,
     pub final_status: String,
     pub interactions: Vec<LlmInteraction>,
-    pub code_changes: Vec<CodeChange>,
+    pub(crate) code_changes: Vec<CodeChange>,
     pub total_elapsed_time_seconds: f64,
     pub rate_limited: bool,
 }

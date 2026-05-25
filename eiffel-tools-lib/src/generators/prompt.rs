@@ -103,22 +103,6 @@ impl Source {
         ))
     }
 
-    fn format_available_identifiers_in_feature_postconditions(
-        workspace: &Workspace,
-        class_name: &ClassName,
-        feature: &Feature,
-    ) -> Self {
-        Self::postcondition_identifiers_raw(workspace, class_name, feature).comment()
-    }
-
-    fn format_available_identifiers_in_feature_preconditon(
-        workspace: &Workspace,
-        class_name: &ClassName,
-        feature: &Feature,
-    ) -> Self {
-        Self::precondition_identifiers_raw(workspace, class_name, feature).comment()
-    }
-
     fn format_model_of_class(workspace: &Workspace, class_name: &ClassName) -> Self {
         match class_name.inhereted_model(workspace.system_classes()) {
             Some(model) if model.is_empty() => Self(String::new()),

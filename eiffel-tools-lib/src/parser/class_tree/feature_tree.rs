@@ -121,6 +121,14 @@ impl<'tree> FeatureNodes<'tree> {
     fn feature_body_range(&self) -> Option<Range> {
         self.body.map(|body_node| body_node.range().into())
     }
+
+    fn feature_local_declarations_range(&self) -> Option<Range> {
+        let aor = self.attribute_or_routine?;
+        let mut cursor = aor.walk();
+        aor.named_children(&mut cursor)
+            .find(|n| n.kind() == "local_declarations")
+            .map(|n| n.range().into())
+    }
 }
 
 impl<'source, 'tree> TreeTraversal<'source, 'tree> {
@@ -379,6 +387,7 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
         let notes = self.feature_notes(&feature_nodes)?;
         let range = feature_nodes.feature_range();
         let body_range = feature_nodes.feature_body_range();
+        let local_declarations_range = feature_nodes.feature_local_declarations_range();
         let preconditions = self.feature_precondition(&feature_nodes)?;
         let postconditions = self.feature_postcondition(&feature_nodes)?;
 
@@ -391,6 +400,7 @@ impl<'source, 'tree> FeatureTree<'source, 'tree> for TreeTraversal<'source, 'tre
                 FeatureVisibility::Private,
                 range.clone(),
                 body_range.clone(),
+                local_declarations_range.clone(),
                 preconditions.clone(),
                 postconditions.clone(),
             )

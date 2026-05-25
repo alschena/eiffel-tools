@@ -37,97 +37,61 @@ static RETURN_TYPE_QUERY: LazyLock<Query> = LazyLock::new(|| {
 /// Find where the return type ends (if present) to determine signature end
 fn find_return_type_end(
     feature: &Feature,
-    source: &str,
+    root_node: tree_sitter::Node<'_>,
+    source_bytes: &[u8],
 ) -> Option<Point> {
-    // If feature has no return type, return None
     if feature.return_type().is_none() {
         return None;
     }
-    
-    // Parse the source to get the tree
-    let (class, tree) = parser::Parser::default()
-        .class_and_tree_from_source(source)
-        .ok()?;
-    
-    // Find the matching feature
-    let matching_feature = class
-        .features()
-        .iter()
-        .find(|f| f.name() == feature.name())?;
-    
-    let feature_range = matching_feature.range();
-    let source_bytes = source.as_bytes();
-    let root_node = tree.root_node();
-    
-    // Get the capture index for return_type
-    let return_type_index = RETURN_TYPE_QUERY
-        .capture_index_for_name("return_type")?;
-    
-    // Create a query cursor to find return_type
+
+    let feature_range = feature.range();
+    let return_type_index = RETURN_TYPE_QUERY.capture_index_for_name("return_type")?;
+
     let mut cursor = QueryCursor::new();
     let mut matches = cursor.matches(&RETURN_TYPE_QUERY, root_node, source_bytes);
-    
-    // Find the return_type that's within this feature's range
+
     while let Some(m) = matches.next() {
         for capture in m.captures {
             if capture.index == return_type_index {
-                let return_type_node = capture.node;
-                let return_type_range: Range = return_type_node.range().into();
-                
-                // Check if this return_type is within the feature range
-                if feature_range.contains(return_type_range.start) && feature_range.contains(return_type_range.end) {
+                let return_type_range: Range = capture.node.range().into();
+                if feature_range.contains(return_type_range.start)
+                    && feature_range.contains(return_type_range.end)
+                {
                     return Some(return_type_range.end);
                 }
             }
         }
     }
-    
+
     None
 }
 
 /// Find the local declarations node range using tree-sitter query
 fn find_local_clause_range(
     feature: &Feature,
-    source: &str,
+    root_node: tree_sitter::Node<'_>,
+    source_bytes: &[u8],
 ) -> Option<Range> {
-    // Parse the source to get the tree
-    let (class, tree) = parser::Parser::default()
-        .class_and_tree_from_source(source)
-        .ok()?;
-    
-    // Find the matching feature
-    let matching_feature = class
-        .features()
-        .iter()
-        .find(|f| f.name() == feature.name())?;
-    
-    let feature_range = matching_feature.range();
-    let source_bytes = source.as_bytes();
-    let root_node = tree.root_node();
-    
-    // Get the capture index for local_declarations
-    let local_declarations_index = LOCAL_DECLARATIONS_QUERY
-        .capture_index_for_name("local_declarations")?;
-    
-    // Create a query cursor to find local_declarations
+    let feature_range = feature.range();
+    let local_declarations_index =
+        LOCAL_DECLARATIONS_QUERY.capture_index_for_name("local_declarations")?;
+
     let mut cursor = QueryCursor::new();
     let mut matches = cursor.matches(&LOCAL_DECLARATIONS_QUERY, root_node, source_bytes);
-    
-    // Find the local_declarations that's within this feature's range
+
     while let Some(m) = matches.next() {
         for capture in m.captures {
             if capture.index == local_declarations_index {
-                let local_node = capture.node;
-                let local_range: Range = local_node.range().into();
-                
-                // Check if this local_declarations is within the feature range
-                if feature_range.contains(local_range.start) && feature_range.contains(local_range.end) {
+                let local_range: Range = capture.node.range().into();
+                if feature_range.contains(local_range.start)
+                    && feature_range.contains(local_range.end)
+                {
                     return Some(local_range);
                 }
             }
         }
     }
-    
+
     None
 }
 
@@ -165,15 +129,13 @@ pub async fn verification(
         |name| format!("{class_name}.{name}"),
     );
 
-    if verbose {
-        if let Some(attempt) = attempt_number {
-            eprintln!("Starting verification attempt #{} for {}", attempt, entity_under_verification);
-        } else {
-            eprintln!("Starting verification attempt for {}", entity_under_verification);
-        }
+    if let Some(attempt) = attempt_number {
+        info!(target: "autoproof", "Starting verification attempt #{} for {}", attempt, entity_under_verification);
+    } else {
+        info!(target: "autoproof", "Starting verification attempt for {}", entity_under_verification);
     }
     let verification_handle = verify(class_name.clone(), feature_name.cloned(), 60, verbose);
-    
+
     // Note: We can't store the current handle for future cancellation because JoinHandle doesn't implement Clone
     // and we need to await it to get the result. However, we've already aborted any previous handle above,
     // and the verify function now kills processes by PID even after completion, which should handle
@@ -183,27 +145,21 @@ pub async fn verification(
     match verification_result {
         Ok(Ok(Some(VerificationResult::Success))) => {
             update_last_valid_source(workspace, path.to_path_buf(), last_valid_code).await;
-            if verbose {
-                if let Some(attempt) = attempt_number {
-                    eprintln!("[Attempt #{}] Verification succeeded for {}", attempt, entity_under_verification);
-                } else {
-                    eprintln!("Verification succeeded for {}", entity_under_verification);
-                }
+            if let Some(attempt) = attempt_number {
+                info!(target: "autoproof", "[Attempt #{}] Verification succeeded for {}", attempt, entity_under_verification);
+            } else {
+                info!(target:"autoproof", "AutoProof verifies {entity_under_verification} successfully.");
             }
-            info!(target:"autoproof", "AutoProof verifies {entity_under_verification} successfully.");
 
             ControlFlow::Break(())
         }
         Ok(Ok(Some(VerificationResult::Failure(error_message)))) => {
             reset_source(workspace, path.to_path_buf(), last_valid_code).await;
-            if verbose {
-                if let Some(attempt) = attempt_number {
-                    eprintln!("[Attempt #{}] Verification failed for {}:\n{}", attempt, entity_under_verification, error_message);
-                } else {
-                    eprintln!("Verification failed for {}:\n{}", entity_under_verification, error_message);
-                }
+            if let Some(attempt) = attempt_number {
+                info!(target: "autoproof", "[Attempt #{}] Verification failed for {}:\n{}", attempt, entity_under_verification, error_message);
+            } else {
+                info!(target: "autoproof", "AutoProof fails to verify {entity_under_verification}.");
             }
-            info!(target: "autoproof", "AutoProof fails to verify {entity_under_verification}.");
             ControlFlow::Continue(Some(error_message))
         }
         Ok(Ok(None)) => {
@@ -400,15 +356,17 @@ where
         .class_and_tree_from_source(initial_source)
         .inspect_err(|e| warn!("Fails to parse file rewriting feature bodies and locals because {e:#?}"))
         .ok()
-        .map(|(cl, _)| {
+        .map(|(cl, tree)| {
+            let root_node = tree.root_node();
+            let source_bytes = initial_source.as_bytes();
             // Build new file content by processing features in order using parser ranges
             let mut result = String::new();
             let mut last_pos = Point { row: 0, column: 0 };
             let mut status_messages = Vec::new();
-            
+
             for feature in cl.features() {
                 let feature_range = feature.range();
-                
+
                 // Extract text before this feature (from last position to feature start)
                 // IMPORTANT: Extract up to column 0 of the feature line to avoid including the feature line itself
                 if feature_range.start > last_pos {
@@ -426,17 +384,17 @@ where
                         }
                     }
                 }
-                
+
                 // Check if this feature needs modification
                 if let Some((_, new_body)) = matching_new_feature(feature.name(), feature_bodies) {
                     // Build modified feature content using parser ranges
-                    
+
                     // 1. Extract feature signature (from feature start to return type end if present, or precondition start, or before local clause, or body start)
                     // Signature should end at return type if present, otherwise at precondition start, otherwise BEFORE local clause line, otherwise at body start
                     // IMPORTANT: Start from column 0 of the feature line to preserve indentation
                     let sig_start = Point { row: feature_range.start.row, column: 0 };
-                    let existing_local_range = find_local_clause_range(feature, initial_source);
-                    let sig_end = find_return_type_end(feature, initial_source)
+                    let existing_local_range = find_local_clause_range(feature, root_node, source_bytes);
+                    let sig_end = find_return_type_end(feature, root_node, source_bytes)
                         .or_else(|| feature.point_start_preconditions())
                         .or_else(|| {
                             // If there's a local clause, end signature before it (at the end of previous line)
@@ -2376,7 +2334,7 @@ end
             "#;
 
         let mut parser = Parser::default();
-        let (class, _) = parser
+        let (class, tree) = parser
             .class_and_tree_from_source(source)
             .expect("Should parse class");
         let feature = class
@@ -2384,9 +2342,11 @@ end
             .iter()
             .find(|f| f.name() == "compute")
             .expect("Should find compute feature");
+        let root_node = tree.root_node();
+        let source_bytes = source.as_bytes();
 
         // Test find_return_type_end
-        let return_type_end = find_return_type_end(feature, source);
+        let return_type_end = find_return_type_end(feature, root_node, source_bytes);
         assert!(
             return_type_end.is_some(),
             "Should find return type end for feature with return type"

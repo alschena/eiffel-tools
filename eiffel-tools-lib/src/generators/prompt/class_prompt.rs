@@ -70,15 +70,11 @@ fn feature_available_identifiers_injections(
         ),
         Injection(
             feature_start,
-            Source::format_available_identifiers_in_feature_preconditon(
-                workspace, class_name, feature,
-            ),
+            Source::precondition_identifiers_raw(workspace, class_name, feature).comment(),
         ),
         Injection(
             feature_start,
-            Source::format_available_identifiers_in_feature_postconditions(
-                workspace, class_name, feature,
-            ),
+            Source::postcondition_identifiers_raw(workspace, class_name, feature).comment(),
         ),
     ]
 }

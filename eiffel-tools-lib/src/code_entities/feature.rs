@@ -83,6 +83,7 @@ pub struct Feature {
     visibility: FeatureVisibility,
     range: Range,
     body_range: Option<Range>,
+    local_declarations_range: Option<Range>,
     /// Is None only when a precondition cannot be added (for attributes without an attribute clause).
     preconditions: Option<Block<Precondition>>,
     postconditions: Option<Block<Postcondition>>,
@@ -97,6 +98,7 @@ impl Feature {
         visibility: FeatureVisibility,
         range: Range,
         body_range: Option<Range>,
+        local_declarations_range: Option<Range>,
         preconditions: Option<Block<Precondition>>,
         postconditions: Option<Block<Postcondition>>,
     ) -> Self
@@ -111,6 +113,7 @@ impl Feature {
             visibility,
             range,
             body_range,
+            local_declarations_range,
             preconditions,
             postconditions,
         }
@@ -125,6 +128,7 @@ impl Feature {
             visibility: _,
             range,
             body_range,
+            local_declarations_range,
             preconditions,
             postconditions,
         } = self;
@@ -140,6 +144,10 @@ impl Feature {
         range.move_one_line_up();
 
         if let Some(range) = body_range {
+            range.move_one_line_up();
+        }
+
+        if let Some(range) = local_declarations_range {
             range.move_one_line_up();
         }
     }
@@ -185,6 +193,10 @@ impl Feature {
 
     pub fn body_range(&self) -> Option<&Range> {
         self.body_range.as_ref()
+    }
+
+    pub fn local_declarations_range(&self) -> Option<&Range> {
+        self.local_declarations_range.as_ref()
     }
 
     pub fn notes(&self) -> Option<&Notes> {
@@ -314,45 +326,12 @@ impl Feature {
         self.source_in_range_unchecked(source, body)
     }
 
-    /// Extract the local clause from a feature source (the text between precondition and body)
-    /// Uses parser ranges to find the exact position between precondition end and body start
     pub fn local_clause_source_unchecked<T: Borrow<str>>(&self, source: T) -> Result<Option<String>> {
-        // Get the end of precondition block using parser range
-        let local_start = self
-            .preconditions
-            .as_ref()
-            .map(|pre| pre.range().end.clone())
-            .or_else(|| {
-                // If no precondition, check if there's a return type or parameters that end before body
-                // For now, use feature start as fallback - local would come after signature
-                Some(self.range().start)
-            });
-        
-        // Get the start of body using parser range
-        let local_end = self
-            .body_range()
-            .map(|body_range| body_range.start.clone());
-
-        match (local_start, local_end) {
-            (Some(start), Some(end)) if end.row > start.row || (end.row == start.row && end.column > start.column) => {
-                // There's space between precondition end and body start - extract that range
-                let local_range = Range { start, end };
-                let local_text = self.source_in_range_unchecked(source, local_range)?;
-                let trimmed = local_text.trim();
-                // Check if the extracted text contains a local clause
-                // Be more flexible: check for "local" keyword (case-insensitive, with optional whitespace)
-                let normalized = trimmed.to_lowercase();
-                if normalized.starts_with("local") 
-                    || normalized.contains("\nlocal") 
-                    || normalized.contains("\tlocal")
-                    || normalized.contains(" local") {
-                    Ok(Some(trimmed.to_string()))
-                } else {
-                    Ok(None)
-                }
-            }
-            _ => Ok(None),
-        }
+        let Some(local_range) = self.local_declarations_range.clone() else {
+            return Ok(None);
+        };
+        let text = self.source_in_range_unchecked(source, local_range)?;
+        Ok(Some(text.trim().to_string()))
     }
 }
 

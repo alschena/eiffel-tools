@@ -21,12 +21,6 @@ use std::time::SystemTime;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-#[derive(Debug, Clone)]
-enum ClassOrFeature {
-    Class(ClassName),
-    ClassAndFeature(ClassName, String),
-}
-
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
 enum Provider {
     #[default]
@@ -294,6 +288,12 @@ fn system(config_file: &Path) -> System {
         }),
         _ => panic!("the config file must be an eiffel `ecf` file"),
     }
+}
+
+#[derive(Debug, Clone)]
+enum ClassOrFeature {
+    Class(ClassName),
+    ClassAndFeature(ClassName, String),
 }
 
 async fn name_classes(classes_file: &Path) -> Vec<ClassOrFeature> {

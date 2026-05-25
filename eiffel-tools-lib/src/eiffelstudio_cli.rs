@@ -47,8 +47,13 @@ pub fn verify(
     verbose: bool,
 ) -> tokio::task::JoinHandle<Result<Option<VerificationResult>, tokio::time::error::Elapsed>> {
     tokio::spawn(async move {
-        let autoproof_cli = std::env::var("AP_COMMAND")
-            .expect("AP_COMMAND environment variable must be set to the AutoProof executable path");
+        let autoproof_cli = match std::env::var("AP_COMMAND") {
+            Ok(val) => val,
+            Err(_) => {
+                warn!("AP_COMMAND environment variable is not set");
+                return Ok(None);
+            }
+        };
 
         let cli_args = {
             let upcase_classname = class_name.to_string().to_uppercase();
