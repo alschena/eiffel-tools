@@ -64,6 +64,8 @@ struct Args {
     no_verbatim_signature: bool,
     #[arg(long, help = "Omit Eiffel syntax reference for contracts and loops")]
     no_syntax_guide: bool,
+    #[arg(long, help = "Omit full signature context (verbatim signature + preconditions + postconditions)")]
+    no_full_sig: bool,
 }
 
 #[derive(Serialize)]
@@ -79,6 +81,7 @@ struct FeatureReport {
     #[serde(rename = "total_elapsed_time_seconds")]
     total_elapsed_time_seconds: f64,
     completed_at: u64,
+    rate_limited: bool,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -164,6 +167,7 @@ async fn feature_by_feature(
         no_error_message,
         no_verbatim_signature,
         no_syntax_guide,
+        no_full_sig,
     }: Args,
 ) {
     let system = system(&config_file);
@@ -197,6 +201,7 @@ async fn feature_by_feature(
         postcondition_identifiers: !no_postcondition_identifiers,
         error_message: !no_error_message,
         verbatim_signature: !no_verbatim_signature,
+        full_sig: !no_full_sig,
         syntax_guide: !no_syntax_guide,
     };
 
@@ -244,6 +249,7 @@ async fn feature_by_feature(
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+        let was_rate_limited = result.rate_limited;
         let report = FeatureReport {
             class_name: classname.to_string(),
             feature_name: featurename.to_string(),
@@ -255,13 +261,18 @@ async fn feature_by_feature(
             interactions: result.interactions,
             total_elapsed_time_seconds: result.total_elapsed_time_seconds,
             completed_at,
+            rate_limited: was_rate_limited,
         };
-        
-        // Output each feature report as a JSON line as soon as it's ready
+
         let json_output = serde_json::to_string(&report)
             .expect("Failed to serialize report to JSON");
         println!("{}", json_output);
         std::io::stdout().flush().expect("Failed to flush stdout");
+
+        if was_rate_limited {
+            // Exit with a distinct code so the caller knows to stop this model.
+            std::process::exit(2);
+        }
     }
 }
 

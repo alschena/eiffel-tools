@@ -53,6 +53,7 @@ pub struct FixRoutineResult {
     pub interactions: Vec<LlmInteraction>,
     pub code_changes: Vec<CodeChange>,
     pub total_elapsed_time_seconds: f64,
+    pub rate_limited: bool,
 }
 
 #[instrument(skip_all)]
@@ -135,6 +136,21 @@ pub async fn fix_routine_in_place(
                     .fixed_routine_src(workspace, &path, feature_name, error_message.clone(), parts.clone())
                     .await;
                 let ai_request_time = ai_request_start.elapsed().as_secs_f64();
+
+                // Check if a rate limit was hit during the LLM call.
+                if generators.rate_limited.load(std::sync::atomic::Ordering::SeqCst) {
+                    let total_elapsed = start_time.elapsed().as_secs_f64();
+                    return FixRoutineResult {
+                        llm_interactions,
+                        success: false,
+                        max_retries_reached: false,
+                        final_status: "rate_limited".to_string(),
+                        interactions,
+                        code_changes,
+                        total_elapsed_time_seconds: total_elapsed,
+                        rate_limited: true,
+                    };
+                }
 
                 let LlmFixResult { success, prompt, suggestions, error: llm_error } = llm_result;
 
@@ -281,6 +297,7 @@ pub async fn fix_routine_in_place(
         interactions,
         code_changes,
         total_elapsed_time_seconds: total_elapsed_time,
+        rate_limited: false,
     }
 }
 

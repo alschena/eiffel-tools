@@ -7,6 +7,7 @@ use contract::RoutineSpecification;
 use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::info;
 use tracing::warn;
 
@@ -60,6 +61,7 @@ pub struct LlmFixResult {
 pub struct Generators {
     llms: Vec<Arc<dyn LlmBackend>>,
     model: String,
+    pub rate_limited: Arc<AtomicBool>,
 }
 
 impl Default for Generators {
@@ -67,6 +69,7 @@ impl Default for Generators {
         Self {
             llms: Vec::new(),
             model: "openai/gpt-oss-120b:free".to_string(), // free model on OpenRouter
+            rate_limited: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -92,6 +95,7 @@ impl Generators {
         Self {
             llms: Vec::new(),
             model,
+            rate_limited: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -125,14 +129,16 @@ impl Generators {
         }
         let completion_response = tasks.join_all().await;
 
-        completion_response.into_iter().filter_map(|rs| {
+        let rate_limited = self.rate_limited.clone();
+        completion_response.into_iter().filter_map(move |rs| {
             match rs {
                 Ok(response) => Some(response),
                 Err(e) => {
                     let msg = e.to_string();
-                    // Fail fast on rate limits and auth errors — retrying won't help.
                     if msg.contains("429") || msg.contains("Rate limit") || msg.contains("401") || msg.contains("403") {
-                        panic!("LLM API fatal error (aborting experiment): {msg}");
+                        warn!(target:"llm", "LLM rate limit / auth error — flagging for graceful exit: {msg}");
+                        rate_limited.store(true, Ordering::SeqCst);
+                        return None;
                     }
                     warn!(target:"llm", "An LLM request has returned the error: {e:#?}");
                     None
@@ -511,6 +517,7 @@ impl Generators {
         Generators {
             llms: Vec::new(),
             model: "claude-sonnet-4-0".to_string(),
+            rate_limited: Arc::new(AtomicBool::new(false)),
         }
     }
 }

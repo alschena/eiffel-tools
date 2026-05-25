@@ -25,7 +25,11 @@ pub struct FixPromptParts {
     pub error_message: bool,
     /// Include the verbatim feature signature in the output-format instruction.
     /// When false the instruction still asks for ```eiffel + signature, but omits the actual text.
+    /// Include the verbatim feature signature in the output-format instruction.
+    /// When false the instruction still asks for ```eiffel + signature, but omits the actual text.
     pub verbatim_signature: bool,
+    /// When verbatim_signature is true, also include the require/ensure contracts in the hint.
+    pub full_sig: bool,
     /// Include a static Eiffel syntax reference for contracts and loops.
     pub syntax_guide: bool,
 }
@@ -40,6 +44,7 @@ impl Default for FixPromptParts {
             postcondition_identifiers: true,
             error_message: true,
             verbatim_signature: true,
+            full_sig: true,
             syntax_guide: true,
         }
     }
@@ -124,13 +129,68 @@ fn feature_identifiers_injections(
 mod fix_feature {
     use super::*;
 
+    /// Describes how to instruct the model to format its output code block.
+    enum OutputTemplate {
+        /// Text hint only — no verbatim content shown.
+        HintOnly,
+        /// Show verbatim signature line; model fills in the rest.
+        SigOnly(String),
+        /// Show verbatim signature + precondition at the top; model fills in the body;
+        /// verbatim postcondition must appear at the end before the closing fence.
+        FullSig {
+            sig:  String,
+            pre:  Option<String>,
+            post: Option<String>,
+        },
+    }
+
     impl SystemMessage {
-        pub fn default_for_feature_fixes(signature: &str, verbatim_signature: bool) -> Self {
-            let verbatim_hint = if verbatim_signature {
-                format!(" The signature is: {signature}")
-            } else {
-                String::new()
+        fn default_for_feature_fixes(template: OutputTemplate) -> Self {
+            let output_instruction = match template {
+                OutputTemplate::HintOnly => {
+                    "Start your response with a fenced code block. \
+                     The first line of your response must be ```eiffel and the second line \
+                     must be the feature signature.".to_string()
+                }
+                OutputTemplate::SigOnly(sig) => {
+                    format!(
+                        "Start your response with a fenced code block. \
+                         The first line of your response must be ```eiffel and the second line \
+                         must be the verbatim feature signature:\n\
+                         ```eiffel\n{sig}\n```"
+                    )
+                }
+                OutputTemplate::FullSig { sig, pre, post } => {
+                    let has_pre  = pre.is_some();
+                    let has_post = post.is_some();
+
+                    let mut tmpl = format!("```eiffel\n{sig}\n");
+                    if let Some(ref p) = pre {
+                        tmpl.push_str(&format!("require{}\n", p.trim_end()));
+                    }
+                    tmpl.push_str("... (your corrected local declarations and body here) ...\n");
+                    if let Some(ref p) = post {
+                        tmpl.push_str(&format!("ensure{}\n", p.trim_end()));
+                        tmpl.push_str("end\n");
+                    }
+                    tmpl.push_str("```");
+
+                    let pre_desc  = if has_pre  { " followed by the verbatim precondition" } else { "" };
+                    let post_desc = if has_post {
+                        " End the block with the verbatim postcondition before the closing ```."
+                    } else {
+                        ""
+                    };
+
+                    format!(
+                        "Your response must be a single ```eiffel code block. \
+                         The block must begin with the verbatim feature signature{pre_desc}. \
+                         Then add your corrected local declarations and body.{post_desc}\n\
+                         Required structure:\n{tmpl}"
+                    )
+                }
             };
+
             SystemMessage(format!(
                 "You are a coding assistant, expert in the Eiffel programming language and AutoProof static verifier.\n\
                  You will receive context about a class followed by an Eiffel feature that does not verify, and the AutoProof error.\n\
@@ -141,8 +201,7 @@ mod fix_feature {
                  - Preconditions (the 'require' clause)\n\
                  - Postconditions (the 'ensure' clause)\n\
                  Preserve all contracts exactly as they are in the original code.\n\
-                 Start your response with a fenced code block. \
-                 The first line of your response must be ```eiffel and the second line must be the feature signature.{verbatim_hint}\n\
+                 {output_instruction}\n\
                  Do not include any explanation or prose before the code block.",
             ))
         }
@@ -345,11 +404,18 @@ mod fix_feature {
             let source = feature_source(filepath, feature).await?;
             let signature = source.0.lines().next().unwrap_or("").trim_end();
 
+            let template = if !parts.verbatim_signature {
+                OutputTemplate::HintOnly
+            } else if parts.full_sig {
+                let pre  = feature.preconditions().filter(|p|  !p.is_empty()).map(|p| p.to_string());
+                let post = feature.postconditions().filter(|p| !p.is_empty()).map(|p| p.to_string());
+                OutputTemplate::FullSig { sig: signature.to_string(), pre, post }
+            } else {
+                OutputTemplate::SigOnly(signature.to_string())
+            };
+
             Some(Self {
-                system_message: SystemMessage::default_for_feature_fixes(
-                    signature,
-                    parts.verbatim_signature,
-                ),
+                system_message: SystemMessage::default_for_feature_fixes(template),
                 user_message: build_user_message(
                     workspace,
                     class,
@@ -497,6 +563,20 @@ Answer always, you have enough context."#
 	end
 "#;
 
+        // A class with a feature that has both preconditions and postconditions.
+        const SRC_COUNTER: &str = r#"class COUNTER
+feature
+	value: INTEGER
+	increment (amount: INTEGER)
+		require
+			positive: amount > 0
+		do
+			value := value + amount
+		ensure
+			increased: value = old value + amount
+		end
+end"#;
+
         fn test_workspace() -> (Workspace, PathBuf) {
             let mut parser = Parser::default();
             let (class, tree) = parser
@@ -506,6 +586,21 @@ Answer always, you have enough context."#
             let temp_dir = TempDir::new().expect("fails to create temp dir.");
             workspace.add_file((class.clone(), temp_dir.to_path_buf(), tree));
             (workspace, temp_dir.to_path_buf())
+        }
+
+        fn counter_workspace() -> (Workspace, PathBuf) {
+            let mut parser = Parser::default();
+            let (class, tree) = parser
+                .class_and_tree_from_source(SRC_COUNTER)
+                .expect("fails to parse COUNTER class");
+            let mut workspace = Workspace::new();
+            let temp_dir = TempDir::new().expect("fails to create temp dir");
+            let file_path = temp_dir.path().join("counter.e");
+            std::fs::write(&file_path, SRC_COUNTER).expect("fails to write source file");
+            // Keep temp_dir alive by leaking it — the path must exist for the async read.
+            std::mem::forget(temp_dir);
+            workspace.add_file((class, file_path.clone(), tree));
+            (workspace, file_path)
         }
 
         #[tokio::test]
@@ -533,6 +628,58 @@ Answer always, you have enough context."#
                     Source(SRC_NEW_INTEGER_SMALLER.to_string()).indent()
                 )
             );
+        }
+
+        async fn make_counter_prompt(verbatim_signature: bool, full_sig: bool) -> String {
+            let (workspace, path) = counter_workspace();
+            let parts = FixPromptParts {
+                verbatim_signature,
+                full_sig,
+                ..FixPromptParts::default()
+            };
+            FeaturePrompt::try_new_for_feature_fixes(
+                &workspace,
+                &path,
+                &FeatureName::from("increment".to_string()),
+                String::new(),
+                parts,
+            )
+            .await
+            .expect("prompt must be built")
+            .system_message.0
+        }
+
+        #[tokio::test]
+        async fn signature_template_hint_only() {
+            let system = make_counter_prompt(false, false).await;
+            assert!(!system.contains("increment (amount: INTEGER)"),
+                "hint-only: must not contain verbatim signature");
+            assert!(!system.contains("positive: amount > 0"),
+                "hint-only: must not contain precondition clause");
+            assert!(!system.contains("increased: value = old value + amount"),
+                "hint-only: must not contain postcondition clause");
+        }
+
+        #[tokio::test]
+        async fn signature_template_sig_only() {
+            let system = make_counter_prompt(true, false).await;
+            assert!(system.contains("increment (amount: INTEGER)"),
+                "sig-only: must contain signature line");
+            assert!(!system.contains("positive: amount > 0"),
+                "sig-only: must not contain precondition clause");
+            assert!(!system.contains("increased: value = old value + amount"),
+                "sig-only: must not contain postcondition clause");
+        }
+
+        #[tokio::test]
+        async fn signature_template_full_sig() {
+            let system = make_counter_prompt(true, true).await;
+            assert!(system.contains("increment (amount: INTEGER)"),
+                "full-sig: must contain signature line");
+            assert!(system.contains("positive: amount > 0"),
+                "full-sig: must contain precondition clause");
+            assert!(system.contains("increased: value = old value + amount"),
+                "full-sig: must contain postcondition clause");
         }
     }
 }

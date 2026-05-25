@@ -40,6 +40,7 @@ REPO_ROOT       = EXPERIMENTS_DIR.parent.parent   # experiments → draft-paper 
 DEFAULT_MODELS = [
     "liquid/lfm-2.5-1.2b-instruct:free",
     "poolside/laguna-xs.2:free",
+    "inclusionai/ling-2.6-flash",
     "mistralai/codestral-2508",
     "mistralai/ministral-3b-2512",
 ]

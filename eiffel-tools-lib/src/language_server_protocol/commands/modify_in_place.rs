@@ -334,23 +334,38 @@ fn extract_text_in_range(source: &str, range: &Range) -> String {
         })
 }
 
-/// Indent a block of code with the specified number of tabs per level
-/// Removes existing indentation and applies consistent indentation using tabs
+/// Count leading whitespace as a number of spaces (tabs count as 4 spaces).
+fn leading_spaces(line: &str) -> usize {
+    line.chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .fold(0usize, |acc, c| acc + if c == '\t' { 4 } else { 1 })
+}
+
+/// Re-indent a block of code to a fixed base level, preserving relative indentation.
+///
+/// The minimum indentation among non-empty lines is stripped, and each line's
+/// additional indentation is converted to tabs (4 spaces = 1 tab).  The result
+/// starts at `indent_level` tabs.
 fn indent_code_block(code: &str, indent_level: usize) -> String {
-    let indent = "\t".repeat(indent_level); // 1 tab per level
+    let base_indent = "\t".repeat(indent_level);
     let lines: Vec<&str> = code.lines().collect();
     if lines.is_empty() {
         return String::new();
     }
-    
-    lines
-        .iter()
+
+    let min_spaces = lines.iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| leading_spaces(l))
+        .min()
+        .unwrap_or(0);
+
+    lines.iter()
         .map(|line| {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
+            if line.trim().is_empty() {
                 String::new()
             } else {
-                format!("{}{}", indent, trimmed)
+                let extra_tabs = leading_spaces(line).saturating_sub(min_spaces) / 4;
+                format!("{}{}{}", base_indent, "\t".repeat(extra_tabs), line.trim_start())
             }
         })
         .collect::<Vec<_>>()

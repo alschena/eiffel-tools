@@ -72,8 +72,10 @@ tr:last-child td { border-bottom: none; }
 tr:hover td { background: #f0f4f8; }
 .badge { display:inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px;
          font-weight: 700; color: white; }
-.ok   { background: #27ae60; }
-.fail { background: #e74c3c; }
+.ok         { background: #27ae60; }
+.fail       { background: #e74c3c; }
+.error      { background: #8e44ad; }
+.rate-limit { background: #e67e22; }
 
 /* ---------- feature page ---------- */
 .page-header { background: #2c3e50; color: white; padding: 16px 28px; }
@@ -136,10 +138,28 @@ def e(s):
     return html.escape(str(s))
 
 
-def badge(success):
-    cls = "ok" if success else "fail"
-    label = "OK" if success else "FAIL"
-    return f'<span class="badge {cls}">{label}</span>'
+def result_badge(rec):
+    """
+    OK    – verified (success=true)
+    FAIL  – all retries exhausted without verification (max_retries_reached=true)
+    LIMIT – rate-limited mid-run (rate_limited=true)
+    ERROR – anything else (API error, parse failure, etc.)
+    """
+    if rec.get("success"):
+        return '<span class="badge ok">OK</span>'
+    if rec.get("max_retries_reached"):
+        return '<span class="badge fail">FAIL</span>'
+    if rec.get("rate_limited"):
+        return '<span class="badge rate-limit">LIMIT</span>'
+    return '<span class="badge error">ERROR</span>'
+
+
+def result_sort_key(rec):
+    """Numeric key for sorting: OK=3, FAIL=2, ERROR=1, LIMIT=0."""
+    if rec.get("success"):           return 3
+    if rec.get("max_retries_reached"): return 2
+    if rec.get("rate_limited"):      return 0
+    return 1
 
 
 def fmt_cost(cost):
@@ -287,7 +307,7 @@ def render_runs_table(records_with_paths, *,
                 f'{e(feat_key)}</a></td>'
             )
         cells += [
-            f'<td data-sort="{1 if success else 0}">{badge(success)}</td>',
+            f'<td data-sort="{result_sort_key(rec)}">{result_badge(rec)}</td>',
             f'<td data-sort="{n_ix}">{n_ix}</td>',
             f'<td data-sort="{tok_in}">{tok_in:,}</td>',
             f'<td data-sort="{tok_out}">{tok_out:,}</td>',
@@ -389,7 +409,7 @@ def render_run_detail_page(rec, index_path, to_root="../../.."):
 <div class="page-header">
   <h1><a href="{feat_href}" style="color:inherit">{e(class_name)}.{e(feature_name)}</a></h1>
   <div class="meta">
-    <span>{badge(success)} {e(final_status)}</span>
+    <span>{result_badge(rec)} {e(final_status)}</span>
     <span>model: {e(model)}</span>
     <span>dataset: {e(dataset)}</span>
     <span>ablation: <a href="{abl_href}" style="color:inherit;text-decoration:underline"><strong>{e(ablation)}</strong></a> — {e(abl_desc)}</span>
