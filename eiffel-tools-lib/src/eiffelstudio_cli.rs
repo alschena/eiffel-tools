@@ -61,15 +61,17 @@ pub fn verify(
         // Build command string for error messages
         let command_string = format!("{} -batch -autoproof {}", autoproof_cli, cli_args);
 
-        // Spawn the child process
-        let mut child_opt = Some(match tokio::process::Command::new(&autoproof_cli)
-            .arg("-batch")
+        // Spawn the child process in its own process group so we can kill
+        // it together with all Z3 children via kill(-PGID).
+        let mut cmd = tokio::process::Command::new(&autoproof_cli);
+        cmd.arg("-batch")
             .arg("-autoproof")
             .arg(&cli_args)
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-        {
+            .stderr(std::process::Stdio::piped());
+        #[cfg(unix)]
+        cmd.process_group(0);
+        let mut child_opt = Some(match cmd.spawn() {
             Ok(child) => child,
             Err(e) => {
                 warn!(
@@ -232,26 +234,31 @@ pub fn verify(
     })
 }
 
-/// Kill a process by PID (platform-specific)
+/// Kill a process and its entire process group (platform-specific).
+/// Since ecb is spawned with process_group(0), it becomes a group leader,
+/// and killing -PID sends SIGKILL to the whole group (ecb + Z3 children).
 async fn kill_process_by_pid(pid: u32, command_string: &str) {
     #[cfg(unix)]
     {
         use std::process::Command;
-        // Try to kill the process and its children
+        // Kill the entire process group — catches Z3 children spawned by ecb
+        let _ = Command::new("kill")
+            .arg("-9")
+            .arg(format!("-{}", pid))
+            .output();
+        // Also kill by direct PID as fallback in case group kill fails
         let _ = Command::new("kill")
             .arg("-9")
             .arg(pid.to_string())
             .output();
         info!(
             target: "autoproof",
-            "Attempted to kill AutoProof process {} (and children) for `{}`",
-            pid, command_string
+            "Killed AutoProof process group -{} and process {} for `{}`",
+            pid, pid, command_string
         );
     }
     #[cfg(not(unix))]
     {
-        // On non-Unix systems, we can't easily kill by PID
-        // The child handle should have been used instead
         warn!(
             target: "autoproof",
             "Cannot kill process by PID on this platform for `{}`",
