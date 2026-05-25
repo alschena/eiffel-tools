@@ -2,14 +2,8 @@
 """
 Run fix-feature experiments across all model × ablation combinations.
 
-Ablation axes (class_invariant is NEVER disabled):
-  task   --no-task-instruction
-  mod    --no-modification-constraints
-  pre    --no-precondition-identifiers
-  post   --no-postcondition-identifiers
-  err    --no-error-message
-
-2^5 = 32 ablation combinations × models × datasets.
+Always resumes: already-completed (class, feature) pairs are skipped.
+To start fresh, delete the results/ directory.
 
 Usage:
   ./run_experiments.py
@@ -304,16 +298,10 @@ def parse_features_file(path: Path) -> list:
     return result
 
 
-def write_progress(results_dir: Path, run_num: int, n_runs: int,
-                   started_at: datetime.datetime, last_run: str = "") -> None:
-    progress = {
-        "started_at":       started_at.isoformat(),
-        "updated_at":       datetime.datetime.now().isoformat(),
-        "completed_runs":   run_num,
-        "total_runs":       n_runs,
-        "last_run":         last_run,
-    }
-    (results_dir / "progress.json").write_text(json.dumps(progress, indent=2))
+def write_meta(results_dir: Path, total_runs: int) -> None:
+    """Write experiment_meta.json with total_runs only; started_at is derived from JSONL mtimes."""
+    mf = results_dir / "experiment_meta.json"
+    mf.write_text(json.dumps({"total_runs": total_runs}, indent=2))
 
 
 def purge_results(results_dir: Path) -> None:
@@ -346,11 +334,6 @@ def parse_args():
     p.add_argument("--ablations", help="Comma-separated ablation tags to run (e.g. full,no_err)")
     p.add_argument("--limit-features", type=int, metavar="N",
                    help="Run only the first N features per dataset (for quick tests)")
-    p.add_argument("--no-purge",  action="store_true",
-                   help="Skip purging old JSONL results before running")
-    p.add_argument("--resume",    action="store_true",
-                   help="Skip runs whose JSONL is already complete; re-run partial ones. "
-                        "Implies --no-purge. Handles stale lock files automatically.")
     p.add_argument("--dry-run",   action="store_true",
                    help="Print what would run without executing")
     return p.parse_args()
@@ -388,60 +371,27 @@ def main():
                           f"  →  {output.relative_to(EXPERIMENTS_DIR)}", flush=True)
         return
 
-    resume = args.resume
-
     results_dir = EXPERIMENTS_DIR / "results"
-    if not args.no_purge and not resume:
-        purge_results(results_dir)
 
     errors = []
     run_num = 0
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    # Preserve started_at across resumes so elapsed / ETA stay meaningful
-    started_at = datetime.datetime.now()
-    if resume:
-        try:
-            prev = json.loads((results_dir / "progress.json").read_text())
-            started_at = datetime.datetime.fromisoformat(prev["started_at"])
-            skipped = prev.get("completed_runs", 0)
-            prev_total = prev.get("total_runs", "?")
-            print(f"Resuming experiment (previously completed {skipped}/{prev_total} runs).",
-                  flush=True)
-        except Exception:
-            pass
-
-    write_progress(results_dir, 0, n_runs, started_at)
-
+    # ── Phase 1: setup + prepare all datasets to know the full total_runs upfront ──
+    prepared: list = []  # list of (dataset, all_features)
     for dataset in datasets:
         if not dataset.is_dir():
             print(f"[SKIP] dataset not found: {dataset}", flush=True)
             continue
-
-        # --- one-time setup per dataset ---
         try:
             setup_dataset(dataset)
         except RuntimeError as e:
             print(f"ERROR: dataset setup failed for {dataset.name}: {e}", file=sys.stderr, flush=True)
             errors.append((dataset.name, str(e)))
             continue
-
-        try:
-            lock = acquire_lock(dataset)
-        except RuntimeError as e:
-            print(f"ERROR: {e}", file=sys.stderr, flush=True)
-            errors.append((dataset.name, str(e)))
-            continue
-
         features_file = None
         try:
-            try:
-                features_file = run_prepare(dataset)
-            except RuntimeError as e:
-                print(f"ERROR in prepare for {dataset.name}: {e}", file=sys.stderr, flush=True)
-                errors.append((dataset.name, str(e)))
-                continue
-
+            features_file = run_prepare(dataset)
             all_lines = Path(features_file).read_text().splitlines(keepends=True)
             if args.limit_features and args.limit_features < len(all_lines):
                 limited = features_file.parent / (features_file.stem + "_limited.txt")
@@ -453,8 +403,28 @@ def main():
             print(f"  {dataset.name}: {len(all_features)} feature(s) → "
                   f"{len(all_features) * len(models) * len(combos)} runs "
                   f"(total so far: {n_runs})", flush=True)
+            prepared.append((dataset, all_features))
+        except RuntimeError as e:
+            print(f"ERROR in prepare for {dataset.name}: {e}", file=sys.stderr, flush=True)
+            errors.append((dataset.name, str(e)))
+        finally:
+            if features_file:
+                features_file.unlink(missing_ok=True)
 
-            # Pre-build completed set per output file for resume (avoid re-reading on every skip)
+    write_meta(results_dir, n_runs)
+    print(f"Total: {n_runs} runs across {len(prepared)} dataset(s).", flush=True)
+
+    # ── Phase 2: run experiments ──
+    for dataset, all_features in prepared:
+        try:
+            lock = acquire_lock(dataset)
+        except RuntimeError as e:
+            print(f"ERROR: {e}", file=sys.stderr, flush=True)
+            errors.append((dataset.name, str(e)))
+            continue
+
+        try:
+            # Pre-build completed set per output file (avoid re-reading on every skip)
             completed_cache: dict = {}
             def get_completed(path):
                 if path not in completed_cache:
@@ -483,10 +453,8 @@ def main():
                         prefix     = f"[{run_num}/{n_runs}] {dataset.name}  {model}  {tag}  {feat_str}"
                         output_dir.mkdir(parents=True, exist_ok=True)
 
-                        if resume and feat_id in get_completed(output):
+                        if feat_id in get_completed(output):
                             print(f"{prefix}  [SKIP]", flush=True)
-                            write_progress(results_dir, run_num, n_runs, started_at,
-                                           last_run=f"{dataset.name}  {model}  {tag}")
                             continue
 
                         print(prefix, flush=True)
@@ -502,8 +470,6 @@ def main():
                             run_one(binary, dataset, run_features, model, flags,
                                     output, total_features=1, append=True)
                             completed_cache.pop(output, None)  # invalidate cache
-                            write_progress(results_dir, run_num, n_runs, started_at,
-                                           last_run=f"{dataset.name}  {model}  {tag}")
                             render_html(results_dir)
                         except subprocess.CalledProcessError as ex:
                             if ex.returncode == 2:
@@ -524,8 +490,6 @@ def main():
                         rate_limited_models.add(model)
 
         finally:
-            if features_file:
-                features_file.unlink(missing_ok=True)
             release_lock(lock)
 
     print(flush=True)

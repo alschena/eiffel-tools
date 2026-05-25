@@ -634,20 +634,59 @@ def render_model_page(model_slug, records_with_paths, index_path):
 # ---------------------------------------------------------------------------
 
 def render_progress_section(results_dir):
-    pf = results_dir / "progress.json"
-    if not pf.exists():
+    mf = results_dir / "experiment_meta.json"
+    if not mf.exists():
         return ""
     try:
-        p = json.loads(pf.read_text())
+        meta = json.loads(mf.read_text())
     except Exception:
         return ""
 
     from datetime import datetime
-    completed = sum(1 for _ in results_dir.rglob("*.jsonl"))
-    total     = p.get("total_runs", 0)
-    last_run  = p.get("last_run", "")
-    started   = p.get("started_at", "")
-    updated   = p.get("updated_at", "")
+
+    total = meta.get("total_runs", 0)
+
+    # Derive all dynamic fields from JSONL files
+    completed     = 0
+    total_cost    = 0.0
+    last_jf       = None
+    last_jf_mtime = 0.0
+    first_mtime   = float("inf")
+    for jf in results_dir.rglob("*.jsonl"):
+        try:
+            mt = jf.stat().st_mtime
+            if mt > last_jf_mtime:
+                last_jf_mtime = mt
+                last_jf = jf
+            if mt < first_mtime:
+                first_mtime = mt
+            for line in jf.read_text().splitlines():
+                s = line.strip()
+                if not s or s.startswith(">>"):
+                    continue
+                try:
+                    rec = json.loads(s)
+                    if not rec.get("rate_limited"):
+                        completed += 1
+                    for ix in rec.get("interactions", []):
+                        for sg in ix.get("suggestions", []):
+                            total_cost += sg.get("cost", 0.0)
+                except json.JSONDecodeError:
+                    pass
+        except OSError:
+            pass
+
+    last_run = ""
+    if last_jf:
+        parts = last_jf.parts
+        try:
+            ri = next(i for i, p in enumerate(parts) if p == "results")
+            last_run = f"{parts[ri+1]}  {parts[ri+2]}  {last_jf.stem}"
+        except (StopIteration, IndexError):
+            last_run = last_jf.stem
+
+    updated = datetime.fromtimestamp(last_jf_mtime).isoformat() if last_jf_mtime else ""
+    started = datetime.fromtimestamp(first_mtime).isoformat() if first_mtime != float("inf") else ""
 
     pct = (completed / total * 100) if total else 0
     done = completed >= total
@@ -658,24 +697,38 @@ def render_progress_section(results_dir):
         t0 = datetime.fromisoformat(started)
         t1 = datetime.now()
         elapsed_s = (t1 - t0).total_seconds()
+        def fmt_duration(seconds):
+            m, s = divmod(int(seconds), 60)
+            h, m = divmod(m, 60)
+            d, h = divmod(h, 24)
+            if d:
+                return f"{d}d {h}h {m:02d}m" if h else f"{d}d {m:02d}m"
+            if h:
+                return f"{h}h {m:02d}m {s:02d}s"
+            return f"{m}m {s:02d}s"
+
         if elapsed_s > 0:
-            mins, secs = divmod(int(elapsed_s), 60)
-            hrs, mins  = divmod(mins, 60)
-            elapsed_str = f"{hrs}h {mins:02d}m {secs:02d}s" if hrs else f"{mins}m {secs:02d}s"
+            elapsed_str = fmt_duration(elapsed_s)
         if completed > 0 and not done and elapsed_s > 0:
             rate = completed / elapsed_s
             remaining_s = (total - completed) / rate
-            m, s = divmod(int(remaining_s), 60)
-            h, m = divmod(m, 60)
-            eta_str = f"{h}h {m:02d}m {s:02d}s" if h else f"{m}m {s:02d}s"
+            eta_str = fmt_duration(remaining_s)
     except Exception:
         pass
+
+    cost_eta_str = ""
+    if completed > 0 and total > completed and total_cost > 0:
+        cost_per_run  = total_cost / completed
+        cost_eta_str  = f"${cost_per_run * total:.2f}"
 
     status    = "Complete" if done else "Running"
     bar_color = "#27ae60" if done else "#3498db"
     last_html    = f"<span>last completed: <strong>{e(last_run)}</strong></span>" if last_run else ""
     eta_html     = f"<span>ETA: <strong>{e(eta_str)}</strong></span>" if eta_str else ""
     elapsed_html = f"<span>elapsed: <strong>{e(elapsed_str)}</strong></span>" if elapsed_str else ""
+    cost_html    = (f"<span>cost: <strong>${total_cost:.4f}</strong>"
+                    + (f" / ETA <strong>{e(cost_eta_str)}</strong>" if cost_eta_str else "")
+                    + "</span>") if total_cost > 0 else ""
     if updated:
         try:
             updated_ts   = int(datetime.fromisoformat(updated).timestamp())
@@ -695,6 +748,7 @@ def render_progress_section(results_dir):
     <span>runs: <strong>{completed} / {total}</strong> ({pct:.1f}%)</span>
     {elapsed_html}
     {eta_html}
+    {cost_html}
     {last_html}
     {updated_html}
   </div>
