@@ -61,6 +61,8 @@ struct Args {
     no_error_message: bool,
     #[arg(long, help = "Omit verbatim feature signature from output-format instruction")]
     no_verbatim_signature: bool,
+    #[arg(long, help = "Omit Eiffel syntax reference for contracts and loops")]
+    no_syntax_guide: bool,
 }
 
 #[derive(Serialize)]
@@ -160,6 +162,7 @@ async fn feature_by_feature(
         no_postcondition_identifiers,
         no_error_message,
         no_verbatim_signature,
+        no_syntax_guide,
     }: Args,
 ) {
     let system = system(&config_file);
@@ -193,6 +196,7 @@ async fn feature_by_feature(
         postcondition_identifiers: !no_postcondition_identifiers,
         error_message: !no_error_message,
         verbatim_signature: !no_verbatim_signature,
+        syntax_guide: !no_syntax_guide,
     };
 
     let classes_and_routines = {

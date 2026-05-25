@@ -26,6 +26,8 @@ pub struct FixPromptParts {
     /// Include the verbatim feature signature in the output-format instruction.
     /// When false the instruction still asks for ```eiffel + signature, but omits the actual text.
     pub verbatim_signature: bool,
+    /// Include a static Eiffel syntax reference for contracts and loops.
+    pub syntax_guide: bool,
 }
 
 impl Default for FixPromptParts {
@@ -38,6 +40,7 @@ impl Default for FixPromptParts {
             postcondition_identifiers: true,
             error_message: true,
             verbatim_signature: true,
+            syntax_guide: true,
         }
     }
 }
@@ -199,6 +202,60 @@ mod fix_feature {
         s
     }
 
+    fn syntax_guide_section() -> String {
+        // Grammar reference:
+        //   attribute_or_routine = [notes] [precondition] [local] feature_body [postcondition] [rescue] end
+        //   precondition = 'require' ['else'] {assertion_clause}
+        //   postcondition = 'ensure' ['then'] {assertion_clause}
+        //   assertion_clause = [tag ':'] expression
+        //   loop = [across … as id] [from …] [invariant …] [until …] 'loop' … [variant [tag:] expr] end
+        //   Only 'loop' and 'end' are mandatory in a loop; all other loop clauses are optional.
+        "Eiffel syntax reference:\n\
+         \n\
+         -- is the comment syntax in Eiffel (everything from -- to end of line is a comment).\n\
+         \n\
+         -- Feature with precondition and postcondition:\n\
+         divide (divisor: INTEGER): INTEGER\n\
+         \t\trequire\n\
+         \t\t\tdivisor_non_zero: divisor /= 0     -- tag is optional; 'require else' weakens inherited pre\n\
+         \t\tlocal\n\
+         \t\t\treminder: INTEGER                  -- local clause comes before 'do', after 'require'\n\
+         \t\tdo\n\
+         \t\t\treminder := value \\\\ divisor\n\
+         \t\t\tResult := value // divisor\n\
+         \t\tensure\n\
+         \t\t\t                                   -- 'ensure then' strengthens inherited post\n\
+         \t\t\tresult_definition: Result * divisor <= old value  -- 'old expr' = value of expr at entry\n\
+         \t\t\tremainder_bounds: Result >= 0      -- 'Result' is the return value\n\
+         \t\tend\n\
+         \n\
+         -- Feature with full loop (all loop clauses are optional except 'loop … end'):\n\
+         sum (n: INTEGER): INTEGER\n\
+         \t\trequire\n\
+         \t\t\tn_non_negative: n >= 0\n\
+         \t\tlocal\n\
+         \t\t\ti: INTEGER\n\
+         \t\tdo\n\
+         \t\t\tfrom\n\
+         \t\t\t\ti := 0\n\
+         \t\t\t\tResult := 0\n\
+         \t\t\tinvariant\n\
+         \t\t\t\tbounds: 0 <= i and i <= n        -- holds before loop and after every iteration\n\
+         \t\t\t\tpartial: Result = i * (i + 1) // 2\n\
+         \t\t\tuntil\n\
+         \t\t\t\ti >= n\n\
+         \t\t\tloop\n\
+         \t\t\t\ti := i + 1\n\
+         \t\t\t\tResult := Result + i\n\
+         \t\t\tvariant\n\
+         \t\t\t\tn - i                            -- [optional tag:] non-negative integer, strictly decreasing\n\
+         \t\t\tend\n\
+         \t\tensure\n\
+         \t\t\tresult_correct: Result = n * (n + 1) // 2\n\
+         \t\tend\n"
+            .to_string()
+    }
+
     fn error_message_section(error_message: &str) -> Option<String> {
         let cleaned: String = error_message
             .lines()
@@ -247,6 +304,11 @@ mod fix_feature {
             for part in context_parts {
                 msg.push_str(&part);
             }
+        }
+
+        if parts.syntax_guide {
+            msg.push('\n');
+            msg.push_str(&syntax_guide_section());
         }
 
         msg.push('\n');
