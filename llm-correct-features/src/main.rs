@@ -15,6 +15,7 @@ use eiffel_tools_lib::tracing_subscriber::{Layer, Registry};
 use eiffel_tools_lib::workspace::Workspace;
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde::Serialize;
+use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -246,6 +247,7 @@ async fn feature_by_feature(
         let json_output = serde_json::to_string(&report)
             .expect("Failed to serialize report to JSON");
         println!("{}", json_output);
+        std::io::stdout().flush().expect("Failed to flush stdout");
     }
 }
 

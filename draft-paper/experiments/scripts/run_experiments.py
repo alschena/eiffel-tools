@@ -195,12 +195,12 @@ def run_one(binary: Path, dataset: Path, features_file: Path,
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, cwd=dataset)
         for line in proc.stdout:
-            f.write(line)
-            f.flush()
-            # Forward binary's stderr lines (prefixed >>) directly
+            # Progress lines (prefixed >>) go to stdout only, not the JSONL file
             if line.startswith(">>"):
                 print(f"  [{n + 1}/{total_features}] {line.strip()[3:]}", flush=True)
                 continue
+            f.write(line)
+            f.flush()
             try:
                 r = _json.loads(line)
                 n += 1
