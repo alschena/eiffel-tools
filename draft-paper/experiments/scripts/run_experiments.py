@@ -362,9 +362,9 @@ def main():
 
     if args.dry_run:
         run_num = 0
-        for dataset in datasets:
-            for model in models:
-                for tag, _ in combos:
+        for model in models:
+            for tag, _ in combos:
+                for dataset in datasets:
                     run_num += 1
                     output = EXPERIMENTS_DIR / "results" / dataset.name / slug(model) / f"{tag}.jsonl"
                     print(f"[{run_num}/{n_runs}] {dataset.name}  {model}  {tag}"
@@ -415,39 +415,42 @@ def main():
     print(f"Total: {n_runs} runs across {len(prepared)} dataset(s).", flush=True)
 
     # ── Phase 2: run experiments ──
-    for dataset, all_features in prepared:
-        try:
-            lock = acquire_lock(dataset)
-        except RuntimeError as e:
-            print(f"ERROR: {e}", file=sys.stderr, flush=True)
-            errors.append((dataset.name, str(e)))
-            continue
+    # Loop order: model → ablation (Hamming-ordered) → dataset → feature
+    # This ensures run #1 (first model × ablation pair) is applied to every feature
+    # across every dataset before starting run #2.
 
-        try:
-            # Pre-build completed set per output file (avoid re-reading on every skip)
-            completed_cache: dict = {}
-            def get_completed(path):
-                if path not in completed_cache:
-                    completed_cache[path] = completed_features_in_jsonl(path)
-                return completed_cache[path]
+    # Pre-build completed set per output file (avoid re-reading on every skip)
+    completed_cache: dict = {}
+    def get_completed(path):
+        if path not in completed_cache:
+            completed_cache[path] = completed_features_in_jsonl(path)
+        return completed_cache[path]
 
-            # Track models that hit a rate limit — skip them for all remaining features.
-            rate_limited_models: set = set()
+    # Track models that hit a rate limit — skip globally across all datasets.
+    rate_limited_models: set = set()
 
-            # Loop order: feature → model → ablation (Hamming-ordered)
-            # git reset before each single-feature binary invocation.
-            for class_name, feature_name in all_features:
-                feat_id = (class_name, feature_name)
-                feat_str = f"{class_name}.{feature_name}" if feature_name else class_name
+    for model in models:
+        for tag, flags in combos:
+            for dataset, all_features in prepared:
+                # Acquire the dataset lock only for the duration of this sweep.
+                try:
+                    lock = acquire_lock(dataset)
+                except RuntimeError as e:
+                    print(f"ERROR: {e}", file=sys.stderr, flush=True)
+                    errors.append((dataset.name, str(e)))
+                    continue
 
-                for model in models:
+                try:
                     if model in rate_limited_models:
-                        run_num += len(combos)
+                        run_num += len(all_features)
                         continue
 
                     model_rate_hit = False
-                    for tag, flags in combos:
+                    for class_name, feature_name in all_features:
                         run_num += 1
+                        feat_id  = (class_name, feature_name)
+                        feat_str = f"{class_name}.{feature_name}" if feature_name else class_name
+
                         output_dir = EXPERIMENTS_DIR / "results" / dataset.name / slug(model)
                         output     = output_dir / f"{tag}.jsonl"
                         prefix     = f"[{run_num}/{n_runs}] {dataset.name}  {model}  {tag}  {feat_str}"
@@ -473,7 +476,7 @@ def main():
                             render_html(results_dir)
                         except subprocess.CalledProcessError as ex:
                             if ex.returncode == 2:
-                                print(f"  RATE LIMITED — stopping model {model} for rest of dataset",
+                                print(f"  RATE LIMITED — stopping model {model} globally",
                                       flush=True)
                                 completed_cache.pop(output, None)
                                 model_rate_hit = True
@@ -484,13 +487,13 @@ def main():
                             run_features.unlink(missing_ok=True)
 
                         if model_rate_hit:
-                            break  # stop remaining ablations for this model
+                            break  # stop remaining features for this dataset
 
                     if model_rate_hit:
                         rate_limited_models.add(model)
 
-        finally:
-            release_lock(lock)
+                finally:
+                    release_lock(lock)
 
     print(flush=True)
     render_html(results_dir)
