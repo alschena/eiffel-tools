@@ -172,7 +172,8 @@ impl<'ws> super::Command<'ws> for FixRoutine<'ws> {
                             if let Some((feature, candidate_text)) = generators
                                 .fixed_routine_src(workspace, path, feature.name(), error_message, crate::generators::FixPromptParts::default())
                                 .await
-                                .success
+                                .result
+                                .ok()
                         {
                             match feature.body_source_unchecked(candidate_text.as_str()) {
                                 Ok(body_src) => {

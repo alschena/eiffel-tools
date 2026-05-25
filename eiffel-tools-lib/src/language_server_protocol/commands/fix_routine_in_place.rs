@@ -152,10 +152,11 @@ pub async fn fix_routine_in_place(
                     };
                 }
 
-                let LlmFixResult { success, prompt, suggestions, error: llm_error } = llm_result;
+                let LlmFixResult { result, prompt, suggestions } = llm_result;
+                let llm_error = result.as_ref().err().cloned();
 
                 let (applied, after_code, verification_result_for_generated_code, application_status) =
-                    if let Some((ft, full_feature_source)) = success {
+                    if let Ok((ft, full_feature_source)) = result {
                         let body_only = ft.body_source_unchecked(full_feature_source.as_str())
                             .unwrap_or_else(|e| {
                                 warn!(target: "llm", "Failed to extract body from LLM-generated feature, using full feature: {:#?}", e);

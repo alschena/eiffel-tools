@@ -151,11 +151,6 @@ async fn reset_source(workspace: &mut Workspace, path: PathBuf, last_valid_code:
     workspace.reload(path).await
 }
 
-// Thread-local storage to track the previous verification handle for cancellation
-thread_local! {
-    static PREVIOUS_VERIFICATION_HANDLE: std::cell::RefCell<Option<tokio::task::JoinHandle<Result<Option<crate::eiffelstudio_cli::VerificationResult>, tokio::time::error::Elapsed>>>> = std::cell::RefCell::new(None);
-}
-
 pub async fn verification(
     class_name: &ClassName,
     feature_name: Option<&FeatureName>,
@@ -169,18 +164,6 @@ pub async fn verification(
         || format!("{class_name}"),
         |name| format!("{class_name}.{name}"),
     );
-
-    // Abort any previous verification handle before starting a new one
-    // This ensures we don't have multiple AutoProof processes running concurrently for the same feature
-    PREVIOUS_VERIFICATION_HANDLE.with(|prev_handle| {
-        if let Some(handle) = prev_handle.borrow_mut().take() {
-            handle.abort();
-            info!(
-                target: "autoproof",
-                "Aborted previous AutoProof verification for {entity_under_verification} before starting new attempt"
-            );
-        }
-    });
 
     if verbose {
         if let Some(attempt) = attempt_number {

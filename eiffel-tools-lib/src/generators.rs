@@ -47,14 +47,12 @@ pub struct Suggestion {
 /// Result of one LLM fix call, always populated regardless of outcome.
 #[derive(Debug)]
 pub struct LlmFixResult {
-    /// Parsed feature + its full source text when the LLM produced valid Eiffel.
-    pub success: Option<(Feature, String)>,
+    /// Parsed feature + its full source on success, or a human-readable reason on failure.
+    pub result: Result<(Feature, String), String>,
     /// The prompt that was sent; `None` only when prompt construction failed.
     pub prompt: Option<String>,
     /// Every LLM choice tried, in order, with outcome and full API metadata.
     pub suggestions: Vec<Suggestion>,
-    /// Top-level error when `success` is `None` (API failure, prompt build failure, etc.).
-    pub error: Option<String>,
 }
 
 #[derive(Debug)]
@@ -267,10 +265,9 @@ mod feature_focused {
             {
                 Some(p) => p,
                 None => return LlmFixResult {
-                    success: None,
+                    result: Err("Failed to construct prompt — feature not found in workspace".into()),
                     prompt: None,
                     suggestions: Vec::new(),
-                    error: Some("Failed to construct prompt — feature not found in workspace".into()),
                 },
             };
 
@@ -290,10 +287,9 @@ mod feature_focused {
             if responses.is_empty() {
                 warn!(target: "llm", "No LLM responses received — all API requests failed");
                 return LlmFixResult {
-                    success: None,
+                    result: Err("No LLM responses — all API requests failed (see llm.log)".into()),
                     prompt: Some(prompt_string),
                     suggestions: Vec::new(),
-                    error: Some("No LLM responses — all API requests failed (see llm.log)".into()),
                 };
             }
 
@@ -338,10 +334,9 @@ mod feature_focused {
                                 extra: meta_extra.clone(),
                             });
                             return LlmFixResult {
-                                success: Some((feature, full_source)),
+                                result: Ok((feature, full_source)),
                                 prompt: Some(prompt_string),
                                 suggestions,
-                                error: None,
                             };
                         }
                         None => {
@@ -373,10 +368,9 @@ mod feature_focused {
             let n = suggestions.len();
             warn!(target: "llm", "All {n} suggestion(s) rejected — no parsable Eiffel code produced");
             LlmFixResult {
-                success: None,
+                result: Err(format!("All {n} suggestion(s) rejected — no parsable Eiffel code")),
                 prompt: Some(prompt_string),
                 suggestions,
-                error: Some(format!("All {n} suggestion(s) rejected — no parsable Eiffel code")),
             }
         }
     }
