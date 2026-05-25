@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S python3 -u
 """
 Run fix-feature experiments across all model × ablation combinations.
 
@@ -19,6 +19,7 @@ Usage:
 
 import argparse
 import datetime
+import json
 import os
 import shutil
 import subprocess
@@ -38,6 +39,7 @@ REPO_ROOT       = EXPERIMENTS_DIR.parent.parent   # experiments → draft-paper 
 DEFAULT_MODELS = [
     "liquid/lfm-2.5-1.2b-instruct:free",
     "poolside/laguna-xs.2:free",
+    "mistralai/codestral-2508",
 ]
 
 DEFAULT_DATASETS = [
@@ -56,6 +58,7 @@ ABLATION = [
     ("post",  "--no-postcondition-identifiers"),
     ("err",   "--no-error-message"),
     ("sig",   "--no-verbatim-signature"),
+    ("syn",   "--no-syntax-guide"),
 ]
 
 
@@ -140,13 +143,17 @@ def setup_dataset(dataset: Path) -> None:
     first_class = e_files[0].stem.upper()
 
     def _run_ap(label: str) -> str:
-        cmd = [ap_cmd, "-autoproof", first_class]
+        cmd = [ap_cmd, "-batch", "-autoproof", first_class]
         print(f"  [{label}] $ {' '.join(cmd)}  (cwd={dataset})", flush=True)
-        r = subprocess.run(cmd, cwd=dataset, capture_output=True, text=True)
-        combined = r.stdout + r.stderr
-        for line in combined.splitlines():
+        proc = subprocess.Popen(cmd, cwd=dataset, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True)
+        lines = []
+        for line in proc.stdout:
+            line = line.rstrip("\n")
             print(f"  [{label}] {line}", flush=True)
-        return combined
+            lines.append(line)
+        proc.wait()
+        return "\n".join(lines)
 
     output = _run_ap("dry-run")
     if any("VD01" in l for l in output.splitlines() if "Error code:" in l):
@@ -234,6 +241,18 @@ def run_one(binary: Path, dataset: Path, features_file: Path,
 # Main
 # ---------------------------------------------------------------------------
 
+def write_progress(results_dir: Path, run_num: int, n_runs: int,
+                   started_at: datetime.datetime, last_run: str = "") -> None:
+    progress = {
+        "started_at":       started_at.isoformat(),
+        "updated_at":       datetime.datetime.now().isoformat(),
+        "completed_runs":   run_num,
+        "total_runs":       n_runs,
+        "last_run":         last_run,
+    }
+    (results_dir / "progress.json").write_text(json.dumps(progress, indent=2))
+
+
 def purge_results(results_dir: Path) -> None:
     removed = 0
     for jf in results_dir.rglob("*.jsonl"):
@@ -309,6 +328,9 @@ def main():
 
     errors = []
     run_num = 0
+    started_at = datetime.datetime.now()
+    results_dir.mkdir(parents=True, exist_ok=True)
+    write_progress(results_dir, 0, n_runs, started_at)
 
     for dataset in datasets:
         if not dataset.is_dir():
@@ -368,6 +390,9 @@ def main():
                                             output, total_features=n_features)
                         rel = output.relative_to(EXPERIMENTS_DIR)
                         print(f"  → {rel}  ({n_records} records)", flush=True)
+                        write_progress(results_dir, run_num, n_runs, started_at,
+                                       last_run=f"{dataset.name}  {model}  {tag}")
+                        render_html(results_dir)
                     except subprocess.CalledProcessError as e:
                         print(f"  ERROR: {e}", file=sys.stderr, flush=True)
                         errors.append((f"run {run_num}", str(e)))

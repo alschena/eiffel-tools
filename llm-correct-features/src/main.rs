@@ -17,6 +17,7 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use serde::Serialize;
 use std::io::Write;
 use std::path::Path;
+use std::time::SystemTime;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -74,10 +75,10 @@ struct FeatureReport {
     success: bool,
     max_retries_reached: bool,
     final_status: String,
-    // Combined interactions and code_changes - each interaction includes its code change if applicable
     interactions: Vec<LlmInteraction>,
     #[serde(rename = "total_elapsed_time_seconds")]
     total_elapsed_time_seconds: f64,
+    completed_at: u64,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -239,6 +240,10 @@ async fn feature_by_feature(
     // Process results as they complete (not in order)
     while let Some(handle_result) = handles.next().await {
         let (classname, featurename, result) = handle_result.expect("Fails to await fix routine in place.");
+        let completed_at = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         let report = FeatureReport {
             class_name: classname.to_string(),
             feature_name: featurename.to_string(),
@@ -247,8 +252,9 @@ async fn feature_by_feature(
             success: result.success,
             max_retries_reached: result.max_retries_reached,
             final_status: result.final_status,
-            interactions: result.interactions, // Now includes code change info in each interaction
+            interactions: result.interactions,
             total_elapsed_time_seconds: result.total_elapsed_time_seconds,
+            completed_at,
         };
         
         // Output each feature report as a JSON line as soon as it's ready
