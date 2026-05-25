@@ -19,13 +19,12 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 ABLATION_PARTS = {
-    "task": "Omit 'The following feature does not verify' instruction",
-    "mod":  "Omit 'Only modify body/locals' constraint reminder",
-    "pre":  "Omit precondition identifier list from prompt context",
-    "post": "Omit postcondition identifier list from prompt context",
-    "err":  "Omit AutoProof error message from prompt",
-    "sig":  "Omit verbatim feature signature from output-format instruction",
-    "syn":  "Omit Eiffel syntax reference for contracts and loops",
+    "task":    "Omit 'The following feature does not verify' instruction",
+    "prepost": "Omit precondition and postcondition identifier lists from context",
+    "err":     "Omit AutoProof error message from prompt",
+    "sig":     "Omit verbatim feature signature from output-format instruction",
+    "syn":     "Omit Eiffel syntax reference for contracts and loops",
+    "fsig":    "Omit full signature with contracts (require/ensure) from output-format instruction",
 }
 
 
@@ -43,57 +42,6 @@ def ablation_description(tag):
     if not parts:
         return "All prompt parts enabled"
     return "; ".join(f"{p}: {ABLATION_PARTS[p]}" for p in parts)
-
-
-def ablation_link(tag, path_to_abl_dir):
-    """HTML anchor linking the ablation tag to its help page."""
-    href = f"{path_to_abl_dir}{e(tag)}.html"
-    return f'<a href="{href}">{e(tag)}</a>'
-
-
-def render_ablation_page(tag, index_path):
-    off = set(disabled_parts(tag))
-    title = f"Ablation: {tag}"
-    subtitle = "All prompt parts enabled" if not off else f"{len(off)} part(s) omitted"
-
-    rows = []
-    for code, desc in ABLATION_PARTS.items():
-        enabled = code not in off
-        status  = "✓ enabled" if enabled else "✗ omitted"
-        cls     = "enabled" if enabled else "disabled"
-        rows.append(
-            f'<tr class="part-row {cls}">'
-            f'<td>{e(status)}</td>'
-            f'<td class="part-name">--no-{e(code)}</td>'
-            f'<td>{e(desc)}</td>'
-            f'</tr>'
-        )
-    # class_invariant is never ablated
-    rows.append(
-        f'<tr class="part-row enabled">'
-        f'<td>✓ enabled</td>'
-        f'<td class="part-name">(class_invariant)</td>'
-        f'<td>Class invariant — never omitted</td>'
-        f'</tr>'
-    )
-
-    return f"""<!doctype html><html lang="en"><head>
-<meta charset="utf-8">
-<title>{e(title)}</title>
-<style>{CSS}</style>
-</head><body>
-<div class="index-header">
-  <h1>{e(title)}</h1>
-  <p>{e(subtitle)}</p>
-</div>
-<a class="back" href="{e(index_path)}">← back to index</a>
-<div class="abl-page">
-<table>
-  <thead><tr><th>Status</th><th>Flag</th><th>Description</th></tr></thead>
-  <tbody>{"".join(rows)}</tbody>
-</table>
-</div>
-</body></html>"""
 
 
 # ---------------------------------------------------------------------------
@@ -194,11 +142,6 @@ def badge(success):
     return f'<span class="badge {cls}">{label}</span>'
 
 
-def fmt_ts(ts):
-    from datetime import datetime, timezone
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
-
 def fmt_cost(cost):
     if cost == 0:
         return "$0 (free)"
@@ -206,13 +149,382 @@ def fmt_cost(cost):
 
 
 # ---------------------------------------------------------------------------
+# Shared JS helpers
+# ---------------------------------------------------------------------------
+
+TS_JS = """<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('[data-ts]').forEach(function(el) {
+    const ts = parseInt(el.getAttribute('data-ts'), 10);
+    if (!ts) return;
+    const d = new Date(ts * 1000);
+    el.textContent = d.toLocaleString();
+    el.title = d.toISOString();
+  });
+});
+</script>"""
+
+
+def sort_js_for(table_id):
+    """Return a <script> block that makes the table with table_id sortable."""
+    return f"""<script>
+document.addEventListener('DOMContentLoaded', function() {{
+  document.querySelectorAll('[data-ts]').forEach(function(el) {{
+    const ts = parseInt(el.getAttribute('data-ts'), 10);
+    if (!ts) return;
+    const d = new Date(ts * 1000);
+    el.textContent = d.toLocaleString();
+    el.title = d.toISOString();
+  }});
+
+  const table = document.getElementById('{table_id}');
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  const ths   = table.querySelectorAll('thead th');
+  let sortCol = 0, sortAsc = false;
+
+  function cellVal(row, col) {{
+    const td = row.cells[col];
+    const raw = td.getAttribute('data-sort') || td.innerText.trim();
+    const num = parseFloat(raw.replace(/[^0-9.\\-]/g, ''));
+    return isNaN(num) ? raw.toLowerCase() : num;
+  }}
+
+  ths.forEach(function(th, i) {{
+    th.addEventListener('click', function() {{
+      if (sortCol === i) {{ sortAsc = !sortAsc; }}
+      else {{ sortCol = i; sortAsc = true; }}
+      ths.forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+      th.classList.add(sortAsc ? 'sort-asc' : 'sort-desc');
+      const rows = Array.from(tbody.rows);
+      rows.sort(function(a, b) {{
+        const va = cellVal(a, i), vb = cellVal(b, i);
+        const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+        return sortAsc ? cmp : -cmp;
+      }});
+      rows.forEach(r => tbody.appendChild(r));
+    }});
+  }});
+}});
+</script>"""
+
+
+def render_runs_table(records_with_paths, *,
+                      to_root=".",
+                      show_dataset=True,
+                      show_model=True,
+                      show_ablation=True,
+                      show_feature=True,
+                      table_id="runs-table"):
+    """
+    Return a <table id=table_id> HTML string for the given records.
+
+    records_with_paths: list of (rec, page_path_relative_to_html_root)
+    to_root: relative path from the current page back to the html root
+             (e.g. "." for index.html, ".." for models/foo.html)
+    """
+    sorted_records = sorted(records_with_paths,
+                            key=lambda r: r[0].get("completed_at", 0), reverse=True)
+
+    # prefix to prepend to run-detail page paths
+    run_prefix = (to_root + "/") if to_root and to_root != "." else ""
+
+    col_headers = [("Completed", "sort-desc")]
+    if show_dataset:   col_headers.append(("Dataset",      ""))
+    if show_model:     col_headers.append(("Model",        ""))
+    if show_ablation:  col_headers.append(("Ablation",     ""))
+    if show_feature:   col_headers.append(("Feature",      ""))
+    col_headers += [
+        ("Result",       ""),
+        ("Interactions", ""),
+        ("Tok In",       ""),
+        ("Tok Out",      ""),
+        ("Elapsed",      ""),
+        ("Cost",         ""),
+        ("Status",       ""),
+    ]
+
+    ths = "".join(
+        f'<th class="{cls}">{h}</th>' if cls else f'<th>{h}</th>'
+        for h, cls in col_headers
+    )
+
+    rows = []
+    for rec, page_path in sorted_records:
+        class_name   = rec.get("class_name", "?")
+        feature_name = rec.get("feature_name", "?")
+        success      = rec.get("success", False)
+        n_ix         = rec.get("llm_interactions", 0)
+        elapsed      = rec.get("total_elapsed_time_seconds", 0.0)
+        total_cost   = rec.get("total_cost", 0.0)
+        tok_in       = rec.get("total_prompt_tokens", 0)
+        tok_out      = rec.get("total_completion_tokens", 0)
+        dataset      = rec.get("dataset", "")
+        model_slug   = rec.get("model_slug", "")
+        ablation     = rec.get("ablation_tag", "")
+        final_status = rec.get("final_status", "")
+        ts           = rec.get("completed_at", 0)
+        feat_key     = f"{class_name}.{feature_name}"
+
+        cells = [
+            f'<td data-sort="{ts}"><a href="{e(run_prefix + page_path)}" data-ts="{ts}"></a></td>'
+        ]
+        if show_dataset:
+            cells.append(f'<td>{e(dataset)}</td>')
+        if show_model:
+            cells.append(
+                f'<td><a href="{e(to_root)}/models/{e(model_slug)}.html">'
+                f'{e(model_slug)}</a></td>'
+            )
+        if show_ablation:
+            cells.append(
+                f'<td><a href="{e(to_root)}/ablations/{e(ablation)}.html">'
+                f'{e(ablation)}</a></td>'
+            )
+        if show_feature:
+            cells.append(
+                f'<td><a href="{e(to_root)}/features/{e(feat_key)}.html">'
+                f'{e(feat_key)}</a></td>'
+            )
+        cells += [
+            f'<td data-sort="{1 if success else 0}">{badge(success)}</td>',
+            f'<td data-sort="{n_ix}">{n_ix}</td>',
+            f'<td data-sort="{tok_in}">{tok_in:,}</td>',
+            f'<td data-sort="{tok_out}">{tok_out:,}</td>',
+            f'<td data-sort="{elapsed:.3f}">{elapsed:.1f}s</td>',
+            f'<td data-sort="{total_cost:.8f}">{fmt_cost(total_cost)}</td>',
+            f'<td>{e(final_status)}</td>',
+        ]
+        rows.append(f'<tr>{"".join(cells)}</tr>')
+
+    return (
+        f'<table id="{table_id}">\n'
+        f'  <thead><tr>{ths}</tr></thead>\n'
+        f'  <tbody>{"".join(rows)}</tbody>\n'
+        f'</table>'
+    )
+
+
+# ---------------------------------------------------------------------------
+# Ablation page
+# ---------------------------------------------------------------------------
+
+def render_ablation_page(tag, index_path):
+    off = set(disabled_parts(tag))
+    title = f"Ablation: {tag}"
+    subtitle = "All prompt parts enabled" if not off else f"{len(off)} part(s) omitted"
+
+    rows = []
+    for code, desc in ABLATION_PARTS.items():
+        enabled = code not in off
+        status  = "✓ enabled" if enabled else "✗ omitted"
+        cls     = "enabled" if enabled else "disabled"
+        rows.append(
+            f'<tr class="part-row {cls}">'
+            f'<td>{e(status)}</td>'
+            f'<td class="part-name">--no-{e(code)}</td>'
+            f'<td>{e(desc)}</td>'
+            f'</tr>'
+        )
+    rows.append(
+        f'<tr class="part-row enabled">'
+        f'<td>✓ enabled</td>'
+        f'<td class="part-name">(class_invariant)</td>'
+        f'<td>Class invariant — never omitted</td>'
+        f'</tr>'
+    )
+
+    return f"""<!doctype html><html lang="en"><head>
+<meta charset="utf-8">
+<title>{e(title)}</title>
+<style>{CSS}</style>
+</head><body>
+<div class="index-header">
+  <h1>{e(title)}</h1>
+  <p>{e(subtitle)}</p>
+</div>
+<a class="back" href="{e(index_path)}">← back to index</a>
+<div class="abl-page">
+<table>
+  <thead><tr><th>Status</th><th>Flag</th><th>Description</th></tr></thead>
+  <tbody>{"".join(rows)}</tbody>
+</table>
+</div>
+</body></html>"""
+
+
+# ---------------------------------------------------------------------------
+# Run detail page  (one LLM interaction log per run)
+# ---------------------------------------------------------------------------
+
+def render_run_detail_page(rec, index_path, to_root="../../.."):
+    class_name   = rec.get("class_name", "?")
+    feature_name = rec.get("feature_name", "?")
+    model        = rec.get("model", "?")
+    success      = rec.get("success", False)
+    n_ix         = rec.get("llm_interactions", 0)
+    elapsed      = rec.get("total_elapsed_time_seconds", 0.0)
+    total_cost   = rec.get("total_cost", 0.0)
+    tok_in       = rec.get("total_prompt_tokens", 0)
+    tok_out      = rec.get("total_completion_tokens", 0)
+    final_status = rec.get("final_status", "")
+    dataset      = rec.get("dataset", "")
+    ablation     = rec.get("ablation_tag", "")
+    jsonl_file   = rec.get("_jsonl_file", "")
+    jsonl_line   = rec.get("_jsonl_line", "")
+    completed_at = rec.get("completed_at", 0)
+
+    abl_desc = ablation_description(ablation)
+    abl_href = f"{to_root}/ablations/{e(ablation)}.html"
+    feat_key = f"{class_name}.{feature_name}"
+    feat_href = f"{to_root}/features/{e(feat_key)}.html"
+    ts_html = (f'<span data-ts="{completed_at}"></span>' if completed_at else "")
+
+    parts = [f"""<!doctype html><html lang="en"><head>
+<meta charset="utf-8">
+<title>{e(class_name)}.{e(feature_name)} — interactions</title>
+<style>{CSS}</style>
+{TS_JS}
+</head><body>
+<div class="page-header">
+  <h1><a href="{feat_href}" style="color:inherit">{e(class_name)}.{e(feature_name)}</a></h1>
+  <div class="meta">
+    <span>{badge(success)} {e(final_status)}</span>
+    <span>model: {e(model)}</span>
+    <span>dataset: {e(dataset)}</span>
+    <span>ablation: <a href="{abl_href}" style="color:inherit;text-decoration:underline"><strong>{e(ablation)}</strong></a> — {e(abl_desc)}</span>
+    <span>interactions: {n_ix}</span>
+    <span>tokens: {tok_in:,} in / {tok_out:,} out</span>
+    <span>elapsed: {elapsed:.1f}s</span>
+    <span>cost: {fmt_cost(total_cost)}</span>
+    {ts_html}
+    <span title="source record">{e(jsonl_file)}:{e(jsonl_line)}</span>
+  </div>
+</div>
+<a class="back" href="{e(index_path)}">← back to index</a>
+<div class="page-body">
+"""]
+
+    for ix in rec.get("interactions", []):
+        ix_num      = ix.get("interaction_number", "?")
+        applied     = ix.get("applied", False)
+        verif_t     = ix.get("verification_time_seconds", 0.0)
+        ai_t        = ix.get("ai_request_time_seconds", 0.0)
+        prompt      = ix.get("prompt", "")
+        before      = ix.get("before_code", "")
+        after       = ix.get("after_code", "")
+        err_after   = ix.get("error_message", "")
+        suggestions = ix.get("suggestions", [])
+        ix_error    = ix.get("error", "")
+
+        ix_cls = "applied" if applied else "rejected"
+        timing = f"verif={verif_t:.2f}s  ai={ai_t:.2f}s"
+        status_label = "APPLIED" if applied else "not applied"
+
+        parts.append(f"""<div class="interaction {ix_cls}">
+  <div class="ix-title">
+    Interaction {e(ix_num)} — {e(status_label)}
+    <span class="ix-timing">{e(timing)}</span>
+  </div>
+""")
+
+        if prompt:
+            parts.append(f'<div class="section-label">prompt</div>'
+                         f'<pre class="pre-prompt">{e(prompt)}</pre>')
+
+        for si, sg in enumerate(suggestions, 1):
+            accepted  = sg.get("accepted", False)
+            rejection = sg.get("rejection_reason", "")
+            content   = sg.get("content", "")
+            finish    = sg.get("finish_reason", "—")
+            p_tok     = sg.get("prompt_tokens", 0)
+            c_tok     = sg.get("completion_tokens", 0)
+            t_tok     = sg.get("total_tokens", 0)
+            sg_cost   = sg.get("cost", 0.0)
+            sg_model  = sg.get("model", "")
+            sg_cls    = "accepted" if accepted else "rejected"
+            tag_cls   = "ok" if accepted else "fail"
+            tag_lbl   = "ACCEPTED" if accepted else "REJECTED"
+            meta = (f"model={e(sg_model)}  finish={e(finish)}  "
+                    f"tokens={p_tok}+{c_tok}={t_tok}  cost={fmt_cost(sg_cost)}")
+            reason_html = (f'<div class="sg-reason">reason: {e(rejection)}</div>'
+                           if rejection else "")
+            parts.append(f"""<div class="sg-block">
+  <div class="sg-header {sg_cls}">
+    <span>suggestion {si}</span>
+    <span class="badge {tag_cls}">{tag_lbl}</span>
+    <span class="sg-meta">{meta}</span>
+  </div>
+  {reason_html}
+  <pre class="pre-dark">{e(content)}</pre>
+</div>
+""")
+
+        if ix_error and not applied:
+            parts.append(f'<div class="section-label">error</div>'
+                         f'<pre class="pre-error">{e(ix_error)}</pre>')
+        if before:
+            parts.append(f'<div class="section-label">before</div>'
+                         f'<pre class="pre-before">{e(before)}</pre>')
+        if after:
+            parts.append(f'<div class="section-label">after</div>'
+                         f'<pre class="pre-after">{e(after)}</pre>')
+        if err_after:
+            parts.append(f'<div class="section-label">verification result</div>'
+                         f'<pre class="pre-error">{e(err_after)}</pre>')
+
+        parts.append('</div>')  # .interaction
+
+    parts.append('</div></body></html>')
+    return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Feature overview page  (all runs for one class.feature across models)
+# ---------------------------------------------------------------------------
+
+def render_feature_overview_page(feat_key, records_with_paths, index_path):
+    """Page at features/{feat_key}.html showing every run of this feature."""
+    total  = len(records_with_paths)
+    n_ok   = sum(1 for r, _ in records_with_paths if r.get("success"))
+    to_root = ".."
+
+    table_html = render_runs_table(
+        records_with_paths,
+        to_root=to_root,
+        show_dataset=True,
+        show_model=True,
+        show_ablation=True,
+        show_feature=False,
+        table_id="feature-runs",
+    )
+
+    return f"""<!doctype html><html lang="en"><head>
+<meta charset="utf-8">
+<title>Feature: {e(feat_key)}</title>
+<style>{CSS}</style>
+</head><body>
+<div class="index-header">
+  <h1>Feature: {e(feat_key)}</h1>
+  <p>{n_ok}/{total} runs verified across all models and ablations</p>
+</div>
+<a class="back" href="{e(index_path)}">← back to index</a>
+<div class="index-body">
+{table_html}
+</div>
+{sort_js_for("feature-runs")}
+</body></html>"""
+
+
+# ---------------------------------------------------------------------------
 # Model page
 # ---------------------------------------------------------------------------
 
-def render_model_page(model_slug, records, index_path):
-    if not records:
+def render_model_page(model_slug, records_with_paths, index_path):
+    if not records_with_paths:
         return ""
 
+    records = [r for r, _ in records_with_paths]
     total    = len(records)
     n_ok     = sum(1 for r in records if r.get("success"))
     avg_ix   = sum(r.get("llm_interactions", 0) for r in records) / total
@@ -220,7 +532,7 @@ def render_model_page(model_slug, records, index_path):
     tot_cost = sum(r.get("total_cost", 0.0) for r in records)
     model_name = records[0].get("model", model_slug)
 
-    # Breakdown: dataset × ablation → (ok, total)
+    # Dataset × ablation success breakdown
     from collections import defaultdict
     breakdown = defaultdict(lambda: [0, 0])
     for r in records:
@@ -229,12 +541,12 @@ def render_model_page(model_slug, records, index_path):
         if r.get("success"):
             breakdown[key][0] += 1
 
-    datasets   = sorted({k[0] for k in breakdown})
-    ablations  = sorted({k[1] for k in breakdown})
+    datasets  = sorted({k[0] for k in breakdown})
+    ablations = sorted({k[1] for k in breakdown})
 
-    # Header row
-    header_cells = "".join(f"<th><a href='../ablations/{e(a)}.html'>{e(a)}</a></th>" for a in ablations)
-    # Data rows per dataset
+    header_cells = "".join(
+        f"<th><a href='../ablations/{e(a)}.html'>{e(a)}</a></th>" for a in ablations
+    )
     data_rows = []
     for ds in datasets:
         cells = []
@@ -245,8 +557,20 @@ def render_model_page(model_slug, records, index_path):
             else:
                 pct = ok / tot * 100
                 col = "#27ae60" if ok == tot else ("#e67e22" if ok > 0 else "#e74c3c")
-                cells.append(f'<td style="color:{col};font-weight:700">{ok}/{tot} ({pct:.0f}%)</td>')
+                cells.append(
+                    f'<td style="color:{col};font-weight:700">{ok}/{tot} ({pct:.0f}%)</td>'
+                )
         data_rows.append(f'<tr><td><strong>{e(ds)}</strong></td>{"".join(cells)}</tr>')
+
+    runs_table = render_runs_table(
+        records_with_paths,
+        to_root="..",
+        show_dataset=True,
+        show_model=False,
+        show_ablation=True,
+        show_feature=True,
+        table_id="model-runs",
+    )
 
     return f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8">
@@ -270,133 +594,19 @@ def render_model_page(model_slug, records, index_path):
     </tbody>
   </table>
   <h2 style="margin-bottom:10px">Success rate by dataset × ablation</h2>
-  <div style="overflow-x:auto">
+  <div style="overflow-x:auto;margin-bottom:28px">
   <table>
     <thead><tr><th>Dataset</th>{header_cells}</tr></thead>
     <tbody>{"".join(data_rows)}</tbody>
   </table>
   </div>
+  <h2 style="margin-bottom:10px">All runs</h2>
+  <div style="overflow-x:auto">
+  {runs_table}
+  </div>
 </div>
+{sort_js_for("model-runs")}
 </body></html>"""
-
-
-# ---------------------------------------------------------------------------
-# Feature page
-# ---------------------------------------------------------------------------
-
-def render_feature_page(rec, index_path, to_root="../../.."):
-    class_name   = rec.get("class_name", "?")
-    feature_name = rec.get("feature_name", "?")
-    model        = rec.get("model", "?")
-    success      = rec.get("success", False)
-    n_ix         = rec.get("llm_interactions", 0)
-    elapsed      = rec.get("total_elapsed_time_seconds", 0.0)
-    total_cost   = rec.get("total_cost", 0.0)
-    final_status = rec.get("final_status", "")
-    dataset      = rec.get("dataset", "")
-    ablation     = rec.get("ablation_tag", "")
-    jsonl_file   = rec.get("_jsonl_file", "")
-    jsonl_line   = rec.get("_jsonl_line", "")
-
-    parts = []
-    abl_desc = ablation_description(ablation)
-    abl_href = f"{to_root}/ablations/{e(ablation)}.html"
-    parts.append(f"""<!doctype html><html lang="en"><head>
-<meta charset="utf-8">
-<title>{e(class_name)}.{e(feature_name)} — interactions</title>
-<style>{CSS}</style>
-</head><body>
-<div class="page-header">
-  <h1>{e(class_name)}.{e(feature_name)}</h1>
-  <div class="meta">
-    <span>{badge(success)} {e(final_status)}</span>
-    <span>model: {e(model)}</span>
-    <span>dataset: {e(dataset)}</span>
-    <span>ablation: <a href="{abl_href}" style="color:inherit;text-decoration:underline"><strong>{e(ablation)}</strong></a> — {e(abl_desc)}</span>
-    <span>interactions: {n_ix}</span>
-    <span>elapsed: {elapsed:.1f}s</span>
-    <span>cost: {fmt_cost(total_cost)}</span>
-    <span title="source record">{e(jsonl_file)}:{e(jsonl_line)}</span>
-  </div>
-</div>
-<a class="back" href="{e(index_path)}">← back to index</a>
-<div class="page-body">
-""")
-
-    for ix in rec.get("interactions", []):
-        ix_num     = ix.get("interaction_number", "?")
-        applied    = ix.get("applied", False)
-        verif_t    = ix.get("verification_time_seconds", 0.0)
-        ai_t       = ix.get("ai_request_time_seconds", 0.0)
-        prompt     = ix.get("prompt", "")
-        before     = ix.get("before_code", "")
-        after      = ix.get("after_code", "")
-        err_after  = ix.get("error_message", "")
-        suggestions = ix.get("suggestions", [])
-        ix_error   = ix.get("error", "")
-
-        status_label = "APPLIED" if applied else "not applied"
-        ix_cls = "applied" if applied else "rejected"
-        timing = f"verif={verif_t:.2f}s  ai={ai_t:.2f}s"
-
-        parts.append(f"""<div class="interaction {ix_cls}">
-  <div class="ix-title">
-    Interaction {e(ix_num)} — {e(status_label)}
-    <span class="ix-timing">{e(timing)}</span>
-  </div>
-""")
-
-        if prompt:
-            parts.append(f'<div class="section-label">prompt</div>'
-                         f'<pre class="pre-prompt">{e(prompt)}</pre>')
-
-        for si, sg in enumerate(suggestions, 1):
-            accepted      = sg.get("accepted", False)
-            rejection     = sg.get("rejection_reason", "")
-            content       = sg.get("content", "")
-            finish        = sg.get("finish_reason", "—")
-            p_tok         = sg.get("prompt_tokens", 0)
-            c_tok         = sg.get("completion_tokens", 0)
-            t_tok         = sg.get("total_tokens", 0)
-            sg_cost       = sg.get("cost", 0.0)
-            sg_model      = sg.get("model", "")
-            sg_cls        = "accepted" if accepted else "rejected"
-            tag_cls       = "ok" if accepted else "fail"
-            tag_lbl       = "ACCEPTED" if accepted else "REJECTED"
-            meta = (f"model={e(sg_model)}  finish={e(finish)}  "
-                    f"tokens={p_tok}+{c_tok}={t_tok}  cost={fmt_cost(sg_cost)}")
-            reason_html = (f'<div class="sg-reason">reason: {e(rejection)}</div>'
-                           if rejection else "")
-            parts.append(f"""<div class="sg-block">
-  <div class="sg-header {sg_cls}">
-    <span>suggestion {si}</span>
-    <span class="badge {tag_cls}">{tag_lbl}</span>
-    <span class="sg-meta">{meta}</span>
-  </div>
-  {reason_html}
-  <pre class="pre-dark">{e(content)}</pre>
-</div>
-""")
-
-        if ix_error and not applied:
-            parts.append(f'<div class="section-label">error</div>'
-                         f'<pre class="pre-error">{e(ix_error)}</pre>')
-
-        if before:
-            parts.append(f'<div class="section-label">before</div>'
-                         f'<pre class="pre-before">{e(before)}</pre>')
-        if after:
-            parts.append(f'<div class="section-label">after</div>'
-                         f'<pre class="pre-after">{e(after)}</pre>')
-
-        if err_after:
-            parts.append(f'<div class="section-label">verification result</div>'
-                         f'<pre class="pre-error">{e(err_after)}</pre>')
-
-        parts.append('</div>')  # .interaction
-
-    parts.append('</div></body></html>')
-    return "".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -412,8 +622,8 @@ def render_progress_section(results_dir):
     except Exception:
         return ""
 
-    from datetime import datetime, timezone
-    completed = p.get("completed_runs", 0)
+    from datetime import datetime
+    completed = sum(1 for _ in results_dir.rglob("*.jsonl"))
     total     = p.get("total_runs", 0)
     last_run  = p.get("last_run", "")
     started   = p.get("started_at", "")
@@ -422,19 +632,18 @@ def render_progress_section(results_dir):
     pct = (completed / total * 100) if total else 0
     done = completed >= total
 
-    # ETA calculation using wall-clock elapsed
     eta_str = ""
     elapsed_str = ""
     try:
         t0 = datetime.fromisoformat(started)
-        t1 = datetime.fromisoformat(updated)
+        t1 = datetime.now()
         elapsed_s = (t1 - t0).total_seconds()
         if elapsed_s > 0:
             mins, secs = divmod(int(elapsed_s), 60)
             hrs, mins  = divmod(mins, 60)
             elapsed_str = f"{hrs}h {mins:02d}m {secs:02d}s" if hrs else f"{mins}m {secs:02d}s"
         if completed > 0 and not done and elapsed_s > 0:
-            rate = completed / elapsed_s        # runs per second
+            rate = completed / elapsed_s
             remaining_s = (total - completed) / rate
             m, s = divmod(int(remaining_s), 60)
             h, m = divmod(m, 60)
@@ -442,12 +651,19 @@ def render_progress_section(results_dir):
     except Exception:
         pass
 
-    status = "Complete" if done else "Running"
+    status    = "Complete" if done else "Running"
     bar_color = "#27ae60" if done else "#3498db"
-    last_html = f"<span>last completed: <strong>{e(last_run)}</strong></span>" if last_run else ""
-    eta_html  = f"<span>ETA: <strong>{e(eta_str)}</strong></span>" if eta_str else ""
+    last_html    = f"<span>last completed: <strong>{e(last_run)}</strong></span>" if last_run else ""
+    eta_html     = f"<span>ETA: <strong>{e(eta_str)}</strong></span>" if eta_str else ""
     elapsed_html = f"<span>elapsed: <strong>{e(elapsed_str)}</strong></span>" if elapsed_str else ""
-    updated_html = f"<span>updated: {e(updated[:19].replace('T', ' '))}</span>" if updated else ""
+    if updated:
+        try:
+            updated_ts   = int(datetime.fromisoformat(updated).timestamp())
+            updated_html = f'<span>updated: <span data-ts="{updated_ts}" title=""></span></span>'
+        except Exception:
+            updated_html = f"<span>updated: {e(updated[:19].replace('T', ' '))}</span>"
+    else:
+        updated_html = ""
 
     return f"""
 <div class="progress-section">
@@ -466,41 +682,19 @@ def render_progress_section(results_dir):
 
 
 def render_index(records_with_paths, results_dir=None):
-    sorted_records = sorted(records_with_paths,
-                            key=lambda r: r[0].get("completed_at", 0), reverse=True)
-
-    rows = []
-    for rec, page_path in sorted_records:
-        class_name   = rec.get("class_name", "?")
-        feature_name = rec.get("feature_name", "?")
-        success      = rec.get("success", False)
-        n_ix         = rec.get("llm_interactions", 0)
-        elapsed      = rec.get("total_elapsed_time_seconds", 0.0)
-        total_cost   = rec.get("total_cost", 0.0)
-        dataset      = rec.get("dataset", "")
-        model_slug   = rec.get("model_slug", "")
-        ablation     = rec.get("ablation_tag", "")
-        final_status = rec.get("final_status", "")
-        ts           = rec.get("completed_at", 0)
-        rows.append(
-            f'<tr>'
-            f'<td data-sort="{ts}">{e(fmt_ts(ts))}</td>'
-            f'<td>{e(dataset)}</td>'
-            f'<td><a href="models/{e(model_slug)}.html">{e(model_slug)}</a></td>'
-            f'<td><a href="ablations/{e(ablation)}.html">{e(ablation)}</a></td>'
-            f'<td><a href="{e(page_path)}">{e(class_name)}.{e(feature_name)}</a></td>'
-            f'<td data-sort="{1 if success else 0}">{badge(success)}</td>'
-            f'<td data-sort="{n_ix}">{n_ix}</td>'
-            f'<td data-sort="{elapsed:.3f}">{elapsed:.1f}s</td>'
-            f'<td data-sort="{total_cost:.8f}">{fmt_cost(total_cost)}</td>'
-            f'<td>{e(final_status)}</td>'
-            f'</tr>'
-        )
-
     n_total = len(records_with_paths)
     n_ok    = sum(1 for r, _ in records_with_paths if r.get("success"))
 
-    # Build legend rows: one row per known part
+    table_html = render_runs_table(
+        records_with_paths,
+        to_root=".",
+        show_dataset=True,
+        show_model=True,
+        show_ablation=True,
+        show_feature=True,
+        table_id="runs-table",
+    )
+
     legend_rows = "".join(
         f'<tr>'
         f'<td class="abl-tag">--no-{code}</td>'
@@ -508,41 +702,6 @@ def render_index(records_with_paths, results_dir=None):
         f'</tr>'
         for code, desc in ABLATION_PARTS.items()
     )
-
-    sort_js = """
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-  const table = document.querySelector('table');
-  const tbody = table.querySelector('tbody');
-  const ths   = table.querySelectorAll('thead th');
-  let sortCol = 0, sortAsc = false;  // default: Completed descending
-
-  function cellVal(row, col) {
-    const td = row.cells[col];
-    // numeric: strip non-numeric except dot/minus
-    const raw = td.getAttribute('data-sort') || td.innerText.trim();
-    const num = parseFloat(raw.replace(/[^0-9.\\-]/g, ''));
-    return isNaN(num) ? raw.toLowerCase() : num;
-  }
-
-  ths.forEach(function(th, i) {
-    th.addEventListener('click', function() {
-      if (sortCol === i) { sortAsc = !sortAsc; }
-      else { sortCol = i; sortAsc = true; }
-      ths.forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
-      th.classList.add(sortAsc ? 'sort-asc' : 'sort-desc');
-      const rows = Array.from(tbody.rows);
-      rows.sort(function(a, b) {
-        const va = cellVal(a, i), vb = cellVal(b, i);
-        const cmp = va < vb ? -1 : va > vb ? 1 : 0;
-        return sortAsc ? cmp : -cmp;
-      });
-      rows.forEach(r => tbody.appendChild(r));
-    });
-  });
-});
-</script>
-"""
 
     progress_html = render_progress_section(results_dir) if results_dir else ""
 
@@ -553,17 +712,13 @@ document.addEventListener('DOMContentLoaded', function() {
 </head><body>
 <div class="index-header">
   <h1>Experiment results</h1>
-  <p>{n_ok}/{n_total} features verified &nbsp;·&nbsp; click a feature to view interactions</p>
+  <p>{n_ok}/{n_total} features verified &nbsp;·&nbsp; click a timestamp to view interactions</p>
 </div>
 <div class="index-body">
 {progress_html}
-<table style="margin-top:20px">
-  <thead><tr>
-    <th class="sort-desc">Completed</th><th>Dataset</th><th>Model</th><th>Ablation</th><th>Feature</th>
-    <th>Result</th><th>Interactions</th><th>Elapsed</th><th>Cost</th><th>Status</th>
-  </tr></thead>
-  <tbody>{"".join(rows)}</tbody>
-</table>
+<div style="margin-top:20px">
+{table_html}
+</div>
 <div class="legend">
   <h2>Ablation legend</h2>
   <p class="ablation-note">
@@ -578,7 +733,7 @@ document.addEventListener('DOMContentLoaded', function() {
   </table>
 </div>
 </div>
-{sort_js}
+{sort_js_for("runs-table")}
 </body></html>"""
 
 
@@ -615,7 +770,7 @@ def main():
     out_dir     = Path(args.out) if args.out else results_dir / "html"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    records_with_paths = []  # (rec, relative_html_path_from_out_dir)
+    records_with_paths = []  # (rec, page_path_relative_to_out_dir)
 
     for dataset_dir in sorted(results_dir.iterdir()):
         if not dataset_dir.is_dir() or dataset_dir.name == "html":
@@ -650,12 +805,11 @@ def main():
                         page_abs  = page_dir / page_name
                         page_rel  = page_abs.relative_to(out_dir)
 
-                        # Relative path back to index.html from the feature page
-                        depth   = len(page_rel.parts) - 1
-                        to_root = "/".join([".."] * depth)
+                        depth     = len(page_rel.parts) - 1
+                        to_root   = "/".join([".."] * depth)
                         index_rel = f"{to_root}/index.html" if to_root else "index.html"
 
-                        page_html = render_feature_page(rec, index_rel, to_root=to_root)
+                        page_html = render_run_detail_page(rec, index_rel, to_root=to_root)
                         page_abs.write_text(page_html, encoding="utf-8")
                         records_with_paths.append((rec, str(page_rel)))
 
@@ -672,22 +826,36 @@ def main():
     # Model pages
     from collections import defaultdict
     by_model = defaultdict(list)
-    for rec, _ in records_with_paths:
-        by_model[rec.get("model_slug", "")].append(rec)
+    for rec, page_path in records_with_paths:
+        by_model[rec.get("model_slug", "")].append((rec, page_path))
     models_dir = out_dir / "models"
     models_dir.mkdir(exist_ok=True)
-    for model_slug, recs in by_model.items():
+    for model_slug, recs_paths in by_model.items():
         if not model_slug:
             continue
-        m_html = render_model_page(model_slug, recs, index_path="../index.html")
+        m_html = render_model_page(model_slug, recs_paths, index_path="../index.html")
         (models_dir / f"{model_slug}.html").write_text(m_html, encoding="utf-8")
+
+    # Feature overview pages
+    by_feature = defaultdict(list)
+    for rec, page_path in records_with_paths:
+        feat_key = f"{rec.get('class_name', 'unknown')}.{rec.get('feature_name', 'unknown')}"
+        by_feature[feat_key].append((rec, page_path))
+    features_dir = out_dir / "features"
+    features_dir.mkdir(exist_ok=True)
+    for feat_key, recs_paths in by_feature.items():
+        f_html = render_feature_overview_page(feat_key, recs_paths, index_path="../index.html")
+        (features_dir / f"{feat_key}.html").write_text(f_html, encoding="utf-8")
 
     index_html = render_index(records_with_paths, results_dir=results_dir)
     (out_dir / "index.html").write_text(index_html, encoding="utf-8")
 
     n = len(records_with_paths)
-    print(f"Wrote {n} feature page(s) + {len(all_tags)} ablation page(s)"
-          f" + {len(by_model)} model page(s) + index → {out_dir}/index.html")
+    print(f"Wrote {n} run detail page(s)"
+          f" + {len(all_tags)} ablation page(s)"
+          f" + {len(by_model)} model page(s)"
+          f" + {len(by_feature)} feature page(s)"
+          f" + index → {out_dir}/index.html")
 
 
 if __name__ == "__main__":

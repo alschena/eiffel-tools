@@ -19,6 +19,7 @@ Usage:
 
 import argparse
 import datetime
+import errno
 import json
 import os
 import shutil
@@ -40,6 +41,7 @@ DEFAULT_MODELS = [
     "liquid/lfm-2.5-1.2b-instruct:free",
     "poolside/laguna-xs.2:free",
     "mistralai/codestral-2508",
+    "mistralai/ministral-3b-2512",
 ]
 
 DEFAULT_DATASETS = [
@@ -52,23 +54,23 @@ DEFAULT_DATASETS = [
 # ---------------------------------------------------------------------------
 
 ABLATION = [
-    ("task",  "--no-task-instruction"),
-    ("mod",   "--no-modification-constraints"),
-    ("pre",   "--no-precondition-identifiers"),
-    ("post",  "--no-postcondition-identifiers"),
-    ("err",   "--no-error-message"),
-    ("sig",   "--no-verbatim-signature"),
-    ("syn",   "--no-syntax-guide"),
+    ("task",    ["--no-task-instruction"]),
+    ("prepost", ["--no-precondition-identifiers", "--no-postcondition-identifiers"]),
+    ("err",     ["--no-error-message"]),
+    ("sig",     ["--no-verbatim-signature"]),
+    ("syn",     ["--no-syntax-guide"]),
+    ("fsig",    ["--no-full-sig"]),
 ]
 
 
 def all_combinations():
-    """Yield (tag: str, flags: list[str]) for every 2^5 ablation combination."""
+    """Yield (tag, flags) for every 2^n ablation combination, ordered by number of disabled parts."""
     n = len(ABLATION)
-    for mask in range(1 << n):
-        disabled = [(short, flag) for i, (short, flag) in enumerate(ABLATION) if (mask >> i) & 1]
+    masks = sorted(range(1 << n), key=lambda m: bin(m).count('1'))
+    for mask in masks:
+        disabled = [(short, flags) for i, (short, flags) in enumerate(ABLATION) if (mask >> i) & 1]
         tag   = "_".join(f"no_{s}" for s, _ in disabled) or "full"
-        flags = [flag for _, flag in disabled]
+        flags = [f for _, flist in disabled for f in flist]
         yield tag, flags
 
 
@@ -108,10 +110,31 @@ def acquire_lock(dataset: Path) -> Path:
             f.write(f"pid={os.getpid()}\nstarted={datetime.datetime.now().isoformat()}\n")
         return lock
     except FileExistsError:
+        # Check whether the owning PID is still alive before failing
         try:
             info = lock.read_text().strip()
         except Exception:
             info = "(unreadable)"
+        pid = None
+        for line in info.splitlines():
+            if line.startswith("pid="):
+                try:
+                    pid = int(line.split("=", 1)[1])
+                except ValueError:
+                    pass
+        if pid is not None:
+            try:
+                os.kill(pid, 0)
+                # EPERM means process exists but we can't signal it — still alive
+            except OSError as exc:
+                if exc.errno == errno.EPERM:
+                    pass  # alive
+                else:
+                    # ESRCH: process gone — stale lock
+                    print(f"  Removing stale lock (pid {pid} no longer running): {lock}",
+                          flush=True)
+                    lock.unlink(missing_ok=True)
+                    return acquire_lock(dataset)
         raise RuntimeError(f"Dataset locked by another process:\n  {info}\n  lock: {lock}")
 
 
@@ -188,7 +211,8 @@ def run_prepare(dataset: Path) -> Path:
 
 
 def run_one(binary: Path, dataset: Path, features_file: Path,
-            model: str, flags: list, output: Path, total_features: int = 0) -> int:
+            model: str, flags: list, output: Path,
+            total_features: int = 0, append: bool = False) -> int:
     import json as _json
     cmd = [
         str(binary),
@@ -199,7 +223,7 @@ def run_one(binary: Path, dataset: Path, features_file: Path,
         *flags,
     ]
     n = 0
-    with open(output, "w") as f:
+    with open(output, "a" if append else "w") as f:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, cwd=dataset)
         for line in proc.stdout:
@@ -240,6 +264,44 @@ def run_one(binary: Path, dataset: Path, features_file: Path,
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+def completed_features_in_jsonl(path: Path) -> set:
+    """Return set of (class_name, feature_name) already recorded in a JSONL file."""
+    done = set()
+    if not path.exists():
+        return done
+    try:
+        for line in path.read_text().splitlines():
+            s = line.strip()
+            if s and not s.startswith(">>"):
+                try:
+                    rec = json.loads(s)
+                    cn = rec.get("class_name", "")
+                    fn = rec.get("feature_name", "")
+                    # rate_limited records are not considered done — they must be re-run
+                    if cn and fn and not rec.get("rate_limited", False):
+                        done.add((cn, fn))
+                except json.JSONDecodeError:
+                    pass
+    except OSError:
+        pass
+    return done
+
+
+def parse_features_file(path: Path) -> list:
+    """Parse CLASS.feature lines; return list of (class_name, feature_name) tuples."""
+    result = []
+    for line in path.read_text().splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if "." in s:
+            cls, feat = s.split(".", 1)
+            result.append((cls.upper(), feat))
+        else:
+            result.append((s.upper(), None))
+    return result
+
 
 def write_progress(results_dir: Path, run_num: int, n_runs: int,
                    started_at: datetime.datetime, last_run: str = "") -> None:
@@ -285,6 +347,9 @@ def parse_args():
                    help="Run only the first N features per dataset (for quick tests)")
     p.add_argument("--no-purge",  action="store_true",
                    help="Skip purging old JSONL results before running")
+    p.add_argument("--resume",    action="store_true",
+                   help="Skip runs whose JSONL is already complete; re-run partial ones. "
+                        "Implies --no-purge. Handles stale lock files automatically.")
     p.add_argument("--dry-run",   action="store_true",
                    help="Print what would run without executing")
     return p.parse_args()
@@ -307,9 +372,9 @@ def main():
             sys.exit(f"No ablations matched: {args.ablations}")
     binary = None if args.dry_run else find_binary()
 
-    n_runs = len(datasets) * len(models) * len(combos)
-    print(f"{n_runs} runs: {len(datasets)} dataset(s) × {len(models)} model(s) "
-          f"× {len(combos)} ablation(s)", flush=True)
+    n_runs = 0  # accumulated after loading each dataset's feature list
+    print(f"Planned: {len(datasets)} dataset(s) × {len(models)} model(s) "
+          f"× {len(combos)} ablation(s) (feature count TBD per dataset)", flush=True)
 
     if args.dry_run:
         run_num = 0
@@ -322,20 +387,34 @@ def main():
                           f"  →  {output.relative_to(EXPERIMENTS_DIR)}", flush=True)
         return
 
+    resume = args.resume
+
     results_dir = EXPERIMENTS_DIR / "results"
-    if not args.no_purge:
+    if not args.no_purge and not resume:
         purge_results(results_dir)
 
     errors = []
     run_num = 0
-    started_at = datetime.datetime.now()
     results_dir.mkdir(parents=True, exist_ok=True)
+
+    # Preserve started_at across resumes so elapsed / ETA stay meaningful
+    started_at = datetime.datetime.now()
+    if resume:
+        try:
+            prev = json.loads((results_dir / "progress.json").read_text())
+            started_at = datetime.datetime.fromisoformat(prev["started_at"])
+            skipped = prev.get("completed_runs", 0)
+            prev_total = prev.get("total_runs", "?")
+            print(f"Resuming experiment (previously completed {skipped}/{prev_total} runs).",
+                  flush=True)
+        except Exception:
+            pass
+
     write_progress(results_dir, 0, n_runs, started_at)
 
     for dataset in datasets:
         if not dataset.is_dir():
             print(f"[SKIP] dataset not found: {dataset}", flush=True)
-            run_num += len(models) * len(combos)
             continue
 
         # --- one-time setup per dataset ---
@@ -344,7 +423,6 @@ def main():
         except RuntimeError as e:
             print(f"ERROR: dataset setup failed for {dataset.name}: {e}", file=sys.stderr, flush=True)
             errors.append((dataset.name, str(e)))
-            run_num += len(models) * len(combos)
             continue
 
         try:
@@ -352,7 +430,6 @@ def main():
         except RuntimeError as e:
             print(f"ERROR: {e}", file=sys.stderr, flush=True)
             errors.append((dataset.name, str(e)))
-            run_num += len(models) * len(combos)
             continue
 
         features_file = None
@@ -370,32 +447,80 @@ def main():
                 limited.write_text("".join(all_lines[:args.limit_features]))
                 features_file.unlink()
                 features_file = limited
-            n_features = sum(1 for _ in open(features_file))
-            print(f"  {dataset.name}: {n_features} feature(s) to fix", flush=True)
+            all_features = parse_features_file(features_file)
+            n_runs += len(all_features) * len(models) * len(combos)
+            print(f"  {dataset.name}: {len(all_features)} feature(s) → "
+                  f"{len(all_features) * len(models) * len(combos)} runs "
+                  f"(total so far: {n_runs})", flush=True)
 
-            # --- per (model × ablation) run ---
-            for model in models:
-                for tag, flags in combos:
-                    run_num += 1
-                    output_dir = EXPERIMENTS_DIR / "results" / dataset.name / slug(model)
-                    output     = output_dir / f"{tag}.jsonl"
-                    prefix     = f"[{run_num}/{n_runs}] {dataset.name}  {model}  {tag}"
-                    print(prefix, flush=True)
-                    output_dir.mkdir(parents=True, exist_ok=True)
+            # Pre-build completed set per output file for resume (avoid re-reading on every skip)
+            completed_cache: dict = {}
+            def get_completed(path):
+                if path not in completed_cache:
+                    completed_cache[path] = completed_features_in_jsonl(path)
+                return completed_cache[path]
 
-                    git_reset(dataset)
+            # Track models that hit a rate limit — skip them for all remaining features.
+            rate_limited_models: set = set()
 
-                    try:
-                        n_records = run_one(binary, dataset, features_file, model, flags,
-                                            output, total_features=n_features)
-                        rel = output.relative_to(EXPERIMENTS_DIR)
-                        print(f"  → {rel}  ({n_records} records)", flush=True)
-                        write_progress(results_dir, run_num, n_runs, started_at,
-                                       last_run=f"{dataset.name}  {model}  {tag}")
-                        render_html(results_dir)
-                    except subprocess.CalledProcessError as e:
-                        print(f"  ERROR: {e}", file=sys.stderr, flush=True)
-                        errors.append((f"run {run_num}", str(e)))
+            # Loop order: feature → model → ablation (Hamming-ordered)
+            # git reset before each single-feature binary invocation.
+            for class_name, feature_name in all_features:
+                feat_id = (class_name, feature_name)
+                feat_str = f"{class_name}.{feature_name}" if feature_name else class_name
+
+                for model in models:
+                    if model in rate_limited_models:
+                        run_num += len(combos)
+                        continue
+
+                    model_rate_hit = False
+                    for tag, flags in combos:
+                        run_num += 1
+                        output_dir = EXPERIMENTS_DIR / "results" / dataset.name / slug(model)
+                        output     = output_dir / f"{tag}.jsonl"
+                        prefix     = f"[{run_num}/{n_runs}] {dataset.name}  {model}  {tag}  {feat_str}"
+                        output_dir.mkdir(parents=True, exist_ok=True)
+
+                        if resume and feat_id in get_completed(output):
+                            print(f"{prefix}  [SKIP]", flush=True)
+                            write_progress(results_dir, run_num, n_runs, started_at,
+                                           last_run=f"{dataset.name}  {model}  {tag}")
+                            continue
+
+                        print(prefix, flush=True)
+                        git_reset(dataset)
+
+                        run_fd, run_features_path = tempfile.mkstemp(
+                            suffix=".txt", prefix="run_features_")
+                        with os.fdopen(run_fd, "w") as f:
+                            f.write(f"{feat_str}\n")
+                        run_features = Path(run_features_path)
+
+                        try:
+                            run_one(binary, dataset, run_features, model, flags,
+                                    output, total_features=1, append=True)
+                            completed_cache.pop(output, None)  # invalidate cache
+                            write_progress(results_dir, run_num, n_runs, started_at,
+                                           last_run=f"{dataset.name}  {model}  {tag}")
+                            render_html(results_dir)
+                        except subprocess.CalledProcessError as ex:
+                            if ex.returncode == 2:
+                                print(f"  RATE LIMITED — stopping model {model} for rest of dataset",
+                                      flush=True)
+                                completed_cache.pop(output, None)
+                                model_rate_hit = True
+                            else:
+                                print(f"  ERROR: {ex}", file=sys.stderr, flush=True)
+                                errors.append((f"run {run_num}", str(ex)))
+                        finally:
+                            run_features.unlink(missing_ok=True)
+
+                        if model_rate_hit:
+                            break  # stop remaining ablations for this model
+
+                    if model_rate_hit:
+                        rate_limited_models.add(model)
 
         finally:
             if features_file:
