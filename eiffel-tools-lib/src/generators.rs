@@ -4,6 +4,7 @@ use crate::workspace::Workspace;
 use anyhow::Context;
 use anyhow::Result;
 use contract::RoutineSpecification;
+use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::info;
@@ -17,6 +18,43 @@ mod openrouter;
 
 pub use backend::LlmBackend;
 pub use prompt::FixPromptParts;
+
+/// One LLM choice tried during a fix attempt, with full API metadata.
+#[derive(Debug, Clone, Serialize)]
+pub struct Suggestion {
+    /// Raw text returned by the LLM for this choice.
+    pub content: String,
+    /// Finish reason reported by the API (e.g. "stop", "length").
+    pub finish_reason: Option<String>,
+    /// Whether this suggestion was accepted (parsed as valid Eiffel and applied).
+    pub accepted: bool,
+    /// Why this suggestion was rejected; present only when `accepted` is false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rejection_reason: Option<String>,
+    // --- API response metadata (same for every choice in the same call) ---
+    pub api_response_id: String,
+    pub model: String,
+    pub created_at: i64,
+    pub prompt_tokens: i32,
+    pub completion_tokens: i32,
+    pub total_tokens: i32,
+    /// Any extra usage/provider fields from the API payload (pricing, routing, etc.).
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Result of one LLM fix call, always populated regardless of outcome.
+#[derive(Debug)]
+pub struct LlmFixResult {
+    /// Parsed feature + its full source text when the LLM produced valid Eiffel.
+    pub success: Option<(Feature, String)>,
+    /// The prompt that was sent; `None` only when prompt construction failed.
+    pub prompt: Option<String>,
+    /// Every LLM choice tried, in order, with outcome and full API metadata.
+    pub suggestions: Vec<Suggestion>,
+    /// Top-level error when `success` is `None` (API failure, prompt build failure, etc.).
+    pub error: Option<String>,
+}
 
 #[derive(Debug)]
 pub struct Generators {
@@ -108,22 +146,23 @@ mod feature_focused {
     use super::*;
     use crate::parser::Parsed;
 
-    fn filter_unparsable(candidate: String) -> Option<(Feature, String)> {
+    /// Try to parse a candidate string as an Eiffel feature.
+    /// Returns `Ok((feature, source))` on success, `Err(reason)` on rejection.
+    fn try_parse_suggestion(candidate: String) -> Result<(Feature, String), String> {
         match Parser::default().to_feature(&candidate) {
             Err(e) => {
-                info!(target: "llm", "Fails to parse LLM generated feature with error: {e:#?}");
-                None
+                let reason = format!("parse error: {e:#?}");
+                warn!(target: "llm", "Rejected suggestion — {reason}");
+                Err(reason)
             }
             Ok(Parsed::Correct(val)) => {
-                info!(target: "llm", "Parsable LLM candidate:\t{:#?}", candidate);
-                Some((val, candidate))
+                info!(target: "llm", "Accepted suggestion (parsable Eiffel)");
+                Ok((val, candidate))
             }
-            Ok(Parsed::HasErrorNodes(tree, candidate)) => {
-                info!(target: "llm", "LLM candidate has error nodes.\nCandidate text: {:#?}\nTree: {:#?}",
-                    String::from_utf8(candidate),
-                    tree.root_node().to_sexp()
-                );
-                None
+            Ok(Parsed::HasErrorNodes(tree, _)) => {
+                let reason = format!("tree-sitter error nodes: {}", tree.root_node().to_sexp());
+                warn!(target: "llm", "Rejected suggestion — {reason}");
+                Err(reason)
             }
         }
     }
@@ -151,7 +190,7 @@ mod feature_focused {
 
             let completion_response_processed = completion_response
                 .flat_map(|reply| reply.markdown_to_code())
-                .filter_map(filter_unparsable)
+                .filter_map(|c| try_parse_suggestion(c).ok())
                 .map(|(ft, _)| ft.routine_specification())
                 .collect();
 
@@ -190,7 +229,7 @@ mod feature_focused {
 
             let completion_response_processed: Option<String> = completion_response
                 .flat_map(|response| response.markdown_to_code())
-                .filter_map(filter_unparsable)
+                .filter_map(|c| try_parse_suggestion(c).ok())
                 .filter_map(|(ft,source)| ft.body_source_unchecked(source)
                     .inspect_err(|e| info!(target: "llm", "fails to extract body of candidate feature with error: {:#?}", e))
                     .ok())
@@ -210,60 +249,114 @@ mod feature_focused {
             name_routine: &'ft FeatureName,
             error_message: String,
             parts: FixPromptParts,
-        ) -> Option<(Feature, String, String, String, Vec<String>)> {
-            let feature_prompt = prompt::FeaturePrompt::try_new_for_feature_fixes(
+        ) -> LlmFixResult {
+            let feature_prompt = match prompt::FeaturePrompt::try_new_for_feature_fixes(
                 workspace,
                 path,
                 name_routine,
                 error_message,
                 parts,
             )
-            .await?;
-            
-            // Convert prompt to string representation for JSON output
+            .await
+            {
+                Some(p) => p,
+                None => return LlmFixResult {
+                    success: None,
+                    prompt: None,
+                    suggestions: Vec::new(),
+                    error: Some("Failed to construct prompt — feature not found in workspace".into()),
+                },
+            };
+
             let prompt_string = feature_prompt.to_string();
-            
             let prompt_messages: Vec<constructor_api::MessageOut> = feature_prompt.into();
 
             let mut params = self.default_completion_parameters();
             params.messages = prompt_messages;
             params.n = Some(5);
-            let completion_response = self
+
+            let responses: Vec<_> = self
                 .complete(params)
                 .await
                 .into_iter()
-                .inspect(|response| info!(target: "llm", "LLM response {response:#?}"));
+                .collect();
 
-            // Process responses to extract code and find first parsable feature
-            // We need to track which response/choice produced the parsable code to get its raw message
-            let responses: Vec<_> = completion_response.collect();
             if responses.is_empty() {
-                return None;
+                warn!(target: "llm", "No LLM responses received — all API requests failed");
+                return LlmFixResult {
+                    success: None,
+                    prompt: Some(prompt_string),
+                    suggestions: Vec::new(),
+                    error: Some("No LLM responses — all API requests failed (see llm.log)".into()),
+                };
             }
-            
-            let mut rejected_suggestions = Vec::new();
-            
-            // Try each response and its choices to find the first parsable feature
+
+            let mut suggestions: Vec<Suggestion> = Vec::new();
+
             for response in responses.iter() {
-                // Get the raw message from the first choice of this response
-                let raw_message = response
-                    .choices
-                    .first()
-                    .map(|choice| choice.message.content.clone())
-                    .unwrap_or_default();
-                
-                // Try to extract code from this response and find parsable feature
-                for code in response.markdown_to_code() {
-                    if let Some((feature, full_source)) = filter_unparsable(code.clone()) {
-                        return Some((feature, full_source, raw_message, prompt_string.clone(), rejected_suggestions));
-                    } else {
-                        // This suggestion was rejected (unparsable), collect it
-                        rejected_suggestions.push(code);
+                let meta_id    = response.id.clone();
+                let meta_model = response.model.clone();
+                let meta_ts    = response.created;
+                let meta_pt    = response.usage.prompt_tokens;
+                let meta_ct    = response.usage.completion_tokens;
+                let meta_tt    = response.usage.total_tokens;
+                let meta_extra = {
+                    let mut m = response.usage.extra.clone();
+                    m.extend(response.extra.clone());
+                    m
+                };
+
+                for (choice, code) in response.choices.iter().zip(response.markdown_to_code()) {
+                    let finish_reason = choice.finish_reason.clone();
+                    match try_parse_suggestion(code.clone()) {
+                        Ok((feature, full_source)) => {
+                            suggestions.push(Suggestion {
+                                content: choice.message.content.clone(),
+                                finish_reason,
+                                accepted: true,
+                                rejection_reason: None,
+                                api_response_id: meta_id.clone(),
+                                model: meta_model.clone(),
+                                created_at: meta_ts,
+                                prompt_tokens: meta_pt,
+                                completion_tokens: meta_ct,
+                                total_tokens: meta_tt,
+                                extra: meta_extra.clone(),
+                            });
+                            return LlmFixResult {
+                                success: Some((feature, full_source)),
+                                prompt: Some(prompt_string),
+                                suggestions,
+                                error: None,
+                            };
+                        }
+                        Err(reason) => {
+                            suggestions.push(Suggestion {
+                                content: choice.message.content.clone(),
+                                finish_reason,
+                                accepted: false,
+                                rejection_reason: Some(reason),
+                                api_response_id: meta_id.clone(),
+                                model: meta_model.clone(),
+                                created_at: meta_ts,
+                                prompt_tokens: meta_pt,
+                                completion_tokens: meta_ct,
+                                total_tokens: meta_tt,
+                                extra: meta_extra.clone(),
+                            });
+                        }
                     }
                 }
             }
-            
-            None
+
+            let n = suggestions.len();
+            warn!(target: "llm", "All {n} suggestion(s) rejected — no parsable Eiffel code produced");
+            LlmFixResult {
+                success: None,
+                prompt: Some(prompt_string),
+                suggestions,
+                error: Some(format!("All {n} suggestion(s) rejected — no parsable Eiffel code")),
+            }
         }
     }
 }

@@ -212,6 +212,7 @@ async fn feature_by_feature(
 
             tokio::spawn(async move {
                 let mut ws = local_owned_workspace.write().await;
+                eprintln!(">> {}.{}", local_classname, local_featurename);
                 let result = fix_routine_in_place::fix_routine_in_place(
                     &local_generators,
                     &mut ws,

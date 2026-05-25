@@ -193,36 +193,40 @@ impl Default for CompletionParameters {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub(super) struct MessageReceived {
-    pub(super) role: String,
-    pub(super) content: String,
-    // Currently always Null, but might change later.
-    pub(super) tool_calls: Option<String>,
+pub struct MessageReceived {
+    pub role: String,
+    pub content: String,
+    pub tool_calls: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub(super) struct CompletionChoice {
-    pub(super) index: usize,
-    pub(super) message: MessageReceived,
-    pub(super) finish_reason: Option<String>,
+pub struct CompletionChoice {
+    pub index: usize,
+    pub message: MessageReceived,
+    pub finish_reason: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub(super) struct CompletionTokenUsage {
-    pub(super) prompt_tokens: i32,
-    pub(super) completion_tokens: i32,
-    pub(super) total_tokens: i32,
+pub struct CompletionTokenUsage {
+    pub prompt_tokens: i32,
+    pub completion_tokens: i32,
+    pub total_tokens: i32,
+    /// Any extra token-usage fields returned by the provider (e.g. prompt_tokens_details).
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CompletionResponse {
-    pub(super) id: String,
-    /// Response schema. Currently only "chat.completion" is allowed.
-    pub(super) object: String,
-    pub(super) created: i32,
-    pub(super) model: String,
-    pub(super) choices: Vec<CompletionChoice>,
-    pub(super) usage: CompletionTokenUsage,
+    pub id: String,
+    pub object: String,
+    pub created: i64,
+    pub model: String,
+    pub choices: Vec<CompletionChoice>,
+    pub usage: CompletionTokenUsage,
+    /// Any extra fields returned by the provider (pricing, routing info, etc.).
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl CompletionResponse {
@@ -535,7 +539,9 @@ mod tests {
                     prompt_tokens: 0,
                     completion_tokens: 0,
                     total_tokens: 0,
+                    extra: serde_json::Map::new(),
                 },
+                extra: serde_json::Map::new(),
             }
         }
     }
