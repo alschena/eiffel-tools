@@ -55,6 +55,7 @@ ABLATION = [
     ("pre",   "--no-precondition-identifiers"),
     ("post",  "--no-postcondition-identifiers"),
     ("err",   "--no-error-message"),
+    ("sig",   "--no-verbatim-signature"),
 ]
 
 
@@ -233,6 +234,28 @@ def run_one(binary: Path, dataset: Path, features_file: Path,
 # Main
 # ---------------------------------------------------------------------------
 
+def purge_results(results_dir: Path) -> None:
+    removed = 0
+    for jf in results_dir.rglob("*.jsonl"):
+        jf.unlink()
+        removed += 1
+    if removed:
+        print(f"Purged {removed} JSONL file(s) from {results_dir}", flush=True)
+
+
+def render_html(results_dir: Path) -> None:
+    print("Generating HTML interaction viewer…", flush=True)
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_DIR / "render_interactions.py"),
+         "--results", str(results_dir)],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        print(result.stdout.strip(), flush=True)
+    else:
+        print(f"  WARNING: render_interactions.py failed:\n{result.stderr}", flush=True)
+
+
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -241,6 +264,8 @@ def parse_args():
     p.add_argument("--ablations", help="Comma-separated ablation tags to run (e.g. full,no_err)")
     p.add_argument("--limit-features", type=int, metavar="N",
                    help="Run only the first N features per dataset (for quick tests)")
+    p.add_argument("--no-purge",  action="store_true",
+                   help="Skip purging old JSONL results before running")
     p.add_argument("--dry-run",   action="store_true",
                    help="Print what would run without executing")
     return p.parse_args()
@@ -277,6 +302,10 @@ def main():
                     print(f"[{run_num}/{n_runs}] {dataset.name}  {model}  {tag}"
                           f"  →  {output.relative_to(EXPERIMENTS_DIR)}", flush=True)
         return
+
+    results_dir = EXPERIMENTS_DIR / "results"
+    if not args.no_purge:
+        purge_results(results_dir)
 
     errors = []
     run_num = 0
@@ -349,13 +378,16 @@ def main():
             release_lock(lock)
 
     print(flush=True)
+    render_html(results_dir)
+
     if errors:
         print(f"{len(errors)} failure(s):", file=sys.stderr)
         for label, msg in errors:
             print(f"  {label}: {msg}", file=sys.stderr)
         sys.exit(1)
     else:
-        print(f"Done. Results in {EXPERIMENTS_DIR / 'results'}", flush=True)
+        print(f"Done. Results in {results_dir}", flush=True)
+        print(f"      HTML viewer: {results_dir / 'html' / 'index.html'}", flush=True)
 
 
 if __name__ == "__main__":

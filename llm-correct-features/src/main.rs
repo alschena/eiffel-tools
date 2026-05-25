@@ -59,6 +59,8 @@ struct Args {
     no_postcondition_identifiers: bool,
     #[arg(long, help = "Omit AutoProof error message from prompt")]
     no_error_message: bool,
+    #[arg(long, help = "Omit verbatim feature signature from output-format instruction")]
+    no_verbatim_signature: bool,
 }
 
 #[derive(Serialize)]
@@ -157,6 +159,7 @@ async fn feature_by_feature(
         no_precondition_identifiers,
         no_postcondition_identifiers,
         no_error_message,
+        no_verbatim_signature,
     }: Args,
 ) {
     let system = system(&config_file);
@@ -189,6 +192,7 @@ async fn feature_by_feature(
         precondition_identifiers: !no_precondition_identifiers,
         postcondition_identifiers: !no_postcondition_identifiers,
         error_message: !no_error_message,
+        verbatim_signature: !no_verbatim_signature,
     };
 
     let classes_and_routines = {

@@ -306,10 +306,18 @@ mod feature_focused {
                     m
                 };
 
-                for (choice, code) in response.choices.iter().zip(response.markdown_to_code()) {
+                for choice in response.choices.iter() {
                     let finish_reason = choice.finish_reason.clone();
-                    match try_parse_suggestion(code.clone()) {
-                        Ok((feature, full_source)) => {
+                    // Try candidates in priority order: fenced block first, raw code second.
+                    let candidates = constructor_api::CompletionResponse::code_candidates(
+                        &choice.message.content,
+                    );
+                    let parse_result = candidates
+                        .into_iter()
+                        .find_map(|code| try_parse_suggestion(code).ok());
+
+                    match parse_result {
+                        Some((feature, full_source)) => {
                             suggestions.push(Suggestion {
                                 content: choice.message.content.clone(),
                                 finish_reason,
@@ -330,12 +338,19 @@ mod feature_focused {
                                 error: None,
                             };
                         }
-                        Err(reason) => {
+                        None => {
+                            // Record the rejection reason from the first (highest-priority) candidate.
+                            let first_reason = constructor_api::CompletionResponse::code_candidates(
+                                &choice.message.content,
+                            )
+                            .into_iter()
+                            .find_map(|code| try_parse_suggestion(code).err())
+                            .unwrap_or_else(|| "no code candidates extracted".to_string());
                             suggestions.push(Suggestion {
                                 content: choice.message.content.clone(),
                                 finish_reason,
                                 accepted: false,
-                                rejection_reason: Some(reason),
+                                rejection_reason: Some(first_reason),
                                 api_response_id: meta_id.clone(),
                                 model: meta_model.clone(),
                                 created_at: meta_ts,

@@ -23,6 +23,9 @@ pub struct FixPromptParts {
     pub precondition_identifiers: bool,
     pub postcondition_identifiers: bool,
     pub error_message: bool,
+    /// Include the verbatim feature signature in the output-format instruction.
+    /// When false the instruction still asks for ```eiffel + signature, but omits the actual text.
+    pub verbatim_signature: bool,
 }
 
 impl Default for FixPromptParts {
@@ -34,6 +37,7 @@ impl Default for FixPromptParts {
             precondition_identifiers: true,
             postcondition_identifiers: true,
             error_message: true,
+            verbatim_signature: true,
         }
     }
 }
@@ -118,8 +122,13 @@ mod fix_feature {
     use super::*;
 
     impl SystemMessage {
-        pub fn default_for_feature_fixes() -> Self {
-            SystemMessage(String::from(
+        pub fn default_for_feature_fixes(signature: &str, verbatim_signature: bool) -> Self {
+            let verbatim_hint = if verbatim_signature {
+                format!(" The signature is: {signature}")
+            } else {
+                String::new()
+            };
+            SystemMessage(format!(
                 "You are a coding assistant, expert in the Eiffel programming language and AutoProof static verifier.\n\
                  You will receive context about a class followed by an Eiffel feature that does not verify, and the AutoProof error.\n\
                  Respond with a corrected version of the feature.\n\
@@ -128,7 +137,10 @@ mod fix_feature {
                  - The feature signature (name, parameters, return type)\n\
                  - Preconditions (the 'require' clause)\n\
                  - Postconditions (the 'ensure' clause)\n\
-                 Preserve all contracts exactly as they are in the original code.",
+                 Preserve all contracts exactly as they are in the original code.\n\
+                 Start your response with a fenced code block. \
+                 The first line of your response must be ```eiffel and the second line must be the feature signature.{verbatim_hint}\n\
+                 Do not include any explanation or prose before the code block.",
             ))
         }
     }
@@ -269,9 +281,13 @@ mod fix_feature {
                 return None;
             };
             let source = feature_source(filepath, feature).await?;
+            let signature = source.0.lines().next().unwrap_or("").trim_end();
 
             Some(Self {
-                system_message: SystemMessage::default_for_feature_fixes(),
+                system_message: SystemMessage::default_for_feature_fixes(
+                    signature,
+                    parts.verbatim_signature,
+                ),
                 user_message: build_user_message(
                     workspace,
                     class,

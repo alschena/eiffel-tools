@@ -263,17 +263,21 @@ impl CompletionResponse {
         )
     }
 
+    /// Both extraction strategies for one content string, in priority order:
+    /// 1. `first_code_block_in_markdown` — handles prose + fenced code block
+    /// 2. `remove_quotes_around_markdown_code_block` — handles raw unfenced code
+    pub fn code_candidates(content: &str) -> Vec<String> {
+        vec![
+            Self::first_code_block_in_markdown(content),
+            Self::remove_quotes_around_markdown_code_block(content),
+        ]
+    }
+
+    /// All code candidates across all choices (for callers that use flat_map).
     pub fn markdown_to_code(&self) -> Vec<String> {
         self.contents()
-            .map(Self::remove_quotes_around_markdown_code_block)
-            .inspect(|content| info!("Extract from first markdown block in text: {content}"))
-            .chain(
-                self.contents()
-                    .map(Self::first_code_block_in_markdown)
-                    .inspect(|content| {
-                        info!("Extract from first markdown block in text: {content}")
-                    }),
-            )
+            .flat_map(Self::code_candidates)
+            .inspect(|content| info!("Extracted code candidate: {content}"))
             .collect()
     }
 }
