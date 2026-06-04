@@ -131,17 +131,20 @@ mod fix_feature {
         HintOnly,
         /// Show verbatim signature line; model fills in the rest.
         SigOnly(String),
-        /// Show verbatim signature + precondition at the top; model fills in the body;
-        /// verbatim postcondition must appear at the end before the closing fence.
+        /// Show the verbatim feature header (signature, documentation comments, notes, require)
+        /// at the top and the verbatim postcondition + `end` at the bottom.  The model fills in
+        /// the `local` declarations and body.  Both slices are lifted straight from the source so
+        /// indentation is always preserved.
         FullSig {
-            sig:  String,
-            pre:  Option<String>,
-            post: Option<String>,
+            /// Lines from the start of the feature up to (not including) `local` / `do`.
+            beginning: String,
+            /// Lines from `ensure` through `end`, or `None` when there is no postcondition.
+            ending: Option<String>,
         },
     }
 
     impl SystemMessage {
-        fn default_for_feature_fixes(template: OutputTemplate) -> Self {
+        fn default_for_feature_fixes(template: OutputTemplate, syntax_guide: bool) -> Self {
             let output_instruction = match template {
                 OutputTemplate::HintOnly => {
                     "Start your response with a fenced code block. \
@@ -156,35 +159,38 @@ mod fix_feature {
                          ```eiffel\n{sig}\n```"
                     )
                 }
-                OutputTemplate::FullSig { sig, pre, post } => {
-                    let has_pre  = pre.is_some();
-                    let has_post = post.is_some();
+                OutputTemplate::FullSig { beginning, ending } => {
+                    let has_ending = ending.is_some();
 
-                    let mut tmpl = format!("```eiffel\n{sig}\n");
-                    if let Some(ref p) = pre {
-                        tmpl.push_str(&format!("require{}\n", p.trim_end()));
-                    }
+                    let mut tmpl = format!("```eiffel\n{}\n", beginning.trim_end());
                     tmpl.push_str("... (your corrected local declarations and body here) ...\n");
-                    if let Some(ref p) = post {
-                        tmpl.push_str(&format!("ensure{}\n", p.trim_end()));
-                        tmpl.push_str("end\n");
+                    if let Some(ref e) = ending {
+                        tmpl.push_str(e.trim_end());
+                        tmpl.push('\n');
                     }
                     tmpl.push_str("```");
 
-                    let pre_desc  = if has_pre  { " followed by the verbatim precondition" } else { "" };
-                    let post_desc = if has_post {
-                        " End the block with the verbatim postcondition before the closing ```."
+                    let post_desc = if has_ending {
+                        " End the block with the verbatim postcondition and closing `end` \
+                         before the closing ```."
                     } else {
                         ""
                     };
 
                     format!(
                         "Your response must be a single ```eiffel code block. \
-                         The block must begin with the verbatim feature signature{pre_desc}. \
+                         The block must begin verbatim with the feature header (signature, \
+                         documentation comments, notes, and precondition — exactly as shown). \
                          Then add your corrected local declarations and body.{post_desc}\n\
                          Required structure:\n{tmpl}"
                     )
                 }
+            };
+
+            let guide = if syntax_guide {
+                format!("\n{}", syntax_guide_section())
+            } else {
+                String::new()
             };
 
             SystemMessage(format!(
@@ -194,9 +200,10 @@ mod fix_feature {
                  IMPORTANT: You must ONLY modify the feature body (the code between 'do' and 'end') and/or the local variable declarations (the 'local' clause).\n\
                  You must NOT modify:\n\
                  - The feature signature (name, parameters, return type)\n\
+                 - Notes (the 'note' clause)\n\
                  - Preconditions (the 'require' clause)\n\
                  - Postconditions (the 'ensure' clause)\n\
-                 Preserve all contracts exactly as they are in the original code.\n\
+                 Preserve all notes and contracts exactly as they are in the original code.{guide}\n\
                  {output_instruction}\n\
                  Do not include any explanation or prose before the code block.",
             ))
@@ -268,6 +275,7 @@ mod fix_feature {
         "Eiffel syntax reference:\n\
          \n\
          -- is the comment syntax in Eiffel (everything from -- to end of line is a comment).\n\
+         -- // is integer (floor) division; \\\\ is the remainder (modulo) operator.\n\
          \n\
          -- Feature with precondition and postcondition:\n\
          divide (divisor: INTEGER): INTEGER\n\
@@ -276,8 +284,8 @@ mod fix_feature {
          \t\tlocal\n\
          \t\t\treminder: INTEGER                  -- local clause comes before 'do', after 'require'\n\
          \t\tdo\n\
-         \t\t\treminder := value \\\\ divisor\n\
-         \t\t\tResult := value // divisor\n\
+         \t\t\treminder := value \\\\ divisor      -- \\\\ is modulo (remainder)\n\
+         \t\t\tResult := value // divisor         -- // is integer (floor) division\n\
          \t\tensure\n\
          \t\t\t                                   -- 'ensure then' strengthens inherited post\n\
          \t\t\tresult_definition: Result * divisor <= old value  -- 'old expr' = value of expr at entry\n\
@@ -361,11 +369,6 @@ mod fix_feature {
             }
         }
 
-        if parts.syntax_guide {
-            msg.push('\n');
-            msg.push_str(&syntax_guide_section());
-        }
-
         msg.push('\n');
         msg.push_str(&feature_code_section(source));
 
@@ -403,15 +406,64 @@ mod fix_feature {
             let template = if !parts.verbatim_signature {
                 OutputTemplate::HintOnly
             } else if parts.full_sig {
-                let pre  = feature.preconditions().filter(|p|  !p.is_empty()).map(|p| p.to_string());
-                let post = feature.postconditions().filter(|p| !p.is_empty()).map(|p| p.to_string());
-                OutputTemplate::FullSig { sig: signature.to_string(), pre, post }
+                let feature_start_row = feature.range().start.row;
+                let src_lines: Vec<&str> = source.0.lines().collect();
+                let total = src_lines.len();
+
+                // Extract a half-open slice [from, to_excl) of lines, appending '\n' after each
+                // line — the same convention as `source_in_range_unchecked` / `source_unchecked`.
+                // Returns None when the slice is empty or all-whitespace.
+                let extract = |from: usize, to_excl: usize| -> Option<String> {
+                    if from >= to_excl || to_excl > total { return None; }
+                    let text = src_lines[from..to_excl].iter().fold(
+                        String::new(),
+                        |mut acc, line| { acc.push_str(line); acc.push('\n'); acc },
+                    );
+                    if text.trim().is_empty() { None } else { Some(text) }
+                };
+
+                // `do` is the first line of body_range; everything before it is the header.
+                let do_line_rel = feature.body_range()
+                    .map(|r| r.start.row.saturating_sub(feature_start_row))
+                    .unwrap_or(total);
+
+                // Stop the beginning before `local` when a local clause is present.
+                // The `local` keyword sits on its own line before the declarations.
+                let local_line_rel = (1..do_line_rel).find(|&i| {
+                    src_lines.get(i).map_or(false, |l| l.trim() == "local")
+                });
+
+                let beginning_end = local_line_rel.unwrap_or(do_line_rel);
+                let beginning = extract(0, beginning_end)
+                    .unwrap_or_else(|| signature.to_string());
+
+                // `ensure` keyword sits on the line before point_start_postconditions in the
+                // source (tree-sitter's postcondition range starts at the first clause).
+                // Step back one line when the previous line is `ensure`.
+                let ensure_line_rel = feature.point_start_postconditions().and_then(|p| {
+                    let rel = p.row.saturating_sub(feature_start_row);
+                    if rel > 0 && src_lines.get(rel - 1)
+                            .map_or(false, |l| l.trim().starts_with("ensure")) {
+                        Some(rel - 1)
+                    } else if rel < total {
+                        Some(rel)
+                    } else {
+                        None
+                    }
+                });
+
+                // Ending = ensure … end (inclusive).  The feature source already ends at `end`.
+                let ending: Option<String> = feature.postconditions()
+                    .filter(|p| !p.is_empty())
+                    .and_then(|_| extract(ensure_line_rel?, total));
+
+                OutputTemplate::FullSig { beginning, ending }
             } else {
                 OutputTemplate::SigOnly(signature.to_string())
             };
 
             Some(Self {
-                system_message: SystemMessage::default_for_feature_fixes(template),
+                system_message: SystemMessage::default_for_feature_fixes(template, parts.syntax_guide),
                 user_message: build_user_message(
                     workspace,
                     class,
@@ -677,5 +729,49 @@ end"#;
             assert!(system.contains("increased: value = old value + amount"),
                 "full-sig: must contain postcondition clause");
         }
+
+        // A class with a feature that has notes, preconditions, and postconditions.
+        const SRC_NOTED: &str = "class NOTED\nfeature\n\tdo_work (x: INTEGER)\n\t\t\tnote\n\t\t\t\tauthor: \"alice\"\n\t\t\trequire\n\t\t\t\tx_pos: x > 0\n\t\t\tdo\n\t\t\t\tx := x + 1\n\t\t\tensure\n\t\t\t\tx_grew: x > old x\n\t\t\tend\nend";
+
+        fn noted_workspace() -> (Workspace, PathBuf) {
+            let mut parser = Parser::default();
+            let (class, tree) = parser
+                .class_and_tree_from_source(SRC_NOTED)
+                .expect("fails to parse NOTED class");
+            let mut workspace = Workspace::new();
+            let temp_dir = TempDir::new().expect("fails to create temp dir");
+            let file_path = temp_dir.path().join("noted.e");
+            std::fs::write(&file_path, SRC_NOTED).expect("fails to write source file");
+            std::mem::forget(temp_dir);
+            workspace.add_file((class, file_path.clone(), tree));
+            (workspace, file_path)
+        }
+
+        #[tokio::test]
+        async fn signature_template_full_sig_with_notes() {
+            let (workspace, path) = noted_workspace();
+            let parts = FixPromptParts { verbatim_signature: true, full_sig: true, ..FixPromptParts::default() };
+            let system = FeaturePrompt::try_new_for_feature_fixes(
+                &workspace, &path, &FeatureName::from("do_work".to_string()), String::new(), parts,
+            )
+            .await
+            .expect("prompt must be built")
+            .system_message.0;
+
+            assert!(system.contains("do_work (x: INTEGER)"),
+                "full-sig-notes: must contain signature");
+            assert!(system.contains("author: \"alice\""),
+                "full-sig-notes: must contain note content");
+            assert!(system.contains("x_pos: x > 0"),
+                "full-sig-notes: must contain precondition clause");
+            assert!(system.contains("x_grew: x > old x"),
+                "full-sig-notes: must contain postcondition clause");
+            // Notes must appear before require in the template
+            let note_pos = system.find("author").expect("note content missing");
+            let req_pos  = system.find("x_pos").expect("precondition missing");
+            assert!(note_pos < req_pos, "notes must appear before precondition in template");
+        }
+
+
     }
 }

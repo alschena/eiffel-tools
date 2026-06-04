@@ -13,7 +13,10 @@ experiments/
 │   ├── Ace.ecf                AutoProof ECF template (copied into each dataset)
 │   ├── setup.py               git clone + copy Ace.ecf
 │   ├── prepare.py             Identifies buggy features, outputs buggy_features.txt
+│   ├── check_solvable.py      Pre-flight: verify reference implementations, write solvable/<dataset>.json
 │   └── run_experiments.py     Main experiment runner
+├── solvable/                  Per-feature solvability results (gitignored)
+│   └── <dataset_name>.json    Written by check_solvable.py; read by run_experiments.py
 ├── results/                   Output JSONL files (gitignored)
 │   └── <dataset>/<model_slug>/<ablation_tag>.jsonl
 ```
@@ -43,6 +46,70 @@ export AP=/path/to/autoproof          # e.g. ~/sci/reif/research/extension/autop
 export ISE_EIFFEL=/path/to/Eiffel     # e.g. ~/sci/Eiffel_24.05
 export ISE_PLATFORM=linux-x86-64
 export ISE_LIBRARY=$ISE_EIFFEL/library
+```
+
+### 4. (Optional) Pre-flight solvability check
+
+Some correct reference implementations cannot be verified by AutoProof — typically
+because their postconditions require inductive reasoning that z3 cannot discharge
+(e.g. proving equivalence between a recursive and an iterative factorial).
+Running the LLM experiment on such features is pointless: even a perfect fix will time out.
+
+Run this once per JML-style dataset before the experiment:
+
+```sh
+cd experiments
+AP_COMMAND=$AP/EIFGENs/batch/F_code/ecb \
+  python3 scripts/check_solvable.py datasets/buggy-java-jml-eiffel
+```
+
+This verifies every correct (unnumbered) reference class against AutoProof,
+kills the entire ecb → boogie → z3 process tree on timeout, and writes:
+
+```
+datasets/buggy-java-jml-eiffel/solvable_features.json
+```
+
+The experiment runner reads this file automatically at startup and skips any
+`CLASS_N.feature` whose base-class entry is absent or not `"verified"`.
+
+**Findings for `buggy-java-jml-eiffel`** (timeout 120 s, run 2026-05-27):
+
+- 163 / 163 features verified across 33 classes
+- 1 class timed out: **`COMBINATION_PERMUTATION`** — its postconditions use
+  `factorial_rec` (recursive) while the body calls `factorial_loop` (iterative);
+  z3 cannot prove their equivalence without induction lemmas
+- 9 buggy variants are skipped as a result: `COMBINATION_PERMUTATION_1` through
+  `COMBINATION_PERMUTATION_9` (features `combination`, `permutation`, `select_either`)
+
+**To inspect what is skipped**, compare `prepare.py` output against the solvable list:
+
+```sh
+cd experiments
+python3 scripts/prepare.py datasets/buggy-java-jml-eiffel \
+  | python3 - <<'EOF'
+import sys, json, re
+from pathlib import Path
+data = json.loads(Path("solvable/buggy-java-jml-eiffel.json").read_text())
+solvable = {k for k, v in data["results"].items() if v == "verified"}
+for line in sys.stdin:
+    cls, feat = line.strip().split(".", 1)
+    base = re.sub(r"_\d+$", "", cls)
+    status = "solvable" if f"{base}.{feat}" in solvable else "SKIPPED"
+    print(f"{status:10s} {line.strip()}")
+EOF
+```
+
+Or simply check which classes timed out:
+
+```sh
+python3 -c "
+import json
+from pathlib import Path
+d = json.loads(Path('solvable/buggy-java-jml-eiffel.json').read_text())
+print('Timed out:', d['timeout_classes'])
+print('Generated:', d['generated_at'][:10])
+"
 ```
 
 ## Running experiments

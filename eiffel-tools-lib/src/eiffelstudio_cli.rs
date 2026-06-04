@@ -136,16 +136,36 @@ pub fn verify(
                     max_secs, command_string
                 );
 
-                // Collect the entire process subtree rooted at ecb BEFORE killing anything.
-                // ecb → boogie → Z3: boogie creates its own process group, so killing only
-                // ecb's PGID leaves boogie and Z3 alive.  Once ecb exits /proc/<pid>/ is gone,
-                // so we must snapshot the tree now.
+                // Snapshot the subtree BEFORE killing anything — once ecb exits,
+                // /proc/<pid>/ is gone and we can no longer walk its children.
                 #[cfg(unix)]
                 let subtree_pids: Vec<u32> = child_pid
                     .map(collect_subtree_pids)
                     .unwrap_or_default();
 
-                // Try to drain up to 1 MB of output before killing (best-effort).
+                // Kill ecb and the full subtree NOW, before any drain.
+                // The drain must come after: if we drain first, boogie stays alive and
+                // may spawn new z3 instances whose PIDs aren't in the snapshot above.
+                // Once all processes are dead their pipes close immediately, so the
+                // drain below returns EOF instantly (useful only for verbose logging).
+                if let Some(ref mut child) = child_opt {
+                    let _ = child.kill().await;
+                }
+                #[cfg(unix)]
+                {
+                    use std::process::Command;
+                    for pid in &subtree_pids {
+                        let _ = Command::new("kill").args(["-9", &format!("-{}", pid)]).output();
+                        let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
+                    }
+                    info!(
+                        target: "autoproof",
+                        "Killed subtree ({} process(es)) for `{}`",
+                        subtree_pids.len(), command_string
+                    );
+                }
+
+                // Drain output for verbose logging (pipes are now closed, returns EOF fast).
                 let mut stdout_bytes = Vec::new();
                 let mut stderr_bytes = Vec::new();
                 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -179,25 +199,9 @@ pub fn verify(
                             }
                         }
                     }
-                    let _ = child.kill().await;
                     let _ = child.wait().await;
                 } else if let Some(pid) = child_pid {
                     kill_process_by_pid(pid, &command_string).await;
-                }
-
-                // Kill the full subtree (ecb's PGID + every descendant process group).
-                #[cfg(unix)]
-                {
-                    use std::process::Command;
-                    for pid in &subtree_pids {
-                        let _ = Command::new("kill").args(["-9", &format!("-{}", pid)]).output();
-                        let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
-                    }
-                    info!(
-                        target: "autoproof",
-                        "Killed subtree ({} process(es)) for `{}`",
-                        subtree_pids.len(), command_string
-                    );
                 }
 
                 if verbose {

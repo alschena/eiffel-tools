@@ -24,7 +24,8 @@ static LOCAL_DECLARATIONS_QUERY: LazyLock<Query> = LazyLock::new(|| {
     ).expect("Failed to create LOCAL_DECLARATIONS_QUERY")
 });
 
-// Query to find return_type node in feature_declaration
+// Query to find return_type node in feature_declaration (used in tests)
+#[allow(dead_code)]
 static RETURN_TYPE_QUERY: LazyLock<Query> = LazyLock::new(|| {
     tree_sitter::Query::new(
         &tree_sitter_eiffel::LANGUAGE.into(),
@@ -34,7 +35,18 @@ static RETURN_TYPE_QUERY: LazyLock<Query> = LazyLock::new(|| {
     ).expect("Failed to create RETURN_TYPE_QUERY")
 });
 
-/// Find where the return type ends (if present) to determine signature end
+// Query to find the postcondition (ensure) node inside a feature's attribute_or_routine
+static POSTCONDITION_QUERY: LazyLock<Query> = LazyLock::new(|| {
+    tree_sitter::Query::new(
+        &tree_sitter_eiffel::LANGUAGE.into(),
+        r#"(attribute_or_routine
+            (postcondition) @postcondition
+        )"#,
+    ).expect("Failed to create POSTCONDITION_QUERY")
+});
+
+/// Find where the return type ends (if present) — used in tests.
+#[allow(dead_code)]
 fn find_return_type_end(
     feature: &Feature,
     root_node: tree_sitter::Node<'_>,
@@ -87,6 +99,34 @@ fn find_local_clause_range(
                     && feature_range.contains(local_range.end)
                 {
                     return Some(local_range);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Find the range of the `postcondition` (ensure) node inside a feature's attribute_or_routine.
+fn find_postcondition_range(
+    feature: &Feature,
+    root_node: tree_sitter::Node<'_>,
+    source_bytes: &[u8],
+) -> Option<Range> {
+    let feature_range = feature.range();
+    let postcondition_index = POSTCONDITION_QUERY.capture_index_for_name("postcondition")?;
+
+    let mut cursor = QueryCursor::new();
+    let mut matches = cursor.matches(&POSTCONDITION_QUERY, root_node, source_bytes);
+
+    while let Some(m) = matches.next() {
+        for capture in m.captures {
+            if capture.index == postcondition_index {
+                let post_range: Range = capture.node.range().into();
+                if feature_range.contains(post_range.start)
+                    && feature_range.contains(post_range.end)
+                {
+                    return Some(post_range);
                 }
             }
         }
@@ -169,7 +209,7 @@ pub async fn verification(
         Ok(Err(_timeout)) => {
             reset_source(workspace, path.to_path_buf(), last_valid_code).await;
             info!(target: "autoproof", "AutoProof times out verifying {entity_under_verification}.");
-            ControlFlow::Continue(None)
+            ControlFlow::Continue(Some("Verification timed out".to_string()))
         }
         Err(fails_to_complete_task) => {
             reset_source(workspace, path.to_path_buf(), last_valid_code).await;
@@ -387,82 +427,30 @@ where
 
                 // Check if this feature needs modification
                 if let Some((_, new_body)) = matching_new_feature(feature.name(), feature_bodies) {
-                    // Build modified feature content using parser ranges
+                    // Build modified feature content by preserving everything before
+                    // local/do verbatim, then splicing in the LLM's local+body.
 
-                    // 1. Extract feature signature (from feature start to return type end if present, or precondition start, or before local clause, or body start)
-                    // Signature should end at return type if present, otherwise at precondition start, otherwise BEFORE local clause line, otherwise at body start
-                    // IMPORTANT: Start from column 0 of the feature line to preserve indentation
-                    let sig_start = Point { row: feature_range.start.row, column: 0 };
                     let existing_local_range = find_local_clause_range(feature, root_node, source_bytes);
-                    let sig_end = find_return_type_end(feature, root_node, source_bytes)
-                        .or_else(|| feature.point_start_preconditions())
-                        .or_else(|| {
-                            // If there's a local clause, end signature before it (at the end of previous line)
-                            existing_local_range.as_ref().and_then(|lr| {
-                                if lr.start.row > 0 {
-                                    // Get the end of the line before the local clause
-                                    let prev_line = initial_source.lines().nth(lr.start.row - 1)?;
-                                    Some(Point { row: lr.start.row - 1, column: prev_line.len() })
-                                } else {
-                                    None
-                                }
-                            })
-                        })
-                        .or_else(|| feature.body_range().map(|br| br.start.clone()))
-                        .unwrap_or_else(|| feature_range.end);
-                    
-                    let sig_range = Range { start: sig_start, end: sig_end };
-                    let sig_text = extract_text_in_range(initial_source, &sig_range);
-                    
-                    // 2. Extract and preserve precondition
-                    // IMPORTANT: Only extract if feature actually has a precondition
-                    // IMPORTANT: Start from column 0 of the precondition line to preserve indentation
-                    let pre_text = if feature.has_precondition() {
-                        if let Some(pre_start) = feature.point_start_preconditions() {
-                            if let Some(pre_end) = feature.point_end_preconditions() {
-                                let pre_range_start = Point { row: pre_start.row, column: 0 };
-                                let pre_range = Range { start: pre_range_start, end: pre_end };
-                                extract_text_in_range(initial_source, &pre_range)
-                            } else {
-                                String::new()
-                            }
-                        } else {
-                            String::new()
-                        }
-                    } else {
-                        String::new()
+
+                    // 1. Preserve everything from the feature name through precondition verbatim.
+                    // End just before the local clause (if any) or the do body — whichever comes first.
+                    let preserve_end_row = existing_local_range.as_ref()
+                        .map(|lr| lr.start.row)
+                        .or_else(|| feature.body_range().map(|br| br.start.row))
+                        .unwrap_or(feature_range.end.row);
+
+                    let pre_body_range = Range {
+                        start: Point { row: feature_range.start.row, column: 0 },
+                        end: Point { row: preserve_end_row, column: 0 },
                     };
-                    
-                    // 2. Output signature and precondition
-                    let sig_text_trimmed = sig_text.trim_end_matches('\n');
-                    result.push_str(sig_text_trimmed);
-                    if !sig_text_trimmed.ends_with('\n') {
+                    let pre_body_text = extract_text_in_range(initial_source, &pre_body_range);
+                    let pre_body_trimmed = pre_body_text.trim_end_matches('\n');
+                    if !pre_body_trimmed.is_empty() {
+                        result.push_str(pre_body_trimmed);
                         result.push('\n');
                     }
-                    if !pre_text.is_empty() {
-                        let pre_text_trimmed = pre_text.trim_end_matches('\n');
-                        result.push_str(pre_text_trimmed);
-                        if !pre_text_trimmed.ends_with('\n') {
-                            result.push('\n');
-                        }
-                    }
-                    
+
                     // 3. Handle local clause: replace existing one if present, insert new one if LLM provided
-                    // Note: existing_local_range was already computed above for sig_end calculation
-                    
-                    // Skip the existing local clause range (we'll replace it with LLM's version if provided)
-                    // If there's an existing local clause, we need to skip it completely
-                    // Don't extract any gap text - the LLM's local clause will be inserted with proper spacing
-                    if existing_local_range.is_some() {
-                        // Skip the old local clause - we'll insert the new one below
-                        // No gap text extraction needed - the new local clause will handle spacing
-                    } else {
-                        // No existing local - extract any text between pre_end and body_start
-                        // But don't include the "do" keyword line - we'll extract that separately
-                        // IMPORTANT: If there's no local clause, there should be no gap text (just whitespace/newlines)
-                        // We'll let the LLM's local clause insertion handle the spacing
-                        // So we don't extract any gap text here when there's no existing local
-                    }
                     
                     if let Some((_, llm_source)) = llm_feature_sources.iter().find(|(name, _)| **name == *feature.name()) {
                         // Parse LLM source as a feature (not a class) since it's a feature-only snippet
@@ -616,42 +604,28 @@ where
                         }
                     }
                     
-                    // 5. Extract and preserve postcondition
-                    // Guard: skip if post range is zero-length (tree-sitter spuriously points at the
-                    // feature's "end" keyword when there is no ensure clause).
-                    if let (Some(post_start), Some(post_end)) = (
-                        feature.point_start_postconditions(),
-                        feature.point_end_postconditions(),
-                    ) {
-                        if post_start < post_end {
-                            let ensure_row = if post_start.row > 0 {
-                                let prev_line = initial_source.lines().nth(post_start.row - 1).unwrap_or("");
-                                if prev_line.trim().starts_with("ensure") {
-                                    post_start.row - 1
-                                } else {
-                                    post_start.row
-                                }
-                            } else {
-                                post_start.row
-                            };
-                            let post_range_start = Point { row: ensure_row, column: 0 };
-                            let post_range = Range { start: post_range_start, end: post_end };
-                            result.push_str(&extract_text_in_range(initial_source, &post_range));
+                    // 5. Extract and preserve postcondition verbatim from tree-sitter.
+                    // The postcondition node includes the `ensure` keyword through the last
+                    // assertion clause, so we don't need any row-offset heuristics.
+                    let post_ts_range = find_postcondition_range(feature, root_node, source_bytes);
+                    if let Some(ref post_range) = post_ts_range {
+                        let post_col0 = Range {
+                            start: Point { row: post_range.start.row, column: 0 },
+                            end: post_range.end,
+                        };
+                        let post_text = extract_text_in_range(initial_source, &post_col0);
+                        let post_trimmed = post_text.trim_end_matches('\n');
+                        if !post_trimmed.is_empty() {
+                            result.push_str(post_trimmed);
+                            result.push('\n');
                         }
                     }
 
                     // 6. Add "end" for the feature (2 tabs - feature level)
                     result.push_str("\t\tend\n");
-                    
-                    // Update last_pos to just past the feature's own "end" line in the original.
-                    // Use body_range (or a real postcondition range) to locate the feature end.
-                    // Do NOT use point_end_postconditions() when start==end (spurious tree-sitter
-                    // range pointing at the "end" keyword of a feature with no ensure clause).
-                    let real_post_end = feature.point_end_postconditions()
-                        .zip(feature.point_start_postconditions())
-                        .and_then(|(end, start)| if start < end { Some(end) } else { None });
 
-                    let feature_end_row = if let Some(post_end) = real_post_end.or_else(|| feature.body_range().map(|br| br.end.clone())) {
+                    // Update last_pos to just past the feature's own "end" line in the original.
+                    let feature_end_row = if let Some(post_end) = post_ts_range.map(|r| r.end).or_else(|| feature.body_range().map(|br| br.end.clone())) {
                         post_end.row + 1
                     } else {
                         feature_range.end.row
@@ -2662,6 +2636,162 @@ end
         assert!(
             modified_content.contains("ensure"),
             "Postcondition should be preserved"
+        );
+    }
+
+    // Shared fixture: a feature with every clause present.
+    // The LLM source has the same feature name but tries to change everything
+    // it is not allowed to change (note, require, ensure) and does change what
+    // it is allowed to change (local, body).
+    const FIXTURE_FULL_FEATURE: &str = r#"
+class TEST_CLASS
+feature
+    process (x: INTEGER): INTEGER
+        note
+            status: impure
+        require
+            x_nonneg: x >= 0
+        local
+            temp: INTEGER
+        do
+            temp := x
+            Result := temp
+        ensure
+            result_nonneg: Result >= 0
+        end
+end
+    "#;
+
+    const FIXTURE_LLM_ALL_CHANGED: &str = r#"
+class TEST_CLASS
+feature
+    process (x: INTEGER): INTEGER
+        note
+            status: pure
+        require
+            x_positive: x > 0
+        local
+            new_var: INTEGER
+        do
+            new_var := x * 2
+            Result := new_var
+        ensure
+            result_positive: Result > 0
+        end
+end
+    "#;
+
+    async fn apply_full_llm(file: &ChildPath) -> String {
+        let mut parser = Parser::default();
+        let (class, _) = parser
+            .class_and_tree_from_source(FIXTURE_FULL_FEATURE)
+            .expect("fixture must parse");
+        let feature = class
+            .features()
+            .iter()
+            .find(|f| f.name() == "process")
+            .expect("fixture must have 'process'");
+        let fname = feature.name().to_owned();
+        rewrite_feature_bodies_and_locals(
+            file.path(),
+            &[(fname.clone(), "new_var := x * 2\nResult := new_var")],
+            &[(&fname, FIXTURE_LLM_ALL_CHANGED)],
+        )
+        .await;
+        tokio::fs::read_to_string(file.path())
+            .await
+            .expect("should read modified file")
+    }
+
+    #[tokio::test]
+    async fn test_signature_cannot_be_changed() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.child("test.e");
+        file.write_str(FIXTURE_FULL_FEATURE).unwrap();
+        let modified = apply_full_llm(&file).await;
+        assert!(
+            modified.contains("process (x: INTEGER): INTEGER"),
+            "Signature must be preserved verbatim.\nActual:\n{modified}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_note_cannot_be_changed() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.child("test.e");
+        file.write_str(FIXTURE_FULL_FEATURE).unwrap();
+        let modified = apply_full_llm(&file).await;
+        assert!(
+            modified.contains("status: impure"),
+            "Note clause must be preserved verbatim.\nActual:\n{modified}"
+        );
+        assert!(
+            !modified.contains("status: pure"),
+            "LLM's note value must not appear in output.\nActual:\n{modified}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_precondition_cannot_be_changed() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.child("test.e");
+        file.write_str(FIXTURE_FULL_FEATURE).unwrap();
+        let modified = apply_full_llm(&file).await;
+        assert!(
+            modified.contains("x_nonneg: x >= 0"),
+            "Precondition must be preserved verbatim.\nActual:\n{modified}"
+        );
+        assert!(
+            !modified.contains("x_positive"),
+            "LLM's precondition label must not appear.\nActual:\n{modified}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_postcondition_cannot_be_changed() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.child("test.e");
+        file.write_str(FIXTURE_FULL_FEATURE).unwrap();
+        let modified = apply_full_llm(&file).await;
+        assert!(
+            modified.contains("result_nonneg: Result >= 0"),
+            "Postcondition must be preserved verbatim.\nActual:\n{modified}"
+        );
+        assert!(
+            !modified.contains("result_positive"),
+            "LLM's postcondition label must not appear.\nActual:\n{modified}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_local_clause_can_be_changed() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.child("test.e");
+        file.write_str(FIXTURE_FULL_FEATURE).unwrap();
+        let modified = apply_full_llm(&file).await;
+        assert!(
+            modified.contains("new_var: INTEGER"),
+            "LLM's local variable must be present.\nActual:\n{modified}"
+        );
+        assert!(
+            !modified.contains("temp: INTEGER"),
+            "Original local variable must be replaced.\nActual:\n{modified}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_body_can_be_changed() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.child("test.e");
+        file.write_str(FIXTURE_FULL_FEATURE).unwrap();
+        let modified = apply_full_llm(&file).await;
+        assert!(
+            modified.contains("new_var := x * 2"),
+            "New body must be present.\nActual:\n{modified}"
+        );
+        assert!(
+            !modified.contains("temp := x"),
+            "Original body must be replaced.\nActual:\n{modified}"
         );
     }
 }

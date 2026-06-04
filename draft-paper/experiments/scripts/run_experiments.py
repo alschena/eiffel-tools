@@ -16,12 +16,113 @@ import datetime
 import errno
 import json
 import os
+import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
+import threading
 from itertools import product
 from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Graceful shutdown
+# ---------------------------------------------------------------------------
+
+_shutdown_requested = False
+
+Z3_WATCHDOG_INTERVAL = 5  # seconds
+
+
+def _request_shutdown(signum, frame):
+    global _shutdown_requested
+    if not _shutdown_requested:
+        print("\nShutdown requested — finishing current run, then stopping.", flush=True)
+    _shutdown_requested = True
+
+
+def _read_ppid(pid: int) -> int | None:
+    """Return the PPID of pid by reading /proc, or None if the process is gone."""
+    try:
+        with open(f"/proc/{pid}/status") as f:
+            for line in f:
+                if line.startswith("PPid:"):
+                    return int(line.split()[1])
+    except (FileNotFoundError, OSError, ValueError):
+        pass
+    return None
+
+
+def _z3_watchdog():
+    """Kill z3 instances that are orphaned: either z3 itself or its parent (boogie)
+    has been re-parented to init (PPID == 1), meaning the owning ecb has exited."""
+    while not _shutdown_requested:
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", r"z3.*-smt2.*-in"],
+                capture_output=True, text=True,
+            )
+            pids = [int(p) for p in result.stdout.split() if p.strip()]
+            for pid in pids:
+                ppid = _read_ppid(pid)
+                if ppid is None:
+                    continue
+                # z3 directly orphaned, or its parent (boogie) is orphaned
+                parent_ppid = _read_ppid(ppid) if ppid != 1 else None
+                if ppid == 1 or parent_ppid == 1:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                        print(f"[watchdog] killed orphaned z3 pid={pid}", flush=True)
+                    except (ProcessLookupError, OSError):
+                        pass
+        except Exception:
+            pass
+        time.sleep(Z3_WATCHDOG_INTERVAL)
+
+# ---------------------------------------------------------------------------
+# Solvable-feature filter
+# ---------------------------------------------------------------------------
+
+def _base_class(class_name: str) -> str:
+    """Strip trailing _N suffix: COMBINATION_PERMUTATION_5 → COMBINATION_PERMUTATION."""
+    return re.sub(r"_\d+$", "", class_name)
+
+
+def load_solvable_filter(dataset: Path) -> "set[str] | None":
+    """
+    Load experiments/solvable/<dataset_name>.json and return the set of
+    'BASE_CLASS.feature' keys that are verified. Returns None if the file
+    doesn't exist (no filtering). Run check_solvable.py to generate this file.
+    """
+    path = EXPERIMENTS_DIR / "solvable" / f"{dataset.name}.json"
+    if not path.exists():
+        return None
+    with open(path) as f:
+        data = json.load(f)
+    solvable = {k for k, v in data.get("results", {}).items() if v == "verified"}
+    print(f"  Loaded solvable filter: {len(solvable)} verified features "
+          f"(generated {data.get('generated_at', '?')[:10]})", flush=True)
+    return solvable
+
+
+def apply_solvable_filter(
+    all_features: list, solvable: "set[str] | None"
+) -> list:
+    """Filter (class_name, feature_name) pairs to only solvable ones."""
+    if solvable is None:
+        return all_features
+    filtered = [
+        (cls, feat) for cls, feat in all_features
+        if f"{_base_class(cls)}.{feat}" in solvable
+    ]
+    n_dropped = len(all_features) - len(filtered)
+    if n_dropped:
+        print(f"  Skipping {n_dropped} unsolvable feature(s) "
+              f"(correct reference doesn't verify)", flush=True)
+    return filtered
+
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -32,11 +133,9 @@ EXPERIMENTS_DIR = SCRIPT_DIR.parent
 REPO_ROOT       = EXPERIMENTS_DIR.parent.parent   # experiments → draft-paper → eiffel-tools
 
 DEFAULT_MODELS = [
-    "liquid/lfm-2.5-1.2b-instruct:free",
+    "openai/gpt-5-nano",
+    "anthropic/claude-sonnet-4.6",
     "poolside/laguna-xs.2:free",
-    "inclusionai/ling-2.6-flash",
-    "mistralai/codestral-2508",
-    "mistralai/ministral-3b-2512",
 ]
 
 DEFAULT_DATASETS = [
@@ -55,6 +154,23 @@ ABLATION = [
     ("sig",     ["--no-verbatim-signature"]),
     ("syn",     ["--no-syntax-guide"]),
     ("fsig",    ["--no-full-sig"]),
+]
+
+# Default: full prompt and minimal prompt only.
+DEFAULT_ABLATIONS = [
+    ("full",    []),
+    ("minimal", [f for _, flist in ABLATION for f in flist]),
+]
+
+# Explicit (model, ablation_tag) execution order when using defaults.
+# Unlisted pairs are appended in natural models × ablations product order.
+DEFAULT_RUN_ORDER = [
+    ("anthropic/claude-sonnet-4.6", "full"),
+    ("poolside/laguna-xs.2:free",   "full"),
+    ("openai/gpt-5-nano",           "full"),
+    ("openai/gpt-5-nano",           "minimal"),
+    ("anthropic/claude-sonnet-4.6", "minimal"),
+    ("poolside/laguna-xs.2:free",   "minimal"),
 ]
 
 
@@ -145,17 +261,17 @@ def setup_dataset(dataset: Path) -> None:
     """One-time setup per dataset: reset files, wipe EIFGENs, dry-run verification."""
     print(f"Setting up {dataset.name}...", flush=True)
     git_reset(dataset)
-    shutil.rmtree(dataset / "EIFGENs", ignore_errors=True)
-    print(f"  EIFGENs removed", flush=True)
 
     ap_cmd = os.environ.get("AP_COMMAND")
     if not ap_cmd:
+        shutil.rmtree(dataset / "EIFGENs", ignore_errors=True)
         print(f"  WARNING: AP_COMMAND not set, skipping dry-run", flush=True)
         return
 
     # Pick first .e file to get a class name for the dry run
     e_files = sorted(dataset.glob("*.e")) or sorted(dataset.rglob("*.e"))
     if not e_files:
+        shutil.rmtree(dataset / "EIFGENs", ignore_errors=True)
         print(f"  WARNING: no .e files found, skipping dry-run", flush=True)
         return
     first_class = e_files[0].stem.upper()
@@ -173,6 +289,21 @@ def setup_dataset(dataset: Path) -> None:
         proc.wait()
         return "\n".join(lines)
 
+    def _has_config_errors(output: str) -> list:
+        return [l for l in output.splitlines()
+                if "Error code:" in l and any(c in l for c in ("VD01", "VD83", "VD21"))]
+
+    # Try dry-run with existing EIFGENs first (avoids cold-build failures on some datasets).
+    eifgens = dataset / "EIFGENs"
+    if eifgens.exists():
+        output = _run_ap("dry-run")
+        if not _has_config_errors(output):
+            print(f"  dry-run OK ({first_class})", flush=True)
+            return
+        print(f"  dry-run with existing EIFGENs failed — wiping and rebuilding", flush=True)
+
+    shutil.rmtree(eifgens, ignore_errors=True)
+    print(f"  EIFGENs removed", flush=True)
     output = _run_ap("dry-run")
     if any("VD01" in l for l in output.splitlines() if "Error code:" in l):
         # VD01 is a race condition artifact; the first compile after EIFGENs removal always
@@ -180,8 +311,7 @@ def setup_dataset(dataset: Path) -> None:
         print(f"  VD01 detected — recompiling from scratch (second pass)", flush=True)
         output = _run_ap("rebuild")
 
-    config_errors = [l for l in output.splitlines()
-                     if "Error code:" in l and any(c in l for c in ("VD01", "VD83", "VD21"))]
+    config_errors = _has_config_errors(output)
     if config_errors:
         for e in config_errors:
             print(f"  ERROR: {e.strip()}", file=sys.stderr, flush=True)
@@ -220,7 +350,8 @@ def run_one(binary: Path, dataset: Path, features_file: Path,
     n = 0
     with open(output, "a" if append else "w") as f:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                text=True, cwd=dataset)
+                                text=True, cwd=dataset, start_new_session=True)
+        pgid = os.getpgid(proc.pid)
         for line in proc.stdout:
             # Progress lines (prefixed >>) go to stdout only, not the JSONL file
             if line.startswith(">>"):
@@ -251,6 +382,11 @@ def run_one(binary: Path, dataset: Path, features_file: Path,
             except Exception:
                 pass
         proc.wait()
+        # Kill any z3 children ecb left running (ecb exits without cleaning up z3 on timeout)
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (ProcessLookupError, OSError):
+            pass
         if proc.returncode != 0:
             raise subprocess.CalledProcessError(proc.returncode, cmd)
     return n
@@ -259,6 +395,9 @@ def run_one(binary: Path, dataset: Path, features_file: Path,
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+RATE_LIMIT_RETRY_WAIT = 60  # seconds to wait before retrying a previously rate-limited run
+
 
 def completed_features_in_jsonl(path: Path) -> set:
     """Return set of (class_name, feature_name) already recorded in a JSONL file."""
@@ -281,6 +420,35 @@ def completed_features_in_jsonl(path: Path) -> set:
     except OSError:
         pass
     return done
+
+
+def rate_limited_timestamps(path: Path) -> dict:
+    """Return {(class_name, feature_name): completed_at} for entries that were rate-limited
+    and have not since succeeded."""
+    limited = {}
+    succeeded = set()
+    if not path.exists():
+        return {}
+    try:
+        for line in path.read_text().splitlines():
+            s = line.strip()
+            if not s or s.startswith(">>"):
+                continue
+            try:
+                rec = json.loads(s)
+                cn = rec.get("class_name", "")
+                fn = rec.get("feature_name", "")
+                if not cn or not fn:
+                    continue
+                if rec.get("rate_limited", False):
+                    limited[(cn, fn)] = rec.get("completed_at", 0)
+                elif not rec.get("rate_limited", False):
+                    succeeded.add((cn, fn))
+            except json.JSONDecodeError:
+                pass
+    except OSError:
+        pass
+    return {k: v for k, v in limited.items() if k not in succeeded}
 
 
 def parse_features_file(path: Path) -> list:
@@ -348,13 +516,18 @@ def main():
     datasets = [Path(d.strip()) for d in args.datasets.split(",")] if args.datasets \
         else DEFAULT_DATASETS
 
-    combos = list(all_combinations())
+    combos = list(all_combinations()) if args.ablations else list(DEFAULT_ABLATIONS)
     if args.ablations:
         wanted = {t.strip() for t in args.ablations.split(",")}
         combos = [(tag, flags) for tag, flags in combos if tag in wanted]
         if not combos:
             sys.exit(f"No ablations matched: {args.ablations}")
     binary = None if args.dry_run else find_binary()
+
+    signal.signal(signal.SIGINT, _request_shutdown)
+    signal.signal(signal.SIGTERM, _request_shutdown)
+
+    threading.Thread(target=_z3_watchdog, daemon=True, name="z3-watchdog").start()
 
     n_runs = 0  # accumulated after loading each dataset's feature list
     print(f"Planned: {len(datasets)} dataset(s) × {len(models)} model(s) "
@@ -399,6 +572,8 @@ def main():
                 features_file.unlink()
                 features_file = limited
             all_features = parse_features_file(features_file)
+            solvable = load_solvable_filter(dataset)
+            all_features = apply_solvable_filter(all_features, solvable)
             n_runs += len(all_features) * len(models) * len(combos)
             print(f"  {dataset.name}: {len(all_features)} feature(s) → "
                   f"{len(all_features) * len(models) * len(combos)} runs "
@@ -426,12 +601,45 @@ def main():
             completed_cache[path] = completed_features_in_jsonl(path)
         return completed_cache[path]
 
-    # Track models that hit a rate limit — skip globally across all datasets.
-    rate_limited_models: set = set()
+    rate_limited_cache: dict = {}
+    def get_rate_limited(path):
+        if path not in rate_limited_cache:
+            rate_limited_cache[path] = rate_limited_timestamps(path)
+        return rate_limited_cache[path]
 
-    for model in models:
-        for tag, flags in combos:
+    # cooldowns[model] = timestamp after which the model may be retried.
+    cooldowns: dict = {}
+
+    # Build flat ordered list of (model, tag, flags) for Phase 2.
+    combo_map = {tag: flags for tag, flags in combos}
+    if args.models or args.ablations:
+        run_order = [(m, t, f) for m in models for t, f in combos]
+    else:
+        run_order = [
+            (m, t, combo_map[t])
+            for m, t in DEFAULT_RUN_ORDER
+            if m in models and t in combo_map
+        ]
+
+    while True:
+        models_to_retry: set = set()
+        rate_hit_models: set = set()
+
+        for model, tag, flags in run_order:
+            if _shutdown_requested:
+                break
+            if model in rate_hit_models:
+                continue
+
+            # Model is cooling down — skip this pass, revisit later.
+            if cooldowns.get(model, 0) > time.time():
+                models_to_retry.add(model)
+                continue
+            cooldowns.pop(model, None)
+
             for dataset, all_features in prepared:
+                if _shutdown_requested or model in rate_hit_models:
+                    break
                 # Acquire the dataset lock only for the duration of this sweep.
                 try:
                     lock = acquire_lock(dataset)
@@ -441,12 +649,9 @@ def main():
                     continue
 
                 try:
-                    if model in rate_limited_models:
-                        run_num += len(all_features)
-                        continue
-
-                    model_rate_hit = False
                     for class_name, feature_name in all_features:
+                        if _shutdown_requested or model in rate_hit_models:
+                            break
                         run_num += 1
                         feat_id  = (class_name, feature_name)
                         feat_str = f"{class_name}.{feature_name}" if feature_name else class_name
@@ -461,6 +666,17 @@ def main():
                             continue
 
                         print(prefix, flush=True)
+
+                        # If previously rate-limited, wait before retrying
+                        rl_map = get_rate_limited(output)
+                        if feat_id in rl_map:
+                            wait_until = rl_map[feat_id] + RATE_LIMIT_RETRY_WAIT
+                            delay = wait_until - time.time()
+                            if delay > 0:
+                                print(f"  Previously rate-limited; waiting {delay:.0f}s before retry...",
+                                      flush=True)
+                                time.sleep(delay)
+
                         git_reset(dataset)
 
                         run_fd, run_features_path = tempfile.mkstemp(
@@ -472,31 +688,48 @@ def main():
                         try:
                             run_one(binary, dataset, run_features, model, flags,
                                     output, total_features=1, append=True)
-                            completed_cache.pop(output, None)  # invalidate cache
+                            completed_cache.pop(output, None)
+                            rate_limited_cache.pop(output, None)
                             render_html(results_dir)
                         except subprocess.CalledProcessError as ex:
                             if ex.returncode == 2:
-                                print(f"  RATE LIMITED — stopping model {model} globally",
-                                      flush=True)
+                                print(f"  RATE LIMITED — will retry {model} after "
+                                      f"{RATE_LIMIT_RETRY_WAIT}s", flush=True)
                                 completed_cache.pop(output, None)
-                                model_rate_hit = True
+                                rate_limited_cache.pop(output, None)
+                                cooldowns[model] = time.time() + RATE_LIMIT_RETRY_WAIT
+                                models_to_retry.add(model)
+                                rate_hit_models.add(model)
                             else:
                                 print(f"  ERROR: {ex}", file=sys.stderr, flush=True)
                                 errors.append((f"run {run_num}", str(ex)))
                         finally:
                             run_features.unlink(missing_ok=True)
 
-                        if model_rate_hit:
-                            break  # stop remaining features for this dataset
-
-                    if model_rate_hit:
-                        rate_limited_models.add(model)
-
                 finally:
                     release_lock(lock)
 
+        if _shutdown_requested or not models_to_retry:
+            break
+
+        # If every model that needs retrying is still cooling down, sleep until
+        # the earliest cooldown expires before starting the next pass.
+        if all(cooldowns.get(m, 0) > time.time() for m in models_to_retry):
+            wait = min(cooldowns[m] for m in models_to_retry) - time.time()
+            if wait > 0:
+                print(f"All active models rate-limited; sleeping {wait:.0f}s before retry...",
+                      flush=True)
+                time.sleep(wait)
+
+        completed_cache.clear()
+        rate_limited_cache.clear()
+
     print(flush=True)
     render_html(results_dir)
+
+    if _shutdown_requested:
+        print("Stopped after graceful shutdown. Re-run to continue from where it left off.",
+              flush=True)
 
     if errors:
         print(f"{len(errors)} failure(s):", file=sys.stderr)

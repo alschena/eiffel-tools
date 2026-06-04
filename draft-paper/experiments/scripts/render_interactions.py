@@ -9,6 +9,7 @@ Usage:
 """
 
 import argparse
+import difflib
 import html
 import json
 import re
@@ -93,6 +94,8 @@ tr:hover td { background: #f0f4f8; }
                  letter-spacing: .5px; color: #888; margin: 10px 0 4px; }
 pre { white-space: pre-wrap; font-size: 12px; padding: 10px 12px; border-radius: 4px;
       overflow-y: auto; max-height: 420px; line-height: 1.5; }
+.pre-system   { background: #eef2ff; color: #2c3e50; }
+.pre-user     { background: #e8f4f8; color: #2c3e50; }
 .pre-prompt   { background: #e8f4f8; color: #2c3e50; }
 .pre-dark     { background: #2d2d2d; color: #f8f8f2; }
 .pre-before   { background: #ffe6e6; color: #2c3e50; }
@@ -104,6 +107,31 @@ pre { white-space: pre-wrap; font-size: 12px; padding: 10px 12px; border-radius:
 .sg-header.rejected { background: #fdf0ef; }
 .sg-meta { font-size: 11px; color: #666; }
 .sg-reason { font-size: 11px; color: #c0392b; margin-top: 2px; padding: 0 10px 6px; }
+
+/* ---------- diff view ---------- */
+.diff-wrap { font-family: monospace; font-size: 12px; line-height: 1.5;
+             border-radius: 4px; overflow: hidden; max-height: 480px; overflow-y: auto; }
+.diff-table { width: 100%; border-collapse: collapse; }
+.diff-table td { padding: 1px 8px; white-space: pre-wrap; vertical-align: top; }
+.diff-table td.ln { width: 1%; color: #999; text-align: right; user-select: none;
+                    padding: 1px 6px; border-right: 1px solid #ddd; min-width: 36px; }
+.diff-add  { background: #e6ffed; }
+.diff-add  .ln { background: #cdffd8; color: #22863a; }
+.diff-add  td:last-child { color: #22863a; }
+.diff-del  { background: #ffeef0; }
+.diff-del  .ln { background: #ffd7d9; color: #b31d28; }
+.diff-del  td:last-child { color: #b31d28; }
+.diff-ctx  { background: #f6f8fa; }
+.diff-ctx  .ln { background: #eaecef; color: #888; }
+.diff-ctx  td:last-child { color: #555; }
+.diff-hunk { background: #dbedff; }
+.diff-hunk td { color: #0550ae; font-style: italic; padding: 2px 8px; }
+.diff-tabs { display: flex; gap: 0; border-bottom: 2px solid #ddd; margin-bottom: 0; }
+.diff-tab  { padding: 5px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+             background: #f0f0f0; border: 1px solid #ddd; border-bottom: none;
+             border-radius: 4px 4px 0 0; color: #555; margin-right: 3px; }
+.diff-tab.active { background: white; color: #2c3e50; border-bottom: 2px solid white;
+                   margin-bottom: -2px; }
 
 /* ---------- progress bar ---------- */
 .progress-section { margin-top: 20px; background: white; border-radius: 6px;
@@ -136,6 +164,169 @@ pre { white-space: pre-wrap; font-size: 12px; padding: 10px 12px; border-radius:
 
 def e(s):
     return html.escape(str(s))
+
+
+def render_diff(a: str, b: str, n_context: int = 4) -> str:
+    """Return an HTML diff table comparing strings a (old) and b (new)."""
+    a_lines = a.splitlines(keepends=True)
+    b_lines = b.splitlines(keepends=True)
+    rows = []
+    ln_a = ln_b = 0
+
+    opcodes = difflib.SequenceMatcher(None, a_lines, b_lines, autojunk=False).get_opcodes()
+
+    for tag, i1, i2, j1, j2 in opcodes:
+        if tag == "equal":
+            # Show at most n_context lines of context; collapse the rest.
+            equal = a_lines[i1:i2]
+            if len(equal) > 2 * n_context + 1:
+                # leading context
+                for k, line in enumerate(equal[:n_context]):
+                    ln_a += 1; ln_b += 1
+                    rows.append(
+                        f'<tr class="diff-ctx"><td class="ln">{ln_a}</td>'
+                        f'<td class="ln">{ln_b}</td>'
+                        f'<td>{e(line.rstrip(chr(10)))}</td></tr>'
+                    )
+                skipped = len(equal) - 2 * n_context
+                ln_a += skipped; ln_b += skipped
+                rows.append(
+                    f'<tr class="diff-hunk"><td class="ln" colspan="2"></td>'
+                    f'<td>↕ {skipped} unchanged lines</td></tr>'
+                )
+                for k, line in enumerate(equal[-n_context:]):
+                    ln_a += 1; ln_b += 1
+                    rows.append(
+                        f'<tr class="diff-ctx"><td class="ln">{ln_a}</td>'
+                        f'<td class="ln">{ln_b}</td>'
+                        f'<td>{e(line.rstrip(chr(10)))}</td></tr>'
+                    )
+            else:
+                for line in equal:
+                    ln_a += 1; ln_b += 1
+                    rows.append(
+                        f'<tr class="diff-ctx"><td class="ln">{ln_a}</td>'
+                        f'<td class="ln">{ln_b}</td>'
+                        f'<td>{e(line.rstrip(chr(10)))}</td></tr>'
+                    )
+        elif tag in ("replace", "delete"):
+            for line in a_lines[i1:i2]:
+                ln_a += 1
+                rows.append(
+                    f'<tr class="diff-del"><td class="ln">{ln_a}</td>'
+                    f'<td class="ln"></td>'
+                    f'<td>−&nbsp;{e(line.rstrip(chr(10)))}</td></tr>'
+                )
+        if tag in ("replace", "insert"):
+            for line in b_lines[j1:j2]:
+                ln_b += 1
+                rows.append(
+                    f'<tr class="diff-add"><td class="ln"></td>'
+                    f'<td class="ln">{ln_b}</td>'
+                    f'<td>+&nbsp;{e(line.rstrip(chr(10)))}</td></tr>'
+                )
+
+    if not rows:
+        return '<div class="diff-wrap" style="padding:8px 12px;color:#888;font-size:12px">no changes</div>'
+
+    return (
+        '<div class="diff-wrap">'
+        '<table class="diff-table">'
+        + "".join(rows)
+        + "</table></div>"
+    )
+
+
+def extract_feature_from_class(class_text: str, feature_name: str) -> str:
+    """Extract a single feature block from an Eiffel class file by feature name.
+
+    The JSONL before_code stores features with their original indentation from the
+    class file, except the feature name line itself has its leading tab stripped.
+    We match that format: strip one leading tab from the first line only.
+    """
+    lines = class_text.splitlines()
+    start = None
+    pattern = re.compile(r'^\t' + re.escape(feature_name) + r'(\s|$|\(|:)')
+    for i, line in enumerate(lines):
+        if pattern.match(line):
+            start = i
+            break
+    if start is None:
+        return ""
+    result = []
+    for line in lines[start:]:
+        result.append(line)
+        # Feature ends at the 'end' that sits at the same depth as the feature name (1 tab).
+        if re.match(r'^\t\tend\s*$', line):
+            break
+    if not result:
+        return ""
+    # Strip one leading tab from the first line only (matches JSONL before_code format).
+    result[0] = result[0][1:] if result[0].startswith('\t') else result[0]
+    return "\n".join(result)
+
+
+_dataset_file_index: dict[tuple, dict[str, Path]] = {}
+
+
+def _build_dataset_index(datasets_dir: Path, dataset_name: str) -> dict[str, Path]:
+    """Build stem -> first-path index for .e files in a dataset dir, excluding EIFGENs."""
+    key = (datasets_dir, dataset_name)
+    if key in _dataset_file_index:
+        return _dataset_file_index[key]
+    dataset_dir = datasets_dir / dataset_name
+    index: dict[str, Path] = {}
+    if dataset_dir.exists():
+        for p in dataset_dir.rglob("*.e"):
+            # Skip compiler build artifacts which can be hundreds of MB
+            if "EIFGENs" in p.parts:
+                continue
+            stem = p.stem
+            if stem not in index:
+                index[stem] = p
+    _dataset_file_index[key] = index
+    return index
+
+
+def find_correct_code(dataset_name: str, class_name: str, feature_name: str,
+                      datasets_dir: Path) -> str:
+    """Return the correct (base-class) feature code, or empty string if not found."""
+    # Derive base class name by stripping trailing _N digit suffix.
+    base_class = re.sub(r'_\d+$', '', class_name)
+    if base_class == class_name:
+        return ""  # no numbered suffix — this is already the base class
+
+    index = _build_dataset_index(datasets_dir, dataset_name)
+    candidate = index.get(base_class)
+    if candidate is None:
+        return ""
+
+    try:
+        text = candidate.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+    return extract_feature_from_class(text, feature_name)
+
+
+DIFF_TAB_JS = """<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.diff-tabs').forEach(function(tabs) {
+    tabs.querySelectorAll('.diff-tab').forEach(function(tab) {
+      tab.addEventListener('click', function() {
+        var group = tab.getAttribute('data-group');
+        var target = tab.getAttribute('data-target');
+        tabs.querySelectorAll('.diff-tab').forEach(function(t) {
+          t.classList.toggle('active', t.getAttribute('data-target') === target);
+        });
+        document.querySelectorAll('[data-group="' + group + '"][data-panel]').forEach(function(panel) {
+          panel.style.display = panel.getAttribute('data-panel') === target ? '' : 'none';
+        });
+      });
+    });
+  });
+});
+</script>"""
 
 
 def result_badge(rec):
@@ -377,7 +568,7 @@ def render_ablation_page(tag, index_path):
 # Run detail page  (one LLM interaction log per run)
 # ---------------------------------------------------------------------------
 
-def render_run_detail_page(rec, index_path, to_root="../../.."):
+def render_run_detail_page(rec, index_path, to_root="../../..", datasets_dir: Path = None):
     class_name   = rec.get("class_name", "?")
     feature_name = rec.get("feature_name", "?")
     model        = rec.get("model", "?")
@@ -400,11 +591,17 @@ def render_run_detail_page(rec, index_path, to_root="../../.."):
     feat_href = f"{to_root}/features/{e(feat_key)}.html"
     ts_html = (f'<span data-ts="{completed_at}"></span>' if completed_at else "")
 
+    # Correct (reference) code from the base class file.
+    correct_code = ""
+    if datasets_dir:
+        correct_code = find_correct_code(dataset, class_name, feature_name, datasets_dir)
+
     parts = [f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8">
 <title>{e(class_name)}.{e(feature_name)} — interactions</title>
 <style>{CSS}</style>
 {TS_JS}
+{DIFF_TAB_JS}
 </head><body>
 <div class="page-header">
   <h1><a href="{feat_href}" style="color:inherit">{e(class_name)}.{e(feature_name)}</a></h1>
@@ -425,7 +622,28 @@ def render_run_detail_page(rec, index_path, to_root="../../.."):
 <div class="page-body">
 """]
 
-    for ix in rec.get("interactions", []):
+    if correct_code:
+        interactions_list = rec.get("interactions", [])
+        init_code = next(
+            (ix.get("before_code", "") for ix in interactions_list if ix.get("before_code")), ""
+        )
+        base_class = re.sub(r'_\d+$', '', class_name)
+        # Show buggy → correct: red = wrong lines to remove, green = correct lines to add.
+        parts.append(
+            f'<div style="margin-bottom:16px">'
+            f'<div class="section-label" style="font-size:13px;margin-bottom:6px">'
+            f'bug: diff of buggy code vs. correct version ({e(base_class)})</div>'
+            + render_diff(init_code, correct_code)
+            + '</div>'
+        )
+
+    interactions = rec.get("interactions", [])
+    # Initial code = before_code of the very first applied interaction (or first with before_code).
+    initial_code = next(
+        (ix.get("before_code", "") for ix in interactions if ix.get("before_code")), ""
+    )
+
+    for ix in interactions:
         ix_num      = ix.get("interaction_number", "?")
         applied     = ix.get("applied", False)
         verif_t     = ix.get("verification_time_seconds", 0.0)
@@ -449,8 +667,19 @@ def render_run_detail_page(rec, index_path, to_root="../../.."):
 """)
 
         if prompt:
-            parts.append(f'<div class="section-label">prompt</div>'
-                         f'<pre class="pre-prompt">{e(prompt)}</pre>')
+            # Split "System: …\n\nUser: …" into separate labelled blocks.
+            sep = "\n\nUser: "
+            if prompt.startswith("System: ") and sep in prompt:
+                sys_text, user_text = prompt[len("System: "):].split(sep, 1)
+                parts.append(
+                    f'<div class="section-label">system prompt</div>'
+                    f'<pre class="pre-system">{e(sys_text)}</pre>'
+                    f'<div class="section-label">user prompt</div>'
+                    f'<pre class="pre-user">{e(user_text)}</pre>'
+                )
+            else:
+                parts.append(f'<div class="section-label">prompt</div>'
+                             f'<pre class="pre-prompt">{e(prompt)}</pre>')
 
         for si, sg in enumerate(suggestions, 1):
             accepted  = sg.get("accepted", False)
@@ -483,12 +712,37 @@ def render_run_detail_page(rec, index_path, to_root="../../.."):
         if ix_error and not applied:
             parts.append(f'<div class="section-label">error</div>'
                          f'<pre class="pre-error">{e(ix_error)}</pre>')
-        if before:
-            parts.append(f'<div class="section-label">before</div>'
-                         f'<pre class="pre-before">{e(before)}</pre>')
+
+        # Diff views — only shown when there is an after_code to compare against.
         if after:
-            parts.append(f'<div class="section-label">after</div>'
-                         f'<pre class="pre-after">{e(after)}</pre>')
+            group_id     = f"diff-ix{e(ix_num)}"
+            attempt_diff = render_diff(before, after)
+            initial_diff = render_diff(initial_code, after) if initial_code and initial_code != after else None
+            solution_diff = render_diff(after, correct_code) if correct_code else None
+
+            tabs = ['<button class="diff-tab active" '
+                    f'data-group="{group_id}" data-target="attempt">this attempt</button>']
+            panels = [f'<div data-group="{group_id}" data-panel="attempt">{attempt_diff}</div>']
+
+            if initial_diff:
+                tabs.append('<button class="diff-tab" '
+                            f'data-group="{group_id}" data-target="initial">vs. initial code</button>')
+                panels.append(f'<div data-group="{group_id}" data-panel="initial" style="display:none">{initial_diff}</div>')
+
+            if solution_diff:
+                tabs.append('<button class="diff-tab" '
+                            f'data-group="{group_id}" data-target="solution">vs. solution</button>')
+                panels.append(f'<div data-group="{group_id}" data-panel="solution" style="display:none">{solution_diff}</div>')
+
+            if len(tabs) > 1:
+                parts.append(
+                    f'<div class="section-label">changes</div>'
+                    f'<div class="diff-tabs">{"".join(tabs)}</div>'
+                    + "".join(panels)
+                )
+            else:
+                parts.append(f'<div class="section-label">changes</div>{attempt_diff}')
+
         if err_after:
             parts.append(f'<div class="section-label">verification result</div>'
                          f'<pre class="pre-error">{e(err_after)}</pre>')
@@ -503,7 +757,8 @@ def render_run_detail_page(rec, index_path, to_root="../../.."):
 # Feature overview page  (all runs for one class.feature across models)
 # ---------------------------------------------------------------------------
 
-def render_feature_overview_page(feat_key, records_with_paths, index_path):
+def render_feature_overview_page(feat_key, records_with_paths, index_path,
+                                  datasets_dir: Path = None):
     """Page at features/{feat_key}.html showing every run of this feature."""
     total  = len(records_with_paths)
     n_ok   = sum(1 for r, _ in records_with_paths if r.get("success"))
@@ -519,10 +774,37 @@ def render_feature_overview_page(feat_key, records_with_paths, index_path):
         table_id="feature-runs",
     )
 
+    # Build buggy-vs-correct diff from the first record that has before_code.
+    diff_html = ""
+    if datasets_dir:
+        for rec, _ in records_with_paths:
+            class_name   = rec.get("class_name", "")
+            feature_name = rec.get("feature_name", "")
+            dataset      = rec.get("dataset", "")
+            correct_code = find_correct_code(dataset, class_name, feature_name, datasets_dir)
+            if not correct_code:
+                continue
+            init_code = next(
+                (ix.get("before_code", "")
+                 for ix in rec.get("interactions", []) if ix.get("before_code")),
+                ""
+            )
+            if init_code:
+                base_class = re.sub(r'_\d+$', '', class_name)
+                diff_html = (
+                    f'<div style="margin:20px 0">'
+                    f'<div class="section-label" style="font-size:13px;margin-bottom:6px">'
+                    f'bug: {e(class_name)} vs. correct ({e(base_class)}.{e(feature_name)})</div>'
+                    + render_diff(init_code, correct_code)
+                    + '</div>'
+                )
+                break
+
     return f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8">
 <title>Feature: {e(feat_key)}</title>
 <style>{CSS}</style>
+{DIFF_TAB_JS}
 </head><body>
 <div class="index-header">
   <h1>Feature: {e(feat_key)}</h1>
@@ -530,6 +812,7 @@ def render_feature_overview_page(feat_key, records_with_paths, index_path):
 </div>
 <a class="back" href="{e(index_path)}">← back to index</a>
 <div class="index-body">
+{diff_html}
 {table_html}
 </div>
 {sort_js_for("feature-runs")}
@@ -651,15 +934,16 @@ def render_progress_section(results_dir):
     total_cost    = 0.0
     last_jf       = None
     last_jf_mtime = 0.0
-    first_mtime   = float("inf")
+    completed_at_ts: list[float] = []   # one entry per non-rate-limited completed run
+    last_rec_ts   = 0.0                 # completed_at of the most-recently-completed run
+    last_rec_info = ("", "", "", "")    # (dataset, model_dir, ablation, class.feature)
+
     for jf in results_dir.rglob("*.jsonl"):
         try:
             mt = jf.stat().st_mtime
             if mt > last_jf_mtime:
                 last_jf_mtime = mt
                 last_jf = jf
-            if mt < first_mtime:
-                first_mtime = mt
             for line in jf.read_text().splitlines():
                 s = line.strip()
                 if not s or s.startswith(">>"):
@@ -668,6 +952,22 @@ def render_progress_section(results_dir):
                     rec = json.loads(s)
                     if not rec.get("rate_limited"):
                         completed += 1
+                        ts = rec.get("completed_at")
+                        if ts:
+                            ts_f = float(ts)
+                            completed_at_ts.append(ts_f)
+                            if ts_f > last_rec_ts:
+                                last_rec_ts = ts_f
+                                parts = jf.parts
+                                try:
+                                    ri = next(i for i, p in enumerate(parts) if p == "results")
+                                    feat = rec.get("class_name", "")
+                                    fn = rec.get("feature_name")
+                                    if fn:
+                                        feat = f"{feat}.{fn}"
+                                    last_rec_info = (parts[ri+1], parts[ri+2], jf.stem, feat)
+                                except (StopIteration, IndexError):
+                                    pass
                     for ix in rec.get("interactions", []):
                         for sg in ix.get("suggestions", []):
                             total_cost += sg.get("cost", 0.0)
@@ -676,43 +976,48 @@ def render_progress_section(results_dir):
         except OSError:
             pass
 
-    last_run = ""
-    if last_jf:
-        parts = last_jf.parts
-        try:
-            ri = next(i for i, p in enumerate(parts) if p == "results")
-            last_run = f"{parts[ri+1]}  {parts[ri+2]}  {last_jf.stem}"
-        except (StopIteration, IndexError):
-            last_run = last_jf.stem
+    completed_at_ts.sort()
+
+    last_run = "  ".join(p for p in last_rec_info if p) or (last_jf.stem if last_jf else "")
+    last_run_ts = last_rec_ts if last_rec_ts else last_jf_mtime
 
     updated = datetime.fromtimestamp(last_jf_mtime).isoformat() if last_jf_mtime else ""
-    started = datetime.fromtimestamp(first_mtime).isoformat() if first_mtime != float("inf") else ""
 
     pct = (completed / total * 100) if total else 0
     done = completed >= total
 
+    def fmt_duration(seconds):
+        m, s = divmod(int(seconds), 60)
+        h, m = divmod(m, 60)
+        d, h = divmod(h, 24)
+        if d:
+            return f"{d}d {h}h {m:02d}m" if h else f"{d}d {m:02d}m"
+        if h:
+            return f"{h}h {m:02d}m {s:02d}s"
+        return f"{m}m {s:02d}s"
+
     eta_str = ""
     elapsed_str = ""
+    rate_str    = ""
     try:
-        t0 = datetime.fromisoformat(started)
-        t1 = datetime.now()
-        elapsed_s = (t1 - t0).total_seconds()
-        def fmt_duration(seconds):
-            m, s = divmod(int(seconds), 60)
-            h, m = divmod(m, 60)
-            d, h = divmod(h, 24)
-            if d:
-                return f"{d}d {h}h {m:02d}m" if h else f"{d}d {m:02d}m"
-            if h:
-                return f"{h}h {m:02d}m {s:02d}s"
-            return f"{m}m {s:02d}s"
+        if completed_at_ts:
+            t_first = completed_at_ts[0]
+            now     = datetime.now().timestamp()
 
-        if elapsed_s > 0:
-            elapsed_str = fmt_duration(elapsed_s)
-        if completed > 0 and not done and elapsed_s > 0:
-            rate = completed / elapsed_s
-            remaining_s = (total - completed) / rate
-            eta_str = fmt_duration(remaining_s)
+            # Elapsed = wall clock since the first completed run
+            elapsed_s = now - t_first
+            if elapsed_s > 0:
+                elapsed_str = fmt_duration(elapsed_s)
+
+            # Rate = last 50 completions to reflect current speed.
+            if not done and len(completed_at_ts) >= 2:
+                window_ts = completed_at_ts[-min(50, len(completed_at_ts)):]
+                window_s  = window_ts[-1] - window_ts[0]
+                if window_s > 0:
+                    recent_rate = (len(window_ts) - 1) / window_s   # runs/sec
+                    remaining_s = (total - completed) / recent_rate
+                    eta_str  = fmt_duration(remaining_s)
+                    rate_str = f"{recent_rate * 60:.1f} runs/min over last {len(window_ts)}"
     except Exception:
         pass
 
@@ -723,8 +1028,16 @@ def render_progress_section(results_dir):
 
     status    = "Complete" if done else "Running"
     bar_color = "#27ae60" if done else "#3498db"
-    last_html    = f"<span>last completed: <strong>{e(last_run)}</strong></span>" if last_run else ""
-    eta_html     = f"<span>ETA: <strong>{e(eta_str)}</strong></span>" if eta_str else ""
+    if last_run:
+        if last_run_ts:
+            lts = int(last_run_ts)
+            last_html = (f'<span>last completed: <strong>{e(last_run)}</strong>'
+                         f' <span data-ts="{lts}" title=""></span></span>')
+        else:
+            last_html = f"<span>last completed: <strong>{e(last_run)}</strong></span>"
+    else:
+        last_html = ""
+    eta_html = f'<span title="{e(rate_str)}">ETA: <strong>{e(eta_str)}</strong></span>' if eta_str else ""
     elapsed_html = f"<span>elapsed: <strong>{e(elapsed_str)}</strong></span>" if elapsed_str else ""
     cost_html    = (f"<span>cost: <strong>${total_cost:.4f}</strong>"
                     + (f" / ETA <strong>{e(cost_eta_str)}</strong>" if cost_eta_str else "")
@@ -840,8 +1153,9 @@ def main():
                    help="Output directory (default: <results>/html)")
     args = p.parse_args()
 
-    results_dir = Path(args.results)
-    out_dir     = Path(args.out) if args.out else results_dir / "html"
+    results_dir  = Path(args.results)
+    out_dir      = Path(args.out) if args.out else results_dir / "html"
+    datasets_dir = results_dir.parent / "datasets"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     records_with_paths = []  # (rec, page_path_relative_to_out_dir)
@@ -883,8 +1197,11 @@ def main():
                         to_root   = "/".join([".."] * depth)
                         index_rel = f"{to_root}/index.html" if to_root else "index.html"
 
-                        page_html = render_run_detail_page(rec, index_rel, to_root=to_root)
-                        page_abs.write_text(page_html, encoding="utf-8")
+                        if not page_abs.exists():
+                            page_html = render_run_detail_page(
+                                rec, index_rel, to_root=to_root, datasets_dir=datasets_dir
+                            )
+                            page_abs.write_text(page_html, encoding="utf-8")
                         records_with_paths.append((rec, str(page_rel)))
 
     # Ablation pages
@@ -918,7 +1235,9 @@ def main():
     features_dir = out_dir / "features"
     features_dir.mkdir(exist_ok=True)
     for feat_key, recs_paths in by_feature.items():
-        f_html = render_feature_overview_page(feat_key, recs_paths, index_path="../index.html")
+        f_html = render_feature_overview_page(
+            feat_key, recs_paths, index_path="../index.html", datasets_dir=datasets_dir
+        )
         (features_dir / f"{feat_key}.html").write_text(f_html, encoding="utf-8")
 
     index_html = render_index(records_with_paths, results_dir=results_dir)
