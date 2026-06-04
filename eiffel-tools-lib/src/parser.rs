@@ -234,4 +234,23 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn parse_escaped_character_constant() {
+        let mut parser = Parser::default();
+
+        // simple char - should work
+        let r1 = parser.to_feature("f: CHARACTER\n\tdo\n\t\tResult := 'a'\n\tend\n").unwrap();
+        println!("simple 'a': {:?}", matches!(r1, Parsed::Correct(_)));
+
+        // escaped %% char constant
+        let r2 = parser.to_feature("f: CHARACTER\n\tdo\n\t\tResult := '%%'\n\tend\n").unwrap();
+        println!("escaped '%%': {:?}", matches!(r2, Parsed::Correct(_)));
+        assert!(matches!(r2, Parsed::Correct(_)), "ERROR: '%%' causes parse error: {r2:#?}");
+
+        // inspect with when '%%'
+        let r3 = parser.to_feature("f (c: CHARACTER): INTEGER\n\tdo\n\t\tinspect c\n\t\t\twhen '%%' then\n\t\t\t\tResult := 1\n\t\tend\n\tend\n").unwrap();
+        println!("when '%%': {:?}", matches!(r3, Parsed::Correct(_)));
+        assert!(matches!(r3, Parsed::Correct(_)), "ERROR: when '%%' causes parse error: {r3:#?}");
+    }
 }
