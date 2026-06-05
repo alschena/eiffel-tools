@@ -1,4 +1,5 @@
 \begin{figure}
+    \begin{adjustbox}{max width=\linewidth, max totalheight=.9\textheight, keepaspectratio}
     \begin{tikzpicture}[, every node/.style={font=\sffamily, scale=0.6, text width=7cm}, align=left]
         \node (start) [code, label=below:Initial feature in class] {
             \begin{lstlisting}
@@ -137,5 +138,6 @@ end
         \draw[->, thick] (verification-result) -- (initial-feature-after-edits)
             node[midway, right] {All features verify};
     \end{tikzpicture}
+    \end{adjustbox}
     \caption{Dataflow of the class by class correction command}\label{dataflow-class-by-class-correction}
 \end{figure}

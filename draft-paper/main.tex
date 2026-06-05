@@ -14,6 +14,7 @@
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 \usepackage{graphicx}
+\usepackage{adjustbox}
 \usepackage{listings}
 \usepackage{eiffel}
 
@@ -76,15 +77,14 @@
 \titlerunning{LLMs and LSP: a match made in context}
 \author{
 Alessandro Schena\inst{1}\orcidID{0009-0005-1793-9107} \and
-Ilgiz Mustafin\inst{1,2}\orcidID{0009-0007-0476-5966} \and
-Julia Kotovich\inst{1,3}\orcidID{0000-0003-3739-6304}
+Ilgiz Mustafin\inst{1}\orcidID{0009-0007-0476-5966} \and
+Julia Kotovich\inst{1,2}\orcidID{0000-0003-3739-6304}
 }
 % \authorrunning{A. Schena et al.}
 
 \institute{
   Constructor Institute of Technology, Schaffhausen, Switzerland
-  \email{Schena.alessandro.97@gmail.com}, \email{Ilgiz.Mustafin@constructor.org}, \email{Julia.Kotovich@constructor.org} \and
-  Constructor Knowledge Labs, Bremen, Germany \and
+  \email{\{Alessandro.Schena, Ilgiz.Mustafin, Julia.Kotovich\}@constructor.org}\and
   Constructor University, Bremen, Germany
 }
 
@@ -94,9 +94,11 @@ Julia Kotovich\inst{1,3}\orcidID{0000-0003-3739-6304}
 
 \begin{abstract}
   This article introduces \toolname{}, a language server protocol (LSP) implementation for the Eiffel programming language that uses Large Language Models (LLMs) to aid the development of statically verified software.
-  The tool provides various interactive and non-interactive commands to produce code and specifications.   It uses language and project specific knowledge to precisely direct the LLM and verifies the output using a static verifier. It crafts rich programmatic prompts for the input and corrects or refuses the output. Furthermore, it handles the retries until the program passes verification.
+  The tool provides various interactive and non-interactive commands to produce code and specifications.   It uses language and project specific knowledge to precisely direct the LLM and verifies the output using a static verifier. It crafts rich programmatic prompts for the input and corrects or rejects the output. Furthermore, it handles the retries until the program passes verification.
 
-  The tool's bug fixing capability is evaluated on 2 public datasets using 2 models. The tool can fix 42 to 51\% of bugs by combining LLMs and a formal verifier   depending on the model used. The results show the trade-off between   the time used by the model and the number of fixed bugs.
+  The tool's bug fixing capability is evaluated on 2 public datasets using 3 models. The tool can fix 76\% to 95\% of bugs by combining LLMs and a formal verifier depending on the model and prompts used.
+  The results show the trade-off between the number of fixing attempts and
+  the success rate.
 
   \keywords{LLM \and LSP \and Software verification \and Design by Contract \and Eiffel \and AutoProof}
 \end{abstract}
@@ -118,29 +120,32 @@ errors.
 A more advanced analysis such as formal verification allows finding inconsistencies between specifications and implementation statically, without running the code. This allows finding errors earlier and mathematically proving arbitrary functional properties. Still, errors in specifications can lead to invalid but correct programs.
 
 Modern SDD relies heavily on LLMs. While LLMs code generation might work well for programming languages that are well-represented in the training datasets, their ecosystem might not have formal verification tools available. 
+These are called high-resource languages~\cite{joel2025surveyllmbasedcodegeneration}.
 
-These are called high-resource languages. Eiffel is a low-resource language \cite{joel2025surveyllmbasedcodegeneration}; it has a first-class support for specifications and a static verifier AutoProof, but the low amount of public code makes LLM code generation more challenging. Adapter tools could mitigate this issue. Any such tool must structure and contextualize the code for the model and must keep the user in the loop whenever a reasonable output is produced.
+Eiffel is a low-resource language; it has a first-class support for specifications and a static verifier AutoProof, but the low amount of public code makes LLM code generation more challenging. Adapter tools could mitigate this issue. Any such tool must structure and contextualize the code for the model and must keep the user in the loop whenever a reasonable output is produced.
 To mitigate this issue, special tools can be implemented which take the role
 of an adapter: on the one hand, the tool must structure and contextualize the
 code for the model, on the other hand, the tool must present model's
 outputs to allow the user to benefit more from the LLM.
 
 This paper introduces \toolname{} \cite{eiffel-tools}, as the aforementioned adapter.
-\toolname{} implements the Language Server Protocol (LSP) to o integrate conveniently in the majority of code editors.
+\toolname{} implements the Language Server Protocol (LSP) to integrate conveniently in the majority of code editors.
 
-In this paper we highlight the tool's “fix feature body” command. 
+In this paper we highlight the tool's ``fix feature body'' command. 
 The command tries to change the body of the procedure such that it will satisfy its specifications.
-The tool presents the relevant parts of the code to the LLM and sets up
+The tool presents the relevant parts of the code, while omitting irrelevant parts of the project,
+to the LLM and sets up
 the interaction loop between the LLM and the verifier.
 
 We present the evaluation of this command using two datasets of buggy
-programs with correct specifications and compare the performance of two LLMs.
-One model is faster and smaller, the other is slower and bigger.
+programs with correct specifications and compare the performance of three LLMs.
+One model is a small generalist model, second is a small coding model and another
+is a bigger coding model.
 
 The remainder of this paper is structured as follows. \secref{background} provides the necessary background, introducing the core concepts related to the Eiffel programming language, large language models, and LSP-based tooling in greater detail.
 \secref{related-work} reviews related work in automated program repair, LLM-assisted development, and contract-driven methodologies.
 \secref{design-and-implementation} presents the design and implementation of our experimental setup, describing how contract-guided repair is operationalized using LLMs.
-\secref{results-and-discussion} outlines the evaluation methodology, followed by \secref{evaluation}, which reports and discusses the results.
+\secref{evaluation} outlines the evaluation methodology, followed by \secref{results-and-discussion}, which reports the experiment results and discusses them.
 \secref{limitations} addresses threats to validity and limitations of the study.
 Finally, \secref{future-work} outlines directions for future work.
 
@@ -166,7 +171,7 @@ Eiffel~\cite{eiffel_language_and_environment} is an object-oriented programming 
 
 Eiffel's contracts are used commonly for dynamic checking. When a program is executed in testing or development environment, its contracts transformed in equivalent runtime assertions. For example, when there is a procedure call, the callee's preconditions are asserted in the caller just before the call. These checks are removed in the finalized version of the program.
 
-Another use of contracts is static verification via AutoProof \cite{autoproof}. AutoProof is an auto-active verifier for the Eiffel programming language that can prove functional correctness of Eiffel programs annotated with contracts. It works only with model-based contracts. Model-based contracts refer to data structures which are formalized by axioms in the lower-level verifier. They are not executable. They are the bridge that connects Eiffel to boogie, the underlying tool that generates proof obligations for some SMT solver. This allows proving correctness of the program for all possible execution paths, in contrast with testing where it might be impossible to test the program in all possible states.
+Another use of contracts is static verification via AutoProof \cite{autoproof}. AutoProof is an auto-active verifier for the Eiffel programming language that can prove functional correctness of Eiffel programs annotated with contracts. It works only with model-based contracts. Model-based contracts refer to data structures which are formalized by axioms in the lower-level verifier. They are not executable. They are the bridge that connects Eiffel to Boogie~\cite{boogie-lang}, the underlying tool that generates proof obligations for some SMT solver. This allows proving correctness of the program for all possible execution paths, in contrast with testing where it might be impossible to test the program in all possible states.
 
 \subsection{Large language models for software development}\label{llm}
 
@@ -178,16 +183,17 @@ We expect the constructed context to compensate partially the scarcity of traini
 \subsection{Language server protocol}\label{lsp}
 
 % Why we are using LPS and by whom it was invented?
-The language server protocol  (LSP)~\cite{lsp} that also known as language intelligence tool makes the idea of the paper that \toolname{}~\cite{eiffel-tools} can help to create verified code in Eiffel programming language portable to any project which defines formal specifications and code. Initially LSP was developed by Microsoft and standardized as an open standard in 2016 in a conjoint effort with RedHat and CodeEnvy~\cite{lsp_origin_1}.
+The language server protocol (LSP)~\cite{lsp} is proposed to be used as a common integration point
+between the code editor, the verifier and the LLM.
 % What?
 It defines a compatibility layer between source code editors and language specific functionalities.
 % How much?
 To exemplify the widespread adoption of this protocol, let us note that at the time of this writing there are 302 server side and 65 client side implementations listed on the official website~\cite{lsp}.
 
-When a programming editor implements the client side of the LSP, it automatically provides "smart editing features" for any programming language supported by a protocol compliant server.
+When a programming editor implements the client side of the LSP, it automatically provides ``smart editing features'' for any programming language supported by a protocol compliant server.
 Some of the language-specific features which the LSP standardizes are code completion, marking of lints, warnings and errors and editing routines.
 The latter can be refactoring routines, formatting routines, and custom operations with domain specific knowledge.
-Within the protocol they are shown as code actions or commands; the former being parametrized only by the user's cursor's position and the latter which can be called from anywhere with the right arguments.
+Within the protocol they are shown as code actions or commands; the former being parametrized only by the user's cursor position and the latter which can be called from anywhere with the right arguments.
 
 % How does it fit?
 These custom operations may access the server state and use the project and language specific knowledge to implement their custom logic.
@@ -196,20 +202,26 @@ In our case, because Eiffel can define formal specifications and AutoProof can p
 
 \section{Related work}\label{related-work}
 
-The research area applying LLMs to software engineering is flourishing, with a rapidly expanding body of work addressing a wide range of development and analysis tasks. In this work ~\cite{braberman2025generativetransformationspatternsllmnative}, the authors provide a systematic taxonomy of generative transformations and their compositional patterns in LLM-native applications, primarily as an analytical framework. Another study ~\cite{hou2024large} conducts a systematic literature review of LLM applications in SE, with a particular focus on understanding how LLMs can be exploited to optimize processes and outcomes. Complementary to these studies, the authors ~\cite{zhang2024unifyingperspectivesnlpsoftware} systematically review recent advances in LLM applications for software engineering. They analyze applications in requirements, testing, deployment, and operations, and identify key challenges and future directions.
+The research area applying LLMs to software engineering is flourishing, with a rapidly expanding body of work addressing a wide range of development and analysis tasks. Authors of~\cite{braberman2025generativetransformationspatternsllmnative} provide a systematic taxonomy of generative transformations and their compositional patterns in LLM-native applications, primarily as an analytical framework. Another study~\cite{hou2024large} conducts a systematic literature review of LLM applications in SE, with a particular focus on understanding how LLMs can be exploited to optimize processes and outcomes. Complementary to these studies, the authors~\cite{zhang2024unifyingperspectivesnlpsoftware} systematically review recent advances in LLM applications for software engineering. They analyze applications in requirements, testing, deployment, and operations, and identify key challenges and future directions.
 
-This study ~\cite{fan2023largelanguagemodelssoftware} emphasizes on the investigation of the emerging area of LLMs for SE and their applications, highlighting the importance of hybrid techniques, such as traditional SE plus LLMs for the reliable and efficient software development. 
+The study~\cite{fan2023largelanguagemodelssoftware} emphasizes on the investigation of the emerging area of LLMs for SE and their applications, highlighting the importance of hybrid techniques, such as traditional SE plus LLMs for the reliable and efficient software development. 
 
-Many groups focus on generating qualitative code either with classical or with agentic LLMs frameworks. As an example, in the work ~\cite{mukherjee2024towards} the authors propose a specification-verification tool, that help automate the process. In this work ~\cite{brandfonbrener2024vermcts}, the authors go further by integrating a verifier into the search algorithm, which evaluates partial programs at each step to provide intermediate feedback and approximate an upper bound on the value function. Beyond this, another study ~\cite{sun2024clover} proposes a closed-loop approach combining large language models and formal verification tools to check the consistency of generated code, docstrings, and formal annotations, achieving high accuracy in detecting correct and incorrect programs.
+LSP can be used to provide context during the LLM inference through monitors~\cite{monitors}. This approach uses language servers externally, primarily leveraging their completion engines, to dynamically mask the streaming output of large language models, which further enhances fine-tuning and dynamic masking. With the same philosophy, our work defines where and how the LLMs may find language and project specific knowledge, which adds benefit to fine-tuning and dynamic masking.
 
-We further discuss other works on the automatic generation of specifications. In this work ~\cite{translating_natural_language_comments_to_formal_program_specifications}, the authors present a tool that automatically synthesizes formal program specifications from natural language comments by aligning comment words with specification tokens, significantly outperforming existing approaches and improving downstream software engineering tasks. Another study ~\cite{enchanting_program_specification_synthesis_by_large_languae_models_using_static_analysis_and_program_verification} introduces an automated approach leveraging static analysis, program verification, and LLMs to iteratively synthesize satisfiable and adequate specifications. This approach significantly outperforms existing methods and successfully verifies complex real-world programs. Further work ~\cite{specgen_automated_generation_of_formal_program_specifications_via_large_language_models} presents a two-phase approach leveraging LLMs and mutation-based heuristics to generate verifiable formal specifications for complex programs, outperforming existing LLM-based and template-driven methods. In the next work ~\cite{yang2024autoverus} authors introduce a system using orchestrated LLM agents to automatically generate correctness proofs for Rust code. Beyond this, authors of the study ~\cite{yao2023leveraging} propose a GPT-4-based prototype that combines LLM reasoning with static analysis to iteratively generate invariants and proof structures for formal verification, significantly reducing manual effort. Last but not least, ~\cite{liu2024propertygpt} the authors present PropertyGPT, an LLM-based tool that generates, ranks, and formally verifies program properties, achieving high-quality outputs, detecting real-world vulnerabilities, and uncovering zero-day bugs.
-
-The most relevant related work we could find in the literature guides LLMs through monitors~\cite{monitors}. This approach uses language servers externally, primarily leveraging their completion engines, to dynamically mask the streaming output of large language models, which further enhances fine-tuning and dynamic masking. With the same philosophy, our work defines where and how the LLMs may find language and project specific knowledge, which adds benefit to fine-tuning and dynamic masking.
-
-There are CITADEL~\cite{citadel} and AutoInfer~\cite{autoinfer} to automatically generate Eiffel specifications. Citadel is an Eiffel front end for Daikon~\cite{daikon}. AutoInfer~\cite{autoinfer} is another tool that generates Eiffel contracts using data mining and contract templates.
+CITADEL~\cite{citadel} and AutoInfer~\cite{autoinfer} automatically generate Eiffel specifications. Citadel is an Eiffel front end for Daikon~\cite{daikon}. AutoInfer~\cite{autoinfer} is another tool that generates Eiffel contracts using data mining and contract templates.
 However, these tools generate specifications for dynamic checks, not model-based specifications for static verification.
 
 On the side of automatic repair of Eiffel programs there is AutoFix~\cite{autofix} and Proof2Fix~\cite{proof2fix}. AutoFix uses random testing through AutoTest~\cite{autotest} to identify the faults. Proof2Fix identifies faults using AutoProof. They both propose candidate fixes that may be the substitution of a template for code edits or the strengthening of the preconditions or weakening of the postconditions for contracts edits. However, these tools are limited to Eiffel and do not generalize to LLM-guided, project- and language-specific specification and verification workflows, which is the focus of our approach.
+
+An experiment similar to the evaluation of this paper is presented in \cite{le2025can}
+with the focus
+on generating specifications and fixing them. Similar prompting techniques are
+discussed for JML and Frama-C.
+
+A close work in the field of LLM-assisted development and manual program repair is
+the study~\cite{huang2025aimodelshelpproduce} of developers producing verified fixes with and without
+the assistance of an LLM chat.
+
 
 \section{Design and implementation}\label{design-and-implementation}
 
@@ -224,7 +236,7 @@ All classes used in the system are indexed (features, contracts, inheritance tre
 and available through the usual
 LSP interfaces which allows code editors, for example, to display and navigate
 between classes and features in the source code. This information is also
-integrated into LLM prompts to give the relevant context to the model.
+integrated into LLM prompts when relevant to give the relevant context to the model.
 
 Eiffel source code in files and LLM responses is parsed using an external
 parser \cite{tree-sitter-eiffel} based on Tree-sitter \cite{treesitter}.
@@ -233,11 +245,10 @@ from the source code. For example, when LLM is used to generate code,
 the parser is used to find valid features in the responses and
 then to extract code or contracts of the found feature.
 
-The tool does not heavily depend on any specific LLM or an API.
+The tool does not depend heavily on any specific LLM or an API.
 Currently an OpenAI-like \texttt{chat/completions} API is supported.
-We are using the Constructor Tech platform \cite{constructor-api} which provides access
-to several LLMs using the same \texttt{chat/completions} API to conduct
-the experiment.
+We are using the OpenRouter platform which provides access
+to several LLMs using the same API to conduct the experiment.
 
 \toolname{} uses AutoProof to verify existing code or LLM-generated suggestions.
 Because AutoProof may not terminate on some inputs, \toolname{} runs it with timeouts: any verification exceeding a time limit is killed, and if the code was LLM-generated, the tool reverts it to its previous stable state upon failure.
@@ -309,7 +320,7 @@ This command generates an implementation for a feature that satisfies its model-
 It modifies only the feature's body, never its specifications.
 Because AutoProof can verify only complete, compilable programs, Eiffel-tools handles intermediate results by creating a subclass of the current class and overriding the target feature in it.
 The overriding feature is initially given to AutoProof.
-If verification fails, Eiffel-tools enters a loop: it prompts the LLM for a new candidate body, inserts the candidate into the overriding feature, and reruns AutoProof.
+If verification fails, \toolname{} enters a loop: it prompts the LLM for a new candidate body, inserts the candidate into the overriding feature, and reruns AutoProof.
 If a candidate body passes verification, Eiffel-tools copies that body into the original feature; otherwise, the loop continues until a candidate passes or a maximum number of attempts is reached.
 Unless a candidate succeeds, no changes are applied to the original feature.
 
@@ -335,10 +346,17 @@ a list of available identifiers,
 the feature's code,
 the class invariant,
 and the AutoProof counterexample (or a compilation error).
-The prompt template is the following:
+
+The prompt to the LLM consists of two messages. The first message is a \emph{system}
+message including the task instructions and a short Eiffel syntax guide.
+The second message is a \emph{user} message which includes the feature to be fixed
+and the verification or compilation errors present in the current version of the code.
 
 \begin{lstlisting}
+System:
 -- <TASK>
+
+User:
 -- <AVAILABLE IDENTIFIERS>
 <FEATURE CODE>
 -- <CLASS INVARIANT>
@@ -379,40 +397,8 @@ Each feature in the class prompt is formatted with its associated counterexample
 We evaluated the feature by feature body correction command,
 described in \secref{feature-by-feature},
 on the datasets buggy-java-jml-eiffel and maple-recursive-eiffel
-using two LLMS, GPT 4.1 nano and Claude Sonnet 4.5.
-
-The Claude Sonnet 4.5 model from Anthropic \cite{ClaudeSonnet4.5} was created
-especially for coding and for for building complex agents. This model
-represents the ``expensive but powerful'' option in the experiment.
-
-The GPT 4.1 nano model from OpenAI \cite{openai-gpt4.1nano} was also created
-with the focus on coding and following instructions. Comparing with Sonnet 4.5,
-the nano model provides lower latency and a cheaper cost, so it represents the
-``cheap but fast'' option in the experiment.
-
-All model were accessed within the Constructor Tech API.
-All evaluations are in \toolname{} repository within the corresponding
-folder \texttt{experiment-results} \cite{eiffel-tools}.
-
-The buggy-java-jml-eiffel dataset is a translation of the BuggyJava+JML dataset \cite{buggy-java-jml}
-from Java and JML \cite{jml} to Eiffel.
-The Eiffel translation is available online at \cite{Mustafin_buggy-java-jml-eiffel_2024}.
-Examples in the dataset include
-simple algorithms (function to return the absolute value of an integer),
-array algorithms (copying an array, binary search),
-data structures (stack, queue).
-
-In total, 520 examples were used from the dataset.
-
-The maple-recursive-eiffel dataset is a translation of the Maple dataset \cite{nguyen2019automatic} from C to Eiffel.
-The translation was used as a part of the evaluation benchmark in Proof2fix \cite{proof2fix}
-and is available online at \cite{Mustafin_maple-recursive-eiffel_2024}.
-Examples in the dataset include
-simple algorithms (absolute value, sum, min, max)
-and recursive functions (recursive counter).
-
-In total the dataset contains 26 examples and all of them were used in the
-evaluation.
+using three LLMs, GPT-5 Nano, Claude Sonnet 4.6 and Poolside Laguna XS
+with 2 ablations (versions) of prompts used.
 
 For every bug fixing task, 10 attempts were made by \toolname{}
 to fix the error. Each attempt included the initial verification,
@@ -421,74 +407,204 @@ suggested fix. If the suggested fix does not verify, it is kept
 and the next attempt starts with the previously suggeste fix, enabling
 a feedback loop between LLM and the verifier.
 
+All evaluations are in \toolname{} repository within the corresponding
+folder \texttt{experiment-results} \cite{eiffel-tools}.
+
+\subsection{Models}
+The experiment compares performance of several models in the bug fixing task.
+All model were accessed through the OpenRouter API.
+
+The Claude Sonnet 4.6 model from Anthropic \cite{ClaudeSonnet4.6} was created
+especially for coding and for for building complex agents. This model
+represents the ``expensive but powerful'' option in the experiment.
+
+The GPT-5 Nano model from OpenAI \cite{openai-gpt5nano} is a generalist model
+``great for summarization and classification tasks''. Comparing with Sonnet 4.6,
+the nano model provides lower latency and a cheaper cost, so it represents the
+``cheap but fast'' option in the experiment.
+
+The Poolside Laguna XS~\cite{abadji2026laguna} model is a smaller model with
+open weights. At the moment of writing, it was provided for free, so it represents
+the ``free and open-weights'' option in the experiment.
+
+\subsection{Datasets}
+Performance of the bug fixing capability was measured on two publicly available
+datasets of buggy programs with contracts (formal specifications).
+
+The buggy-java-jml-eiffel dataset is a translation of the BuggyJava+JML dataset \cite{buggy-java-jml}
+from Java and JML \cite{jml} to Eiffel.
+The Eiffel translation is available online at \cite{Mustafin_buggy-java-jml-eiffel_2024}.
+Examples in the dataset include
+simple algorithms (function to return the absolute value of an integer),
+array algorithms (copying an array, binary search),
+data structures (stack, queue).
+In total, 513 examples were used from the dataset.
+
+The maple-recursive-eiffel dataset is a translation of the Maple dataset \cite{nguyen2019automatic} from C to Eiffel.
+The translation was used as a part of the evaluation benchmark in Proof2fix \cite{proof2fix}
+and is available online at \cite{Mustafin_maple-recursive-eiffel_2024}.
+Examples in the dataset include
+simple algorithms (absolute value, sum, min, max)
+and recursive functions (recursive counter).
+In total the dataset contains 26 examples and all of them were used in the
+evaluation.
+
+\subsection{Ablations}
+To measure the usefulness of \toolname{} in helping LLMs work with a low-resource
+language like Eiffel, performance of models is compared using
+two prompt ablations (versions).
+
+The ``full'' version includes all parts of the prompt described in \secref{feature-by-feature}.
+System message explains the Eiffel syntax which makes the most problems to LLMs,
+including the order clauses in the loop (\lstinline|from invariant until loop variant end|),
+arithmetic operators (\lstinline|// \\| for div and mod respectively).
+Additionally, system message provides the prefilled template (\figref{full-template}) for the expected
+fixed feature.
+
+User message in the ``full'' ablation lists the names and types of variables
+available in pre- and post-conditions and includes the feature to be fixed and
+the compilation or verification error from AutoProof.
+
+\begin{figure}
+\begin{lstlisting}[language={}, literate={...}{{...}}3]
+Your response must be a single ```eiffel code block. The block must begin verbatim with the feature header (signature, documentation comments, notes, and precondition - exactly as shown). Then add your corrected local declarations and body. End the block with the verbatim postcondition and closing `end` before the closing ```.
+Required structure:
+```eiffel
+div (a_n, a_d: INTEGER): INTEGER
+		note
+			status: functional
+		require
+			non_zero_divisor: a_d /= 0
+... (your corrected local declarations and body here) ...
+		ensure
+			res_mod: Result = a_n \\ a_d
+		end
+```
+\end{lstlisting}
+\caption{Part of the ``full'' ablation system message specifying the feature template}\label{full-template}
+\end{figure}
+
+The ``minimal'' ablation omits almost all of the rich features extracted by the tool.
+System message does not have the Eiffel syntax guide nor the verbatim feature template.
+Instead, a natural text explanation is provided: ``The first line of your
+response must be \texttt{```eiffel} and the second line must be the feature signature''.
+
+User message omits the list of available variables and the error itself.
+Model is only told in the system message that there is a problem,
+but the exact problem is not specified in the user message.
+
 \section{Results and Discussion}\label{results-and-discussion}
-In total, 520 bugs from buggy-java-jml-eiffel and 26 bugs from maple-recursive-eiffel
-(546 bugs in total) were used in the experiment to be fixed by 2 LLMs
-(Claude Sonnet 4.5 and GPT-4.1 nano).
+In total, the experiment used 539 bugs to be fixed by 3 LLMs
+using 2 prompt ablations. At most 10 attempts were allowed per feature.
 
-The models showed comparable efficiency in the code fixing task.
-Sonnet managed to fix 279 bugs (51\%) and GPT nano managed to fix 229 bugs (42\%).
+\begin{figure}
+  \includegraphics{analysis_1_success}
+  \caption{Model success rate}
+  \label{fig-success-rate}
+\end{figure}
 
-The majority of successful fixes happened on the first or second attempt.
+\figref{fig-success-rate} shows how many bugs were fixed by each model in
+every ablation.
 
-\begin{table}
-\centering
-\caption{Code fixing results by two models.}\label{tab:res}
-\begin{tabular}{l|r|r}
-&  claude-sonnet-4-5 & gpt-4.1-nano \\
-\hline
-Successful fixes &  279 & 229 \\
-Mean attempts (success only) &  1.70 & 1.55 \\
-Median attempts (success only) & 1 & 1 \\
-Average time (success and failures) & 116s & 81s \\
-Average time (success only) & 33s & 14s
-\end{tabular}
-\end{table}
+Sonnet 4.6 solved the most tasks in both ablations (95\% full, 90\% minimal).
+Laguna XS was better than GPT-5 nano in ``full'' (85\% vs. 82\%) while
+GPT was better than Lagune in ``minimal'' (77\% GPT vs. 76\% Laguna).
 
-The results show that using the nano model allows us to quickly get
-bug fixes in slightly less cases (42\%). While a more advanced model can be used
-to fix more bugs (51\%), it takes more time per bug (2.3 times longer on average).
+Using ``full'' gives 6.4 pp improvement on average. Extended prompts helped
+Laguna to improve the most (8.9 pp).
 
-When a feature can be fixed, it is usually fixed in the first attempt (mean $< 2$).
-This means that 10 fixing attempts might be an overkill and fixing can give
-up on the 3rd attempt.
+\begin{figure}
+  \includegraphics{analysis_2_cumulative}
+  \caption{Model success rate per attempts (only fixed)}
+  \label{fig-cumulative}
+\end{figure}
+
+\figref{fig-cumulative} shows the cumulative success rate per the number
+of attempts used. The majority of fixes happen on the first attempt
+(from 67.9\% for Laguna ``minimal'' to 83.5\% for Sonnet ``minimal'').
+Every next attempt increases the success rate less and less.
+
+The ``full'' ablation results in a higher success rate consistently starting
+from the 2nd attempt.
+
+\begin{figure}
+  \includegraphics{analysis_4_time}
+  \caption{Mean time per feature (fixed and unfixed)}
+  \label{fig-time}
+\end{figure}
+
+\figref{fig-time} shows the mean time used per feature run,
+including both sucessfully fixed and still unfixed features
+after all attempts are exhausted. The diagram shows the time spent
+in the LLM (waiting for the model response) separately from the time
+spent in other steps (verification, tool overhead).
+
+LLM time depends on the model itself and the provider's API. While there
+are several configurable settings in OpenRouter which can optimize throughput
+and latency, the experiment used the default settings.
+
+Experiments using smaller models spent the majority of time waiting for LLM
+while Sonnet's LLM time was similar to verification + tool time.
+
+Using the ``minimal'' ablation increases the total time per feature which
+is mainly connected with the increase in the number of attempts used.
+
+\begin{figure}
+  \includegraphics{analysis_5c_cost_feature}
+  \caption{Mean cost per feature (fixed and unfixed)}
+  \label{fig-cost}
+\end{figure}
+
+\figref{fig-cost} present the mean cost used per feature run,
+including both sucessfully fixed and unfixed features.
+
+Because Laguna was available for free at the time of writing and no pricing
+information was known, only Sonnet 4.6 and GPT-5 nano are compared.
+
+While Sonnet's usage per feature is more expensive than of GPT
+(5x in ``full'' and 3.3x in ``minimal''),
+Sonnet is faster (2x in ``full'', 3.3x in ``minimal'').
+
+Switching to the ``minimal'' ablation decreased the cost per feature when
+using Sonnet but increased when using GPT. The difference can be attributed
+to the increase in attempts needed and
+the increase in reasoning tokens (\figref{fig-tokens}).
+
+\begin{figure}
+  \includegraphics{analysis_5a_tokens_feature}
+  \caption{Mean input, output and reasoning tokens per feature (fixed and unfixed)}
+  \label{fig-tokens}
+\end{figure}
+
+In the experiment Sonnet had reasoning disabled (default settings) but GPT and Laguna
+have reasoning enabled. Reasoning tokens have the same cost as output tokens and
+cost more (5x more expensive for Sonnet, 8x more expensive for GPT).
+Minimal ablation triggers additional reasoning in GPT which increases the cost.
 
 \section{Limitations and threats to validity}\label{limitations}
+The benchmarks used in our evaluation, described in~\secref{evaluation},
+are public and available in multiple programming languages, either C and Eiffel or Java-JML and Eiffel.
+It is possible that those benchmarks leaked in the training data of some LLMs and
+the models could reproduce the solution they were trained on instead of ``fixing''
+the bug.
 
-% UNAVOIDABLE IN THE DEVELOPMENT OF VERIFIED SOFTWARE
-A command that modifies the specifications of a feature to verify it, might inadvertently break the verification of the feature's clients.
-This is an expected part of the development of verified software.
-For a given routine, if the preconditions must become stronger or the postconditions must become weaker, the verification of its client is not guaranteed anymore.
+\section{Conclusion and Future work}\label{future-work}
+This paper presented an approach for using an LSP server as both the
+LLM harness and the integration interface between the editor, verifier
+and LLM at the same time. Implementation of several advanced code editing actions
+combining LLMs and vormal verification is presented.
 
-On the other hand, when using commands that cannot modify the specifications will fail when asked to satisfy unfeasible specifications.
-Currently, all the interactive commands rely on the soundness and feasibility of the specifications.
+The experiment results discuss trade-offs and
+set a baseline for the possible further improvements
+across several axes: fix success rate, time, and cost.
 
-% OUR LIMITATIONS.
-Our parser, tree sitter, refuses valid Eiffel code if it contains deprecated syntax.
-The heuristics we use to refuse repeating or invalid contracts, do not ensure the complete lack of logical redundancy and the removal of all invalid contracts.
-There are few benchmarks and overall online resources for Eiffel, this can significantly impact the ability of LLMs to generate output of comparable quality to more popular languages like Python or Java.
+Further analysis of prompt ablations is needed to identify optimal
+initial prompt and the possible extension of the system
+with ``tool calls'' and presenting an MCP (Model Context Protocol) interfaces
+for the compilar and verifier.
 
-The benchmarks used in our evaluation, described in~\secref{evaluation}, are public and available in multiple programming languages, either C and Eiffel or Java-JML and Eiffel.
-It is possible that those benchmarks leaked in the training data of some LLMs.
-
-\section{Future work}\label{future-work}
-
-We will evaluate all remaining commands:
-class-by-class-fixes,
-model-based-contracts-generation and
-feature-body-generation,
-respectively described in \secref{class-by-class}, \secref{add-model-based-contracts} and \secref{fix-feature-body}.
-
-Then, we want to improve the existing commands.
-For the prompt construction, all commands will register successful generations and use them to dynamically construct few-shot prompting.
-For the output validation, all commands will to type checking on the candidates.
-The model-based contract generation will implement a stronger filter for redundancy and consistency using SMT solvers.
-It will construct SMT formulas from contracts, mapping identifiers in contracts to formal variables.
-If the formulas of the pre-existing contracts imply the formulas of the new proposed contracts, the new contracts are redundant.
-If the conjunction of the formulas of the pre-existing contracts and the new contracts imply false, the addition of the new contracts would introduce inconsistency.
-This command assumes that the pre-existing contracts are consistent because they have been written or accepted by the user.
-
-Moreover, we plan to add AI agents to monitor the project from a high-abstraction prospective and to streamline a conversation with the developer.
+Authors plan extending the implementation of \toolname{} and analysing
+performance of new code actions.
 
 \bibliographystyle{IEEEtran}
 \bibliography{Bibliography}

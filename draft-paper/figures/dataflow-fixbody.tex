@@ -1,6 +1,7 @@
 %An example is shown at \figref{dataflow-feature-body}.
 
 \begin{figure}
+    \begin{adjustbox}{max width=\linewidth, max totalheight=.9\textheight, keepaspectratio}
     \begin{tikzpicture}[every node/.style={font=\sffamily, scale=0.8, text width=7cm}]
         \node (start) [code, label=below:Initial feature in class] {
             \begin{lstlisting}
@@ -116,5 +117,6 @@ min (x, y: INTEGER): INTEGER
         \draw[->, thick] (verification-result) -- (initial-feature-after-edits)
             node[midway, right] {Succeds};
     \end{tikzpicture}
+    \end{adjustbox}
     \caption{Dataflow of a feature in the fix feature body command}\label{dataflow-feature-body}
 \end{figure}
