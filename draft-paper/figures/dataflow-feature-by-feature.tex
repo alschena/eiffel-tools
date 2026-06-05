@@ -1,6 +1,7 @@
 %An example is shown at \figref{dataflow-feature-by-feature-correction};
 
 \begin{figure}
+    \begin{adjustbox}{max width=\linewidth, max totalheight=.9\textheight, keepaspectratio}
     \begin{tikzpicture}[every node/.style={font=\sffamily, scale=0.6, text width=7cm}, align=left]
         \node (start) [code, label=below:Initial feature in class] {
             \begin{lstlisting}
@@ -139,5 +140,6 @@ end
         \draw[->, thick] (verification-result) -- (initial-feature-after-edits)
             node[midway, right] {All features verify};
     \end{tikzpicture}
+    \end{adjustbox}
     \caption{Dataflow of a feature in the feature by feature correction command}\label{dataflow-feature-by-feature-correction}
 \end{figure}
