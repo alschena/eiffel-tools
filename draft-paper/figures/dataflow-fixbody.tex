@@ -1,0 +1,122 @@
+%An example is shown at \figref{dataflow-feature-body}.
+
+\begin{figure}
+    \begin{adjustbox}{max width=\linewidth, max totalheight=.9\textheight, keepaspectratio}
+    \begin{tikzpicture}[every node/.style={font=\sffamily, scale=0.8, text width=7cm}]
+        \node (start) [code, label=below:Initial feature in class] {
+            \begin{lstlisting}
+class
+    EXAMPLE
+feature
+    min (x, y: INTEGER): INTEGER
+        -- Header comment
+        do
+            Result := x
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+end
+\end{lstlisting}
+        };
+
+        \node (prompt) [code, right=of start, yshift=-80pt, label=below:Generated prompt] {
+            \begin{lstlisting}
+-- <task>
+-- <model current class>
+-- <model argument classes>
+-- <precondition available ids>
+-- <postcondition available ids>
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    do
+        <ADD BODY>
+    ensure
+        res: (Result = x or Result = y)
+            and Result <= x and Result <= y
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (start) -- (prompt);
+
+        \node (llm-candidate) [code, left=of prompt, yshift=-80pt, label=below:Generated llm-candidate] {
+            \begin{lstlisting}
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    do
+        if x < y then
+            Result := x
+        else
+            Result := y
+        end
+    ensure
+        res: (Result = x or Result = y)
+            and Result <= x and Result <= y
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (prompt) -- (llm-candidate);
+
+        \node (extracted-body) [code, right=of llm-candidate, yshift=-50pt, label=below:Extracted body] {
+            \begin{lstlisting}
+if x < y then
+    Result := x
+else
+    Result := y
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (llm-candidate) -- (extracted-body);
+
+        \node (mid-artifact) [code, left=of extracted-body,
+        yshift=-140pt, label=below:Instrumented feature redefinition] {
+            \begin{lstlisting}
+class
+    LLM_INSTRUMENTED_EXAMPLE
+inherit
+    EXAMPLE redefine min end
+feature
+    min (x, y: INTEGER): INTEGER
+        do
+            if x < y then
+                Result := x
+            else
+                Result := y
+            end
+        ensure
+            res: (Result = x or Result = y)
+                and Result <= x and Result <= y
+        end
+end
+\end{lstlisting}
+        };
+        \draw[->, thick] (extracted-body.west) -- (mid-artifact);
+
+        \node (verification-result) [code, right=of mid-artifact, yshift=-80pt] {Verification output};
+        \draw[->, thick] (mid-artifact) -- (verification-result);
+        \draw[->, thick] (verification-result.east) -- node[right=2pt] {Fails} ++(2,0) |- (prompt);
+        \node (initial-feature-after-edits) [code, left=of verification-result, yshift=-125pt, label=below:Feature after edits] {
+            \begin{lstlisting}
+min (x, y: INTEGER): INTEGER
+    -- Header comment
+    require
+        True
+    do
+        if x < y then
+            Result := x
+        else
+            Result := y
+        end
+    ensure
+        True
+        res: (Result = x or Result = y)
+            and Result <= x and Result <= y
+    end
+\end{lstlisting}
+        };
+        \draw[->, thick] (verification-result) -- (initial-feature-after-edits)
+            node[midway, right] {Succeds};
+    \end{tikzpicture}
+    \end{adjustbox}
+    \caption{Dataflow of a feature in the fix feature body command}\label{dataflow-feature-body}
+\end{figure}
