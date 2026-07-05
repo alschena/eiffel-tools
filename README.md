@@ -57,3 +57,6 @@ Feel free to write a PR, fork the project or get in touch for continuing this wo
 
 Do you want to help the visibility of the project?
 You might want to read the draft of the scientific paper describing this tool (in the `./draft-paper` folder) and getting in touch to cooperate on its conclusion.
+
+### VERIFAI-2026
+Check `draft-paper` for sources relevant to the paper submission to VERIFAI-2026.
