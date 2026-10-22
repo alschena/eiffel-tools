@@ -84,7 +84,7 @@ Julia Kotovich\inst{1,2}\orcidID{0000-0003-3739-6304}
 
 \institute{
   Constructor Institute of Technology, Schaffhausen, Switzerland
-  \email{\{Alessandro.Schena, Ilgiz.Mustafin, Julia.Kotovich\}@constructor.org}\and
+  \email{Alessandro.Schena@constructor.org}, \email{research@imustafin.tatar}, \email{Julia.Kotovich@constructor.org}\and
   Constructor University, Bremen, Germany
 }
 
@@ -117,16 +117,17 @@ the program's state is checked against specifications during execution.
 This allows test runs of the program to show the presence of implementation
 errors.
 
-A more advanced analysis such as formal verification allows finding inconsistencies between specifications and implementation statically, without running the code. This allows finding errors earlier and mathematically proving arbitrary functional properties. Still, errors in specifications can lead to invalid but correct programs.
+More advanced analyses such as formal verification can find inconsistencies between specifications and implementation statically, without running the code. This catches errors earlier and allows mathematically proving functional properties of the program. Still, errors in specifications can lead to verified programs that do not do what was intended.
 
-Modern SDD relies heavily on LLMs. While LLMs code generation might work well for programming languages that are well-represented in the training datasets, their ecosystem might not have formal verification tools available. 
-These are called high-resource languages~\cite{joel2025surveyllmbasedcodegeneration}.
+Modern SDD relies heavily on LLMs. LLM code generation works best for languages
+that have many examples in LLM training data. Such languages are called high-resource languages~\cite{joel2025surveyllmbasedcodegeneration}.
+However, languages with strong support for formal verification are not always high-resource.
 
-Eiffel is a low-resource language; it has a first-class support for specifications and a static verifier AutoProof, but the low amount of public code makes LLM code generation more challenging. Adapter tools could mitigate this issue. Any such tool must structure and contextualize the code for the model and must keep the user in the loop whenever a reasonable output is produced.
-To mitigate this issue, special tools can be implemented which take the role
-of an adapter: on the one hand, the tool must structure and contextualize the
-code for the model, on the other hand, the tool must present model's
-outputs to allow the user to benefit more from the LLM.
+Eiffel is a low-resource language: it has first-class support for specifications and the static verifier AutoProof,
+but the small amount of public code makes LLM code generation more challenging.
+Adapter tools could mitigate this issue by mediating between the model and the developer.
+For the model, such tools must structure and contextualize the code to offset the lack of specialized knowledge in the training data.
+For the developer, such tools must present only verified results to guard against the weaker generation quality in a low-resource language.
 
 This paper introduces \toolname{} \cite{eiffel-tools}, as the aforementioned adapter.
 \toolname{} implements the Language Server Protocol (LSP) to integrate conveniently in the majority of code editors.
@@ -178,7 +179,7 @@ Another use of contracts is static verification via AutoProof \cite{autoproof}. 
 The recent advancements in deep learning brought large language models into industrial use for software development.
 LLMs need proper context to provide useful information because despite their impressively coherent outputs, they are not oracles and cannot infer user intentions that are not explicitly stated.
 This paper shows that language servers are a natural place to condense language and project specific information to guide the generation of large language models.
-We expect the constructed context to compensate partially the scarcity of training data for low resources languages and boost the quality of performance for all other languages.
+We expect the constructed context to compensate partially the scarcity of training data for low resource languages and boost the quality of performance for all other languages.
 
 \subsection{Language server protocol}\label{lsp}
 
@@ -204,7 +205,7 @@ In our case, because Eiffel can define formal specifications and AutoProof can p
 
 The research area applying LLMs to software engineering is flourishing, with a rapidly expanding body of work addressing a wide range of development and analysis tasks. Authors of~\cite{braberman2025generativetransformationspatternsllmnative} provide a systematic taxonomy of generative transformations and their compositional patterns in LLM-native applications, primarily as an analytical framework. Another study~\cite{hou2024large} conducts a systematic literature review of LLM applications in SE, with a particular focus on understanding how LLMs can be exploited to optimize processes and outcomes. Complementary to these studies, the authors~\cite{zhang2024unifyingperspectivesnlpsoftware} systematically review recent advances in LLM applications for software engineering. They analyze applications in requirements, testing, deployment, and operations, and identify key challenges and future directions.
 
-The study~\cite{fan2023largelanguagemodelssoftware} emphasizes on the investigation of the emerging area of LLMs for SE and their applications, highlighting the importance of hybrid techniques, such as traditional SE plus LLMs for the reliable and efficient software development. 
+Fan et al.~\cite{fan2023largelanguagemodelssoftware} survey the emerging area of LLMs for SE and their applications, highlighting the importance of hybrid techniques, such as combining traditional SE methods with LLMs for reliable and efficient software development. 
 
 LSP can be used to provide context during the LLM inference through monitors~\cite{monitors}. This approach uses language servers externally, primarily leveraging their completion engines, to dynamically mask the streaming output of large language models, which further enhances fine-tuning and dynamic masking. With the same philosophy, our work defines where and how the LLMs may find language and project specific knowledge, which adds benefit to fine-tuning and dynamic masking.
 
@@ -276,7 +277,7 @@ This approach minimizes disruption and reduces context switching.
 
 \subsubsection{Add model-based contracts}\label{add-model-based-contracts}
 This command tries to add model-based contracts to a given feature.
-As its focus in only on specifications, it may only extend the feature's precondition and postcondition blocks.
+As it focuses only on specifications, it may only extend the feature's precondition and postcondition blocks.
 It prompts an LLM following this schema, where the ``*'' before a placeholder means that it is kept as a placeholder in the final prompt.
 
 \begin{lstlisting}
@@ -394,17 +395,17 @@ Each feature in the class prompt is formatted with its associated counterexample
 \input{figures/dataflow-class-by-class}
 
 \section{Evaluation}\label{evaluation}
-We evaluated the feature by feature body correction command,
+We evaluated the feature-by-feature body correction command,
 described in \secref{feature-by-feature},
 on the datasets buggy-java-jml-eiffel and maple-recursive-eiffel
-using three LLMs, GPT-5 Nano, Claude Sonnet 4.6 and Poolside Laguna XS
-with 2 ablations (versions) of prompts used.
+using three LLMs, GPT-5 Nano, Claude Sonnet 4.6 and Poolside Laguna XS.2
+with two versions of prompts: full and minimal.
 
 For every bug fixing task, 10 attempts were made by \toolname{}
 to fix the error. Each attempt included the initial verification,
 prompting the model with the verification result, verifying the
 suggested fix. If the suggested fix does not verify, it is kept
-and the next attempt starts with the previously suggeste fix, enabling
+and the next attempt starts with the previously suggested fix, enabling
 a feedback loop between LLM and the verifier.
 
 All evaluations are in \toolname{} repository within the corresponding
@@ -412,10 +413,10 @@ folder \texttt{experiment-results} \cite{eiffel-tools}.
 
 \subsection{Models}
 The experiment compares performance of several models in the bug fixing task.
-All model were accessed through the OpenRouter API.
+All models were accessed through the OpenRouter API.
 
 The Claude Sonnet 4.6 model from Anthropic \cite{ClaudeSonnet4.6} was created
-especially for coding and for for building complex agents. This model
+especially for coding and for building complex agents. This model
 represents the ``expensive but powerful'' option in the experiment.
 
 The GPT-5 Nano model from OpenAI \cite{openai-gpt5nano} is a generalist model
@@ -423,8 +424,8 @@ The GPT-5 Nano model from OpenAI \cite{openai-gpt5nano} is a generalist model
 the nano model provides lower latency and a cheaper cost, so it represents the
 ``cheap but fast'' option in the experiment.
 
-The Poolside Laguna XS~\cite{abadji2026laguna} model is a smaller model with
-open weights. At the moment of writing, it was provided for free, so it represents
+The Poolside Laguna XS.2~\cite{abadji2026laguna} model is a smaller model with
+open weights. At the time of experiment, it was available only as a free version, so it represents
 the ``free and open-weights'' option in the experiment.
 
 \subsection{Datasets}
@@ -449,10 +450,10 @@ and recursive functions (recursive counter).
 In total the dataset contains 26 examples and all of them were used in the
 evaluation.
 
-\subsection{Ablations}
+\subsection{Prompt versions}
 To measure the usefulness of \toolname{} in helping LLMs work with a low-resource
 language like Eiffel, performance of models is compared using
-two prompt ablations (versions).
+two prompt versions.
 
 The ``full'' version includes all parts of the prompt described in \secref{feature-by-feature}.
 System message explains the Eiffel syntax which makes the most problems to LLMs,
@@ -461,7 +462,7 @@ arithmetic operators (\lstinline|// \\| for div and mod respectively).
 Additionally, system message provides the prefilled template (\figref{full-template}) for the expected
 fixed feature.
 
-User message in the ``full'' ablation lists the names and types of variables
+User message in the ``full'' version lists the names and types of variables
 available in pre- and post-conditions and includes the feature to be fixed and
 the compilation or verification error from AutoProof.
 
@@ -481,10 +482,10 @@ div (a_n, a_d: INTEGER): INTEGER
 		end
 ```
 \end{lstlisting}
-\caption{Part of the ``full'' ablation system message specifying the feature template}\label{full-template}
+\caption{Part of the ``full'' prompt system message specifying the feature template}\label{full-template}
 \end{figure}
 
-The ``minimal'' ablation omits almost all of the rich features extracted by the tool.
+The ``minimal'' version omits almost all of the rich features extracted by the tool.
 System message does not have the Eiffel syntax guide nor the verbatim feature template.
 Instead, a natural text explanation is provided: ``The first line of your
 response must be \texttt{```eiffel} and the second line must be the feature signature''.
@@ -495,7 +496,7 @@ but the exact problem is not specified in the user message.
 
 \section{Results and Discussion}\label{results-and-discussion}
 In total, the experiment used 539 bugs to be fixed by 3 LLMs
-using 2 prompt ablations. At most 10 attempts were allowed per feature.
+using 2 prompt versions. At most 10 attempts were allowed per feature.
 
 \begin{figure}
   \includegraphics{analysis_1_success}
@@ -504,11 +505,11 @@ using 2 prompt ablations. At most 10 attempts were allowed per feature.
 \end{figure}
 
 \figref{fig-success-rate} shows how many bugs were fixed by each model in
-every ablation.
+every prompt version.
 
-Sonnet 4.6 solved the most tasks in both ablations (95\% full, 90\% minimal).
-Laguna XS was better than GPT-5 nano in ``full'' (85\% vs. 82\%) while
-GPT was better than Lagune in ``minimal'' (77\% GPT vs. 76\% Laguna).
+Sonnet 4.6 solved the most tasks in both prompt versions (95\% full, 90\% minimal).
+Laguna XS.2 was better than GPT-5 nano in ``full'' (85\% vs. 82\%) while
+GPT was better than Laguna in ``minimal'' (77\% GPT vs. 76\% Laguna).
 
 Using ``full'' gives 6.4 pp improvement on average. Extended prompts helped
 Laguna to improve the most (8.9 pp).
@@ -524,7 +525,7 @@ of attempts used. The majority of fixes happen on the first attempt
 (from 67.9\% for Laguna ``minimal'' to 83.5\% for Sonnet ``minimal'').
 Every next attempt increases the success rate less and less.
 
-The ``full'' ablation results in a higher success rate consistently starting
+The ``full'' prompt version results in a higher success rate consistently starting
 from the 2nd attempt.
 
 \begin{figure}
@@ -546,7 +547,7 @@ and latency, the experiment used the default settings.
 Experiments using smaller models spent the majority of time waiting for LLM
 while Sonnet's LLM time was similar to verification + tool time.
 
-Using the ``minimal'' ablation increases the total time per feature which
+Using the ``minimal'' prompt version increases the total time per feature which
 is mainly connected with the increase in the number of attempts used.
 
 \begin{figure}
@@ -558,14 +559,14 @@ is mainly connected with the increase in the number of attempts used.
 \figref{fig-cost} present the mean cost used per feature run,
 including both sucessfully fixed and unfixed features.
 
-Because Laguna was available for free at the time of writing and no pricing
-information was known, only Sonnet 4.6 and GPT-5 nano are compared.
+Because Laguna XS.2 was available only for free at the time of the experiment,
+only Sonnet 4.6 and GPT-5 nano costs are compared.
 
 While Sonnet's usage per feature is more expensive than of GPT
 (5x in ``full'' and 3.3x in ``minimal''),
 Sonnet is faster (2x in ``full'', 3.3x in ``minimal'').
 
-Switching to the ``minimal'' ablation decreased the cost per feature when
+Switching to the ``minimal'' prompt version decreased the cost per feature when
 using Sonnet but increased when using GPT. The difference can be attributed
 to the increase in attempts needed and
 the increase in reasoning tokens (\figref{fig-tokens}).
@@ -576,10 +577,12 @@ the increase in reasoning tokens (\figref{fig-tokens}).
   \label{fig-tokens}
 \end{figure}
 
-In the experiment Sonnet had reasoning disabled (default settings) but GPT and Laguna
-have reasoning enabled. Reasoning tokens have the same cost as output tokens and
-cost more (5x more expensive for Sonnet, 8x more expensive for GPT).
-Minimal ablation triggers additional reasoning in GPT which increases the cost.
+In the experiment only the default settings were used, under which Sonnet had reasoning disabled
+while GPT and Laguna
+had reasoning enabled. Reasoning tokens are generally more expensive than input tokens
+(for GPT-5 nano reasoning tokens are 8x more expensive than input tokens).
+For GPT the minimal prompt uses shorter input but triggers additional reasoning,
+which increases the total cost.
 
 \section{Limitations and threats to validity}\label{limitations}
 The benchmarks used in our evaluation, described in~\secref{evaluation},
@@ -592,16 +595,16 @@ the bug.
 This paper presented an approach for using an LSP server as both the
 LLM harness and the integration interface between the editor, verifier
 and LLM at the same time. Implementation of several advanced code editing actions
-combining LLMs and vormal verification is presented.
+combining LLMs and formal verification is presented.
 
 The experiment results discuss trade-offs and
 set a baseline for the possible further improvements
 across several axes: fix success rate, time, and cost.
 
-Further analysis of prompt ablations is needed to identify optimal
+Further analysis of prompt versions is needed to identify optimal
 initial prompt and the possible extension of the system
 with ``tool calls'' and presenting an MCP (Model Context Protocol) interfaces
-for the compilar and verifier.
+for the compiler and verifier.
 
 Authors plan extending the implementation of \toolname{} and analysing
 performance of new code actions.
