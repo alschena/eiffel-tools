@@ -1,122 +1,176 @@
-%An example is shown at \figref{dataflow-feature-body}.
+% DRAFT A: data-flow diagram of "Fix feature body", checked against fix_routine.rs.
+%  - every box has a header strip: a file name (example.e, llm_instrumented_example.e)
+%    or a message role (Prompt, LLM response)
+%  - the prompt is shown as (abridged, quoted) prompt text; only the feature is code
+%  - the subclass redefinition has no contracts (they are inherited)
+%  - the result keeps the original contracts; only the body changes
+% Layout: left skewer (common centre axis): example.e, prompt, AutoProof, example.e (edited);
+% right column: LLM response, subclass (starting level with the prompt).
+%
+% No scaling: the picture is drawn at its final size, all text is 7pt (\scriptsize),
+% Springer's minimum is 6pt. Width budget (\linewidth = 12.2cm): loop 0.5cm +
+% prompt 5.0cm + gap 1.5cm + right column 4.6cm, plus 2 x 2 x 4pt inner sep = 12.16cm.
 
 \begin{figure}
-    \begin{adjustbox}{max width=\linewidth, max totalheight=.9\textheight, keepaspectratio}
-    \begin{tikzpicture}[every node/.style={font=\sffamily, scale=0.8, text width=7cm}]
-        \node (start) [code, label=below:Initial feature in class] {
-            \begin{lstlisting}
-class
-    EXAMPLE
+    \centering
+    % listings in this figure: no extra space around them, everything at 7pt
+    \lstset{aboveskip=0pt, belowskip=0pt,
+        basicstyle=\linespread{0.9}\scriptsize,
+        identifierstyle=\color[HTML]{000000}\scriptsize\ttfamily,
+        commentstyle=\color[HTML]{F10000}\scriptsize\ttfamily,
+        keywordstyle={\color[HTML]{222277}\scriptsize\bfseries\ttfamily},
+        keywordstyle=[2]{\color[HTML]{2233CC}\scriptsize\ttfamily},
+        keywordstyle=[3]{\color[HTML]{222277}\scriptsize\bfseries\ttfamily}}
+    % header strip: title, then a rule across the whole box (box inner sep is 4pt)
+    \def\boxhead#1{{\bfseries #1}\par\nointerlineskip\vspace{3pt}%
+        \noindent\makebox[\linewidth][c]{\rule{\dimexpr\linewidth+8pt\relax}{0.4pt}}\par\nointerlineskip\vspace{3pt}}
+    \begin{tikzpicture}[
+        every node/.style={font=\sffamily\scriptsize},
+        box/.style={code, text width=4.6cm, inner sep=4pt, align=left, font=\sffamily\scriptsize,
+                    execute at begin node={\hyphenpenalty=10000\exhyphenpenalty=10000}},
+        flow/.style={->, thick},
+        note/.style={font=\sffamily\scriptsize},
+    ]
+        % skewer axis S = centre of the 5.0cm prompt box; right column starts at R
+        \coordinate (S) at (2.64,0);
+        \coordinate (R) at (6.78,0);
+
+        % Left skewer: example.e, prompt, AutoProof, example.e (edited) ---------------------------------------------
+        \node (init) [box, anchor=north] at (S) {\boxhead{example.e}
+\begin{lstlisting}[xleftmargin=0.1cm]
+class EXAMPLE
 feature
-    min (x, y: INTEGER): INTEGER
-        -- Header comment
-        do
-            Result := x
-        ensure
-            res: (Result = x or Result = y)
-                and Result <= x and Result <= y
-        end
+  min (x, y: INTEGER): INTEGER
+      -- Smaller of x and y.
+    do
+      Result := x
+    ensure
+      res: (Result = x or Result = y)
+        and Result <= x and Result <= y
+    end
 end
 \end{lstlisting}
         };
 
-        \node (prompt) [code, right=of start, yshift=-80pt, label=below:Generated prompt] {
-            \begin{lstlisting}
--- <task>
--- <model current class>
--- <model argument classes>
--- <precondition available ids>
--- <postcondition available ids>
-min (x, y: INTEGER): INTEGER
-    -- Header comment
-    do
-        <ADD BODY>
-    ensure
-        res: (Result = x or Result = y)
-            and Result <= x and Result <= y
-    end
-\end{lstlisting}
-        };
-        \draw[->, thick] (start) -- (prompt);
+        \coordinate (row1) at ([yshift=-14mm]init.south);
 
-        \node (llm-candidate) [code, left=of prompt, yshift=-80pt, label=below:Generated llm-candidate] {
-            \begin{lstlisting}
+        % Left column: prompt --------------------------------------------------------
+        \node (prompt) [box, text width=5.0cm, anchor=north] at (row1 -| S) {\boxhead{Prompt}
+\llmrole{System:} You are a coding assistant, expert in the Eiffel programming
+language and AutoProof static verifier. [\dots\unkern] You must ONLY modify the
+feature body [\dots\unkern]\par\smallskip
+\llmrole{User:} The following feature does not verify. Please rewrite it so
+that it verifies. [\dots\unkern]\par\smallskip
+Context: Identifiers available in the post-state for the postcondition:
+Current: EXAMPLE, x: INTEGER, y: INTEGER, Result: INTEGER. [\dots\unkern]\par\smallskip
+Feature to fix:\par\smallskip
+\begin{lstlisting}[xleftmargin=0.1cm]
 min (x, y: INTEGER): INTEGER
-    -- Header comment
-    do
-        if x < y then
-            Result := x
-        else
-            Result := y
-        end
-    ensure
-        res: (Result = x or Result = y)
-            and Result <= x and Result <= y
-    end
-\end{lstlisting}
-        };
-        \draw[->, thick] (prompt) -- (llm-candidate);
-
-        \node (extracted-body) [code, right=of llm-candidate, yshift=-50pt, label=below:Extracted body] {
-            \begin{lstlisting}
-if x < y then
+    -- Smaller of x and y.
+  do
     Result := x
-else
-    Result := y
-end
+  ensure
+    res: (Result = x or Result = y)
+      and Result <= x and Result <= y
+  end
 \end{lstlisting}
+\smallskip
+AutoProof error: Postcondition res may be violated. [\dots\unkern]
         };
-        \draw[->, thick] (llm-candidate) -- (extracted-body);
 
-        \node (mid-artifact) [code, left=of extracted-body,
-        yshift=-140pt, label=below:Instrumented feature redefinition] {
-            \begin{lstlisting}
-class
-    LLM_INSTRUMENTED_EXAMPLE
-inherit
-    EXAMPLE redefine min end
-feature
-    min (x, y: INTEGER): INTEGER
-        do
-            if x < y then
-                Result := x
-            else
-                Result := y
-            end
-        ensure
-            res: (Result = x or Result = y)
-                and Result <= x and Result <= y
-        end
-end
-\end{lstlisting}
-        };
-        \draw[->, thick] (extracted-body.west) -- (mid-artifact);
-
-        \node (verification-result) [code, right=of mid-artifact, yshift=-80pt] {Verification output};
-        \draw[->, thick] (mid-artifact) -- (verification-result);
-        \draw[->, thick] (verification-result.east) -- node[right=2pt] {Fails} ++(2,0) |- (prompt);
-        \node (initial-feature-after-edits) [code, left=of verification-result, yshift=-125pt, label=below:Feature after edits] {
-            \begin{lstlisting}
+        % Right column: LLM response, subclass -----------------------------------------
+        \node (cand) [box, anchor=north west] at (row1 -| R) {\boxhead{LLM response}
+Here is the corrected feature:\par\smallskip
+\begin{lstlisting}[xleftmargin=0.1cm]
 min (x, y: INTEGER): INTEGER
-    -- Header comment
-    require
-        True
-    do
-        if x < y then
-            Result := x
-        else
-            Result := y
-        end
-    ensure
-        True
-        res: (Result = x or Result = y)
-            and Result <= x and Result <= y
+    -- Smaller of x and y.
+  do
+    if x < y then
+      Result := x
+    else
+      Result := y
     end
+  ensure
+    res: (Result = x or Result = y)
+      and Result <= x and Result <= y
+  end
+\end{lstlisting}
+\smallskip
+The conditional assigns the smaller argument to Result, so the postcondition holds.
+        };
+
+        \node (sub) [box, anchor=north west] at ([yshift=-12mm]cand.south -| R)
+            {\boxhead{llm\_instrumented\_example.e}
+\begin{lstlisting}[xleftmargin=0.1cm]
+class LLM_INSTRUMENTED_EXAMPLE
+inherit EXAMPLE redefine min end
+feature
+  min (x, y: INTEGER): INTEGER
+    do
+      if x < y then
+        Result := x
+      else
+        Result := y
+      end
+    end
+end
 \end{lstlisting}
         };
-        \draw[->, thick] (verification-result) -- (initial-feature-after-edits)
-            node[midway, right] {Succeds};
+
+        % Left column: AutoProof below the prompt, result below AutoProof ---------------------
+        \coordinate (vy) at ([yshift=-6mm]prompt.south);
+        \node (verif) [code, inner sep=5pt] at (vy -| S) {AutoProof};
+
+        \node (after) [box, anchor=north] at ([yshift=-9mm]verif.south -| S)
+            {\boxhead{example.e (edited)}
+\begin{lstlisting}[xleftmargin=0.1cm]
+class EXAMPLE
+feature
+  min (x, y: INTEGER): INTEGER
+      -- Smaller of x and y.
+    do
+      if x < y then
+        Result := x
+      else
+        Result := y
+      end
+    ensure
+      res: (Result = x or Result = y)
+        and Result <= x and Result <= y
+    end
+end
+\end{lstlisting}
+        };
+
+        % Arrows ------------------------------------------------------------------------
+        % Arrow captions are operations performed by the tool.
+        % First arrow: example.e -> prompt. The "fails" loop from AutoProof joins it at (join),
+        % so "construct prompt" is captioned once, on the common segment.
+        \coordinate (join) at ([yshift=9mm]prompt.north);
+        \draw[thick] (init.south) -- (join)
+            node[midway, right, note] {verify (fails)};
+        \draw[flow] (join) -- (prompt.north)
+            node[midway, right, note, align=left] {construct prompt with\\verification errors};
+
+        \draw[flow] (prompt.east |- cand.west) -- (cand.west)
+            node[midway, above, note] {query LLM};
+
+        % caption wrapped narrow enough not to stick out past the right edge
+        \draw[flow] (cand.south) -- (sub.north)
+            node[midway, right, note, align=left]
+                {extract body into\\an instrumented\\subclass};
+
+        \draw[flow] (sub.west |- verif.east) -- (verif.east)
+            node[midway, above, note] {run verification};
+
+        % "fails": left, up past the prompt, into the first arrow (like the loop in draft B)
+        \coordinate (loopx) at ([xshift=-5mm]prompt.west);
+        \draw[flow] (verif.west) -| (loopx |- join) -- (join);
+        \node[note, above] at ([xshift=-3mm]verif.west) {fails};
+
+        \draw[flow] (verif.south) -- (verif.south |- after.north)
+            node[midway, right, note, align=left]
+                {succeeds: copy body into\\the original feature (LSP edit)};
     \end{tikzpicture}
-    \end{adjustbox}
-    \caption{Dataflow of a feature in the fix feature body command}\label{dataflow-feature-body}
+    \caption{Dataflow of the fix feature body command}\label{dataflow-fixbody}
 \end{figure}

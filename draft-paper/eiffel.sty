@@ -52,26 +52,34 @@
 		},
 	morekeywords=[3]{modify,read,model,field,ghost,explicit,lemma,functional},
 	sensitive,
+	% keepspaces=true (below) keeps the source spaces around operators,
+	% so the replacements carry no extra spacing of their own.
+	% "..." must come after ".." to take precedence.
 	literate={<}{{$<$}}{1}
-		{>}{{$>\:$}}{1}
+		{>}{{$>$}}{1}
 		{<<}{{$\langle$}}{1}
 		{>>}{{$\rangle$}}{1}
-		{..}{{$.\,\!.\;$}}{1}
-		{<=}{{$\!\leq$\,}}{1}
-		{>=}{{$\geq\,$}}{1}
-		{/=}{{$\neq\,$}}{1}
-		{=}{{$=\,$}}{1}
-		{->}{{$\to\,$}}{1}
+		{..}{{$.\,\!.$}}{1}
+		{...}{{\dots}}{3}
+		{<=}{{$\leq$}}{1}
+		{>=}{{$\geq$}}{1}
+		{/=}{{$\neq$}}{1}
+		{=}{{$=$}}{1}
+		{->}{{$\to$}}{1}
 		{$@$}{{$\,\in\,$}}{1}
-		{==>}{{$\Rightarrow\,$}}{1}
-		{forall}{{$\forall\,$}}{1}
-		{exists}{{$\exists\,$}}{1}
-		{brokenbar}{{\textbrokenbar\ }}{1},
+		{==>}{{$\Rightarrow$}}{1}
+		{forall}{{$\forall$}}{1}
+		{exists}{{$\exists$}}{1}
+		{brokenbar}{{\textbrokenbar\ }}{1}
+		% template slots in prompt templates; styled by llmprompt.sty when it is loaded
+		{«}{{\ifdefined\llmslotopen\llmslotopen\else\guillemotleft\fi}}{1}
+		{»}{{\ifdefined\llmslotclose\llmslotclose\else\guillemotright\fi}}{1},
 	mathescape=true,
 	escapeinside={(*}{*)},
 	morecomment=[l]--,
 	morestring=[d]",
 	columns=fullflexible,
+	keepspaces=true,
 	breaklines=true,
 	tabsize=2,
 	identifierstyle=\color[HTML]{000000}\small\ttfamily,

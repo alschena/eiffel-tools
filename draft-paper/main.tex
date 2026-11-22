@@ -14,9 +14,13 @@
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 \usepackage{graphicx}
-\usepackage{adjustbox}
 \usepackage{listings}
 \usepackage{eiffel}
+\usepackage{llmprompt}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{siunitx}
+\usepackage{bbding}
 
 % If you use the hyperref package, please uncomment the following two lines
 % to display URLs in blue roman font according to Springer's eBook style:
@@ -54,6 +58,7 @@
 
 \newcommand{\secref}[1]{Section~\ref{#1}}
 \newcommand{\figref}[1]{Figure~\ref{#1}}
+\newcommand{\tabref}[1]{Table~\ref{#1}}
 
 \begin{document}
 
@@ -73,11 +78,11 @@
 % }
 
 
-\title{Large Language Models and Language Server Protocol: a match made in context}
-\titlerunning{LLMs and LSP: a match made in context}
+\title{Large Language Models and Language Server Protocol: A Match Made in Context}
+\titlerunning{LLMs and LSP: A Match Made in Context}
 \author{
 Alessandro Schena\inst{1}\orcidID{0009-0005-1793-9107} \and
-Ilgiz Mustafin\inst{1}\orcidID{0009-0007-0476-5966} \and
+Ilgiz Mustafin\inst{1}\textsuperscript{\Envelope}\orcidID{0009-0007-0476-5966} \and
 Julia Kotovich\inst{1,2}\orcidID{0000-0003-3739-6304}
 }
 % \authorrunning{A. Schena et al.}
@@ -91,14 +96,20 @@ Julia Kotovich\inst{1,2}\orcidID{0000-0003-3739-6304}
 \maketitle
 
 \newcommand{\toolname}{Eiffel-tools}
+\newcommand{\rich}{Rich}
+\newcommand{\bare}{Bare}
 
 \begin{abstract}
-  This article introduces \toolname{}, a language server protocol (LSP) implementation for the Eiffel programming language that uses Large Language Models (LLMs) to aid the development of statically verified software.
-  The tool provides various interactive and non-interactive commands to produce code and specifications.   It uses language and project specific knowledge to precisely direct the LLM and verifies the output using a static verifier. It crafts rich programmatic prompts for the input and corrects or rejects the output. Furthermore, it handles the retries until the program passes verification.
+  This article introduces \toolname{}, a Language Server Protocol (LSP) implementation for the Eiffel programming language that uses Large Language Models (LLMs) to aid the development of statically verified software.
+  The tool provides various interactive and non-interactive commands to produce code and specifications.
+  It uses language- and project-specific knowledge to precisely direct the LLM and verifies the output using a static verifier.
+  \toolname{} runs an agentic loop that fixes some errors in the LLM-generated code
+  or retries the generation to avoid showing unverified output.
 
-  The tool's bug fixing capability is evaluated on 2 public datasets using 3 models. The tool can fix 76\% to 95\% of bugs by combining LLMs and a formal verifier depending on the model and prompts used.
-  The results show the trade-off between the number of fixing attempts and
-  the success rate.
+  The tool's bug-fixing capability for programs with contracts is evaluated on two public datasets using three models.
+  Depending on the LLM and the prompt used, the tool can produce verified fixes for 76\% to 95\% of bugs.
+  The results show the diminishing returns of retries: 90--96\% of successful fixes happen in the first two attempts.
+  Additional knowledge in the prompt increases the success rate and decreases the time needed for fixing bugs.
 
   \keywords{LLM \and LSP \and Software verification \and Design by Contract \and Eiffel \and AutoProof}
 \end{abstract}
@@ -117,7 +128,7 @@ the program's state is checked against specifications during execution.
 This allows test runs of the program to show the presence of implementation
 errors.
 
-More advanced analyses such as formal verification can find inconsistencies between specifications and implementation statically, without running the code. This catches errors earlier and allows mathematically proving functional properties of the program. Still, errors in specifications can lead to verified programs that do not do what was intended.
+More advanced analyses such as formal verification can find inconsistencies between specifications and implementation statically, without running the code. This catches errors earlier and can mathematically prove functional properties of the program. Still, errors in specifications can lead to verified programs that do not do what was intended.
 
 Modern SDD relies heavily on LLMs. LLM code generation works best for languages
 that have many examples in LLM training data. Such languages are called high-resource languages~\cite{joel2025surveyllmbasedcodegeneration}.
@@ -132,35 +143,22 @@ For the developer, such tools must present only verified results to guard agains
 This paper introduces \toolname{} \cite{eiffel-tools}, as the aforementioned adapter.
 \toolname{} implements the Language Server Protocol (LSP) to integrate conveniently in the majority of code editors.
 
-In this paper we highlight the tool's ``fix feature body'' command. 
-The command tries to change the body of the procedure such that it will satisfy its specifications.
-The tool presents the relevant parts of the code, while omitting irrelevant parts of the project,
-to the LLM and sets up
+The tool has an interactive and a non-interactive command for fixing a feature's body
+so that it satisfies its specifications. Both commands share a common core:
+the tool presents the relevant parts of the code,
+while omitting irrelevant parts of the project, to the LLM and sets up
 the interaction loop between the LLM and the verifier.
 
-We present the evaluation of this command using two datasets of buggy
-programs with correct specifications and compare the performance of three LLMs.
-One model is a small generalist model, second is a small coding model and another
-is a bigger coding model.
+We evaluate the non-interactive feature-by-feature fixing command on two datasets of buggy
+programs with correct specifications and compare the performance of three LLMs:
+a small generalist model, a small coding model, and a larger coding model.
 
 The remainder of this paper is structured as follows. \secref{background} provides the necessary background, introducing the core concepts related to the Eiffel programming language, large language models, and LSP-based tooling in greater detail.
 \secref{related-work} reviews related work in automated program repair, LLM-assisted development, and contract-driven methodologies.
-\secref{design-and-implementation} presents the design and implementation of our experimental setup, describing how contract-guided repair is operationalized using LLMs.
+\secref{design-and-implementation} presents the design and implementation of \toolname{} and its commands, including how contract-guided repair is operationalized using LLMs.
 \secref{evaluation} outlines the evaluation methodology, followed by \secref{results-and-discussion}, which reports the experiment results and discusses them.
 \secref{limitations} addresses threats to validity and limitations of the study.
 Finally, \secref{future-work} outlines directions for future work.
-
-%--- here I suggest to finish INTRO
-
-% Already existing tools for Eiffel like AutoFix~\cite{autofix} and Proof2Fix~\cite{proof2fix}, will be described more precisely in~\secref{related-work}, focus on generating contracts for dynamic checks and do not address the needs of model-based, statically verified specifications required by AutoProof~\cite{autoproof}. Similarly, prior repair tools depend on
-% code substitution templates, leaving a gap in interactive or automated adaptable support
-% for static verification.
-
-
-% Eiffel-tools uses large language models, described in~\secref{llm}.
-% It provides language and project specific help to the developers of Eiffel software verified using AutoProof, described in~\secref{eiffel-and-autoproof}.
-
-% As an idea we can reference here this study ~\cite{huang2025aimodelshelpproduce}
 
 \section{Background}\label{background}
 This section provides the background information about the Eiffel programming
@@ -170,61 +168,79 @@ language and the related technologies.
 
 Eiffel~\cite{eiffel_language_and_environment} is an object-oriented programming language with first-class support for Design by Contract~\cite{design-by-contract}, allowing developers to embed preconditions, postconditions, and class invariants directly in the source code. Thus, a typical Eiffel project contains both the executable program and its formal specifications within the same codebase. For this reason, we consider Eiffel to be natively suitable for SDD.
 
-Eiffel's contracts are used commonly for dynamic checking. When a program is executed in testing or development environment, its contracts transformed in equivalent runtime assertions. For example, when there is a procedure call, the callee's preconditions are asserted in the caller just before the call. These checks are removed in the finalized version of the program.
+Eiffel's contracts are used commonly for dynamic checking. When a program is executed in testing or development environment, its contracts are transformed to equivalent runtime assertions. For example, when there is a procedure call, the callee's preconditions are asserted in the caller just before the call. These checks are usually removed in the finalized version of the program to increase performance.
 
-Another use of contracts is static verification via AutoProof \cite{autoproof}. AutoProof is an auto-active verifier for the Eiffel programming language that can prove functional correctness of Eiffel programs annotated with contracts. It works only with model-based contracts. Model-based contracts refer to data structures which are formalized by axioms in the lower-level verifier. They are not executable. They are the bridge that connects Eiffel to Boogie~\cite{boogie-lang}, the underlying tool that generates proof obligations for some SMT solver. This allows proving correctness of the program for all possible execution paths, in contrast with testing where it might be impossible to test the program in all possible states.
+Another use of contracts is static verification via AutoProof \cite{autoproof}. AutoProof is an auto-active verifier for the Eiffel programming language that can prove the functional correctness of Eiffel programs annotated with contracts.
+Specifications using data structures (such as \lstinline|LIST|) must be model-based: they must refer to mathematical models
+of the structures (like \lstinline|MML_SEQUENCE| in AutoProof, \texttt{Seq} in Boogie),
+which are formalized by axioms in the lower-level verifier. Such contracts are not always executable. They bridge Eiffel to Boogie~\cite{boogie-lang}, the underlying tool that generates proof obligations for an SMT solver.
+Successful verification proves that the system is correct
+with respect to its contracts for all possible execution paths,
+in contrast with testing, which examines the system's behavior only on specific inputs and specific execution paths.
 
-\subsection{Large language models for software development}\label{llm}
+\subsection{Large Language Models for Software Development}\label{llm}
 
 The recent advancements in deep learning brought large language models into industrial use for software development.
 LLMs need proper context to provide useful information because despite their impressively coherent outputs, they are not oracles and cannot infer user intentions that are not explicitly stated.
-This paper shows that language servers are a natural place to condense language and project specific information to guide the generation of large language models.
-We expect the constructed context to compensate partially the scarcity of training data for low resource languages and boost the quality of performance for all other languages.
+This paper argues that language servers are a natural place to condense language- and project-specific information to guide the generation of large language models.
+We expect the constructed context to partially compensate for the scarcity of training data for low-resource languages and boost the quality of performance for all other languages.
 
-\subsection{Language server protocol}\label{lsp}
+\subsection{Language Server Protocol}\label{lsp}
 
 % Why we are using LPS and by whom it was invented?
 The language server protocol (LSP)~\cite{lsp} is proposed to be used as a common integration point
-between the code editor, the verifier and the LLM.
+between the code editor, the verifier, and the LLM.
 % What?
-It defines a compatibility layer between source code editors and language specific functionalities.
+It defines a compatibility layer between source code editors and language-specific functionalities.
 % How much?
-To exemplify the widespread adoption of this protocol, let us note that at the time of this writing there are 302 server side and 65 client side implementations listed on the official website~\cite{lsp}.
+To exemplify the widespread adoption of this protocol, let us note that at the time of this writing there are 302 server-side and 65 client-side implementations listed on the official website~\cite{lsp}.
 
-When a programming editor implements the client side of the LSP, it automatically provides ``smart editing features'' for any programming language supported by a protocol compliant server.
-Some of the language-specific features which the LSP standardizes are code completion, marking of lints, warnings and errors and editing routines.
-The latter can be refactoring routines, formatting routines, and custom operations with domain specific knowledge.
+When a programming editor implements the client side of the LSP, it automatically provides ``smart editing features'' for any programming language supported by a protocol-compliant server.
+Some of the language-specific features that the LSP standardizes are code completion, marking lints, presenting warnings and errors, and code-editing routines.
+The latter can be refactoring routines, formatting routines, and custom operations with domain-specific knowledge.
 Within the protocol they are shown as code actions or commands; the former being parametrized only by the user's cursor position and the latter which can be called from anywhere with the right arguments.
 
 % How does it fit?
-These custom operations may access the server state and use the project and language specific knowledge to implement their custom logic.
-This is a perfect environment for defining guidelines for LLMs: which information is useful in the prompt, which outputs satisfy the syntax of the language and which identifiers are valid in the place the custom command wants to write and more.
-In our case, because Eiffel can define formal specifications and AutoProof can prove the correctness of the code against those specifications, we can force any command that generates code to produce only verified code.
+These custom operations may access the server state and use the project- and language-specific knowledge to implement their custom logic.
+This is a perfect environment for defining guidelines for LLMs: which information is useful in the prompt, which outputs satisfy the syntax of the language, and which identifiers are valid in the place the custom command wants to write and more.
+Because Eiffel can define formal specifications and AutoProof can prove the correctness of the code against those specifications, we can force any command that generates code to produce only verified code.
 
-\section{Related work}\label{related-work}
+\section{Related Work}\label{related-work}
 
-The research area applying LLMs to software engineering is flourishing, with a rapidly expanding body of work addressing a wide range of development and analysis tasks. Authors of~\cite{braberman2025generativetransformationspatternsllmnative} provide a systematic taxonomy of generative transformations and their compositional patterns in LLM-native applications, primarily as an analytical framework. Another study~\cite{hou2024large} conducts a systematic literature review of LLM applications in SE, with a particular focus on understanding how LLMs can be exploited to optimize processes and outcomes. Complementary to these studies, the authors~\cite{zhang2024unifyingperspectivesnlpsoftware} systematically review recent advances in LLM applications for software engineering. They analyze applications in requirements, testing, deployment, and operations, and identify key challenges and future directions.
+The research area applying LLMs to software engineering is flourishing, with a rapidly expanding body of work addressing a wide range of development and analysis tasks. Braberman et al.~\cite{braberman2025generativetransformationspatternsllmnative} provide a systematic taxonomy of generative transformations and their compositional patterns in LLM-native applications, primarily as an analytical framework. Hou et al.~\cite{hou2024large} conduct a systematic literature review of LLM applications in SE, with a particular focus on understanding how LLMs can be exploited to optimize processes and outcomes. Complementary to these studies, Zhang et al.~\cite{zhang2024unifyingperspectivesnlpsoftware} systematically review recent advances in LLM applications for software engineering. They analyze applications in requirements, testing, deployment, and operations, and identify key challenges and future directions.
 
 Fan et al.~\cite{fan2023largelanguagemodelssoftware} survey the emerging area of LLMs for SE and their applications, highlighting the importance of hybrid techniques, such as combining traditional SE methods with LLMs for reliable and efficient software development. 
 
-LSP can be used to provide context during the LLM inference through monitors~\cite{monitors}. This approach uses language servers externally, primarily leveraging their completion engines, to dynamically mask the streaming output of large language models, which further enhances fine-tuning and dynamic masking. With the same philosophy, our work defines where and how the LLMs may find language and project specific knowledge, which adds benefit to fine-tuning and dynamic masking.
+LSP can be used to provide guidance during LLM inference, as argued by Agrawal et al.~\cite{monitors}.
+They use the approach of ``monitors'' to mask out invalid tokens during code generation.
+For example, after a ``\texttt{.}'' (member access in Java) is generated,
+the logits of the next tokens are masked to
+disallow tokens that cannot form a valid member name of the receiver's type.
+The masking algorithm
+queries a language server to get the valid completion candidates. Like their tool,
+\toolname{} uses language-server knowledge, but adds it to the prompt instead
+of changing the decoding process.
 
-CITADEL~\cite{citadel} and AutoInfer~\cite{autoinfer} automatically generate Eiffel specifications. Citadel is an Eiffel front end for Daikon~\cite{daikon}. AutoInfer~\cite{autoinfer} is another tool that generates Eiffel contracts using data mining and contract templates.
+CITADEL~\cite{citadel} and AutoInfer~\cite{autoinfer} automatically generate Eiffel specifications. CITADEL is an Eiffel front end for Daikon~\cite{daikon}. AutoInfer generates Eiffel contracts using data mining and contract templates.
 However, these tools generate specifications for dynamic checks, not model-based specifications for static verification.
 
-On the side of automatic repair of Eiffel programs there is AutoFix~\cite{autofix} and Proof2Fix~\cite{proof2fix}. AutoFix uses random testing through AutoTest~\cite{autotest} to identify the faults. Proof2Fix identifies faults using AutoProof. They both propose candidate fixes that may be the substitution of a template for code edits or the strengthening of the preconditions or weakening of the postconditions for contracts edits. However, these tools are limited to Eiffel and do not generalize to LLM-guided, project- and language-specific specification and verification workflows, which is the focus of our approach.
+AutoFix~\cite{autofix} and Proof2Fix~\cite{proof2fix} automatically repair Eiffel programs. AutoFix uses random testing through AutoTest~\cite{autotest} to identify faults. Proof2Fix identifies faults using AutoProof.
+Both tools propose candidate fixes by applying code substitutions in a routine body,
+strengthening the preconditions, or weakening the postconditions.
+However, these tools use a fixed set of replacement templates,
+which limits the kinds of faults that the tools can fix. LLMs do not need an exhaustive
+list of templates, which motivates the approach of this work.
 
-An experiment similar to the evaluation of this paper is presented in \cite{le2025can}
-with the focus
+An experiment similar to the evaluation of this paper is presented by Le-Cong et al.~\cite{le2025can}
+with a focus
 on generating specifications and fixing them. Similar prompting techniques are
 discussed for JML and Frama-C.
 
 A close work in the field of LLM-assisted development and manual program repair is
-the study~\cite{huang2025aimodelshelpproduce} of developers producing verified fixes with and without
+the study by Huang et al.~\cite{huang2025aimodelshelpproduce} of developers producing verified fixes with and without
 the assistance of an LLM chat.
 
-
-\section{Design and implementation}\label{design-and-implementation}
+\section{Design and Implementation}\label{design-and-implementation}
 
 \toolname{} is an LSP language server which provides several novel
 commands using LLMs and a static verifier to generate or repair Eiffel code and
@@ -232,27 +248,26 @@ specifications.
 
 The language server avoids using a full-fledged Eiffel compiler to be performant and provide support to projects in inconsistent states with compilation errors and missing files.
 \toolname{} reads the project configuration file (ECF),
-parses it, extracts the used libraries and recursively analyses them.
-All classes used in the system are indexed (features, contracts, inheritance tree is stored)
+parses it, extracts the used libraries, and recursively analyzes them.
+All classes used in the system are indexed (features, contracts, and inheritance tree are stored)
 and available through the usual
-LSP interfaces which allows code editors, for example, to display and navigate
+LSP interface. The LSP interface allows code editors, for example, to display and navigate
 between classes and features in the source code. This information is also
-integrated into LLM prompts when relevant to give the relevant context to the model.
+integrated into LLM prompts to give the relevant and specific context to the model.
 
 Eiffel source code in files and LLM responses is parsed using an external
 parser \cite{tree-sitter-eiffel} based on Tree-sitter \cite{treesitter}.
-This allows using Tree-sitter queries to extract the relevant structures
-from the source code. For example, when LLM is used to generate code,
+Tree-sitter integration simplifies analyzing the source code using
+Tree-sitter queries. For example, when an LLM is used to generate code,
 the parser is used to find valid features in the responses and
-then to extract code or contracts of the found feature.
+then to extract code or contracts of the found features.
 
 The tool does not depend heavily on any specific LLM or an API.
 Currently an OpenAI-like \texttt{chat/completions} API is supported.
-We are using the OpenRouter platform which provides access
-to several LLMs using the same API to conduct the experiment.
+OpenRouter is used in the experiment as a common API for several LLMs.
 
 \toolname{} uses AutoProof to verify existing code or LLM-generated suggestions.
-Because AutoProof may not terminate on some inputs, \toolname{} runs it with timeouts: any verification exceeding a time limit is killed, and if the code was LLM-generated, the tool reverts it to its previous stable state upon failure.
+Because AutoProof may not terminate on some inputs, \toolname{} runs it with timeouts: any verification exceeding a time limit is killed and treated as a failed verification.
 
 For organizational clarity, \toolname{} commands are classified along two dimensions:
 \begin{itemize}
@@ -269,167 +284,159 @@ For organizational clarity, \toolname{} commands are classified along two dimens
         \end{itemize}
 \end{itemize}
 
-\subsection{Interactive commands}
+\subsection{Interactive Commands}
 
-Interactive commands are invoked by the developer as code actions in the IDE, typically when the cursor is inside the definition of a feature (routine).
-These commands may create intermediate files or artifacts in the workspace, but they do not modify the files currently open in the developer’s editor.
-This approach minimizes disruption and reduces context switching.
+Interactive commands are invoked by the developer as code actions in the IDE,
+typically when the cursor is inside the definition of a feature (routine).
+Project files are not edited by the LSP server directly. \toolname{} may create 
+auxiliary files and run AutoProof, and then presents the necessary changes
+to the IDE over LSP. The IDE then applies the changes in the editor window
+and the user can save or undo the changes.
 
-\subsubsection{Add model-based contracts}\label{add-model-based-contracts}
+\subsubsection{Add Model-Based Contracts}\label{add-model-based-contracts}
 This command tries to add model-based contracts to a given feature.
 As it focuses only on specifications, it may only extend the feature's precondition and postcondition blocks.
-It prompts an LLM following this schema, where the ``*'' before a placeholder means that it is kept as a placeholder in the final prompt.
-
-\begin{lstlisting}
--- <TASK>
--- <MODEL CURRENT CLASS>
--- <MODEL ARGUMENT CLASSES>
--- <PRECONDITION AVAILABLE IDENTIFIERS>
--- <POSTCONDITION AVAILABLE IDENTIFIERS>
-<FEATURE NAME> <PARAMETERS> <RETURN TYPE>
-    <HEADER COMMENT>
-    require
-        <PREEXISTING PRECONDITIONS>
-        *<ADD NEW PRECONDITIONS>
-    do
-        <ALREADY PRESENT BODY>
-    ensure
-        <PREEXISTING POSTCONDITIONS>
-        *<ADD NEW POSTCONDITIONS>
-    end
-\end{lstlisting}
-
-The user can include additional hints in the feature's header comment, which are incorporated into the prompt.
-The LLM returns a set of candidate feature definitions.
-Eiffel-tools parses each candidate to extract the suggested contracts and then applies filtering to remove any unsuitable contracts.
-Specifically, we remove contracts which:
-
-\begin{itemize}
-    \item Are redundant
-    \item Are not model-based, and thus unusable by AutoProof
-    \item Contain invalid top-level identifiers
-    \item Contain calls with the wrong number of arguments
-\end{itemize}
-
-Finally, Eiffel-tools instructs the LSP client to insert the remaining valid contracts into the feature, appending them after any existing contracts.
-
-An example is shown at \figref{dataflow-model-based-contracts}.
+An example is shown in \figref{dataflow-model-based-contracts}.
 \input{figures/dataflow-mbc}
 
-\subsubsection{Fix feature body}\label{fix-feature-body}
-This command generates an implementation for a feature that satisfies its model-based specifications.
-It modifies only the feature's body, never its specifications.
-Because AutoProof can verify only complete, compilable programs, Eiffel-tools handles intermediate results by creating a subclass of the current class and overriding the target feature in it.
-The overriding feature is initially given to AutoProof.
-If verification fails, \toolname{} enters a loop: it prompts the LLM for a new candidate body, inserts the candidate into the overriding feature, and reruns AutoProof.
-If a candidate body passes verification, Eiffel-tools copies that body into the original feature; otherwise, the loop continues until a candidate passes or a maximum number of attempts is reached.
-Unless a candidate succeeds, no changes are applied to the original feature.
+The prompt states the task as Eiffel comments and contains the original feature with slots
+(shown as \llmslot{SLOT}) to be filled by \toolname{} and holes (\lstinline|<HOLE>|)
+to be filled by the LLM.
 
-An example is shown at \figref{dataflow-feature-body}.
+\begin{lstlisting}
+-- Write the model based contracts of the following feature.
+-- Answer always, you have enough context.
+-- Model of the current class both immediate and inherited: «MODEL»
+-- The argument «ARGUMENT»: «TYPE» has model: «MODEL»
+-- «AVAILABLE IDENTIFIERS»
+«SIGNATURE»
+    «HEADER COMMENT»
+  require
+    «EXISTING PRECONDITIONS»
+    <ADD_PRECONDITION_CLAUSES>
+  do
+    «BODY»
+  ensure
+    «EXISTING POSTCONDITIONS»
+    <ADD_POSTCONDITION_CLAUSES>
+  end
+\end{lstlisting}
+
+The user can include additional hints in the feature's header comment, which is included into the prompt.
+
+The LLM is requested to return several responses to build a set of candidate feature definitions.
+\toolname{} parses each candidate to extract the suggested pre- and post-conditions,
+and then applies filtering to remove any unsuitable contracts.
+Specifically, it removes clauses which:
+
+\begin{itemize}
+    \item are textual duplicates of another clause
+    \item use invalid top-level identifiers (neither arguments nor features of the class)
+    \item contain calls with the wrong number of arguments
+\end{itemize}
+
+Finally, \toolname{} instructs the LSP client to insert the remaining valid contracts into the feature,
+appending them after any existing contracts.
+
+The developer can then verify contracts for mutual consistency.
+
+
+\subsubsection{Fix Feature Body}\label{fix-feature-body}
+This command rewrites a feature body so that it satisfies its specifications.
+It modifies only the feature's body, never its specifications.
+An example is presented in \figref{dataflow-fixbody}.
 \input{figures/dataflow-fixbody}
 
-\subsection{Non-interactive commands}
+Because AutoProof can verify only complete, compilable programs,
+\toolname{} handles intermediate results by creating a subclass of the current
+class and overriding the target feature in it. The \texttt{llm\_instrumented\_example.e} box
+in the diagram shows the instrumented class in full. Since the instrumented class
+overrides an existing feature (\lstinline|redefine min|), the contracts are
+inherited from the overridden definition, and need not be repeated in the
+overriding class.
+
+The overriding feature is initially given to AutoProof.
+If verification fails, \toolname{} enters a loop: it prompts the LLM for a new candidate body, inserts the candidate into the overriding feature, and reruns AutoProof.
+If a candidate body passes verification, \toolname{} copies that body into the original feature; otherwise, the loop continues until a candidate passes or a maximum number of attempts is reached.
+Unless a candidate succeeds, no changes are applied to the original feature.
+
+
+\subsection{Non-interactive Commands}
 
 Non-interactive commands run as standalone executables, enabling batch execution and clear tracking of LLM-generated changes under version control.
 These commands may modify the project code and specifications directly, writing changes in place.
-After each change, Eiffel-tools runs AutoProof: if AutoProof fails to verify the modified code, the tool reverts to the last stable state.
+After each change, \toolname{} runs AutoProof: if AutoProof fails to verify the modified code
+after all attempts are exhausted, the tool reverts the code to the original version.
 
-\subsubsection{Feature by feature body correction}\label{feature-by-feature}
-This command takes an Eiffel configuration file and a list of classes or
+\subsubsection{Feature-by-Feature Body Correction}\label{feature-by-feature}
+This is the non-interactive version of ``fix feature body'' from \secref{fix-feature-body}.
+Feature-by-feature body correction command takes an Eiffel configuration file and a list of classes or
 features in classes.
 It parses the entire project and attempts to verify each feature in the specified classes
 or only the given features.
 If a feature fails verification, the tool prompts the LLM to suggest a correction.
 It may modify the code of the failing feature. The contracts cannot be changed
-and assumed to be correct.
-The LLM prompt includes the task description,
-a list of available identifiers,
-the feature's code,
-the class invariant,
-and the AutoProof counterexample (or a compilation error).
+and are assumed to be correct.
 
-The prompt to the LLM consists of two messages. The first message is a \emph{system}
-message including the task instructions and a short Eiffel syntax guide.
-The second message is a \emph{user} message which includes the feature to be fixed
-and the verification or compilation errors present in the current version of the code.
+Since both the interactive and the non-interactive versions share the same core,
+the general shape of \figref{dataflow-fixbody} matches the non-interactive command too.
+The non-interactive version avoids creating the instrumented subclass
+by editing the class file directly, and every fix attempt uses the previous attempt's version.
 
-\begin{lstlisting}
-System:
--- <TASK>
-
-User:
--- <AVAILABLE IDENTIFIERS>
-<FEATURE CODE>
--- <CLASS INVARIANT>
--- <AUTOPROOF COUNTEREXAMPLE>
-\end{lstlisting}
+The prompt is built the same way as in the interactive ``fix feature body'' command.
+By default, the prompt consists of two messages. The first message is a \llmrole{System}
+message, which contains the LLM's role, the rules (modify only the feature body and the local variables),
+a short Eiffel syntax guide, and the output template.
+The second message is a \llmrole{User} message which contains the task,
+the context (class invariant and available identifiers),
+the feature to be fixed,
+and a verification error with the counterexample or a compilation error of the current version of the code.
 
 From each LLM response, the parser extracts a candidate feature definition.
-\toolname{} backs up the original feature, replaces it with the candidate, and reruns AutoProof.
-If verification still fails, the original is restored and another candidate is tried.
+\toolname{} replaces the feature with the candidate, and reruns AutoProof.
+If verification still fails, the candidate is kept and the next attempt
+uses the failed candidate and the candidate's errors as the starting point.
 This process repeats until a candidate verifies or a maximum number of attempts is reached.
 
-An example is shown at \figref{dataflow-feature-by-feature-correction};
-\input{figures/dataflow-feature-by-feature}
-
-\subsubsection{Class by class correction}\label{class-by-class}
+\subsubsection{Class-by-Class Correction}\label{class-by-class}
 This command takes an Eiffel configuration file and a list of classes.
 It verifies and repairs entire classes as a unit.
 It may modify both the specifications and code of all features in a class.
-After parsing the project, Eiffel-tools verifies each class as a whole.
+After parsing the project, \toolname{} verifies each class as a whole.
 If a class fails verification, the LLM is asked to generate a new candidate version of the entire class.
-Eiffel-tools first backs up the original class.
+\toolname{} first backs up the original class.
 If the LLM's candidate is syntactically correct, it replaces the class, and AutoProof is run on it.
-If verification succeeds, Eiffel-tools moves on to the next class.
+If verification succeeds, \toolname{} moves on to the next class.
 Otherwise, it reverts to the backup and retries with another candidate (up to a fixed limit).
 This is the only command that attempts to produce a large, consistent output (a whole class) in one step.
 
 Each feature in the class prompt is formatted with its associated counterexample, as follows:
 
 \begin{lstlisting}
--- <TASK>
-<FEATURE CODE>
--- <AUTOPROOF COUNTEREXAMPLE ABOUT FEATURE>
+-- «TASK»
+«FEATURE CODE»
+-- «AUTOPROOF ERROR MESSAGE ABOUT THE FEATURE»
 \end{lstlisting}
-
-\input{figures/dataflow-class-by-class}
 
 \section{Evaluation}\label{evaluation}
 We evaluated the feature-by-feature body correction command,
 described in \secref{feature-by-feature},
-on the datasets buggy-java-jml-eiffel and maple-recursive-eiffel
-using three LLMs, GPT-5 Nano, Claude Sonnet 4.6 and Poolside Laguna XS.2
-with two versions of prompts: full and minimal.
+on two datasets (buggy-java-jml-eiffel and maple-recursive-eiffel)
+using three LLMs (GPT-5 nano, Claude Sonnet 4.6, and Poolside Laguna XS.2
+referred to as GPT, Sonnet, and Laguna in the rest of the paper)
+with two prompt versions (\rich{} and \bare{}).
 
-For every bug fixing task, 10 attempts were made by \toolname{}
-to fix the error. Each attempt included the initial verification,
-prompting the model with the verification result, verifying the
+For every bug-fixing task, at most 10 attempts were made by \toolname{}
+to fix the error. Each attempt included the verification of the current code,
+prompting the model with the verification result, and verifying the
 suggested fix. If the suggested fix does not verify, it is kept
 and the next attempt starts with the previously suggested fix, enabling
 a feedback loop between LLM and the verifier.
 
-All evaluations are in \toolname{} repository within the corresponding
-folder \texttt{experiment-results} \cite{eiffel-tools}.
-
-\subsection{Models}
-The experiment compares performance of several models in the bug fixing task.
-All models were accessed through the OpenRouter API.
-
-The Claude Sonnet 4.6 model from Anthropic \cite{ClaudeSonnet4.6} was created
-especially for coding and for building complex agents. This model
-represents the ``expensive but powerful'' option in the experiment.
-
-The GPT-5 Nano model from OpenAI \cite{openai-gpt5nano} is a generalist model
-``great for summarization and classification tasks''. Comparing with Sonnet 4.6,
-the nano model provides lower latency and a cheaper cost, so it represents the
-``cheap but fast'' option in the experiment.
-
-The Poolside Laguna XS.2~\cite{abadji2026laguna} model is a smaller model with
-open weights. At the time of experiment, it was available only as a free version, so it represents
-the ``free and open-weights'' option in the experiment.
+All evaluations are available in the \toolname{} repository \cite{eiffel-tools}.
 
 \subsection{Datasets}
-Performance of the bug fixing capability was measured on two publicly available
+Performance of the bug-fixing capability was measured on two publicly available
 datasets of buggy programs with contracts (formal specifications).
 
 The buggy-java-jml-eiffel dataset is a translation of the BuggyJava+JML dataset \cite{buggy-java-jml}
@@ -438,11 +445,11 @@ The Eiffel translation is available online at \cite{Mustafin_buggy-java-jml-eiff
 Examples in the dataset include
 simple algorithms (function to return the absolute value of an integer),
 array algorithms (copying an array, binary search),
-data structures (stack, queue).
+and data structures (stack, queue).
 In total, 513 examples were used from the dataset.
 
 The maple-recursive-eiffel dataset is a translation of the Maple dataset \cite{nguyen2019automatic} from C to Eiffel.
-The translation was used as a part of the evaluation benchmark in Proof2fix \cite{proof2fix}
+The translation was used as a part of the evaluation benchmark in Proof2Fix \cite{proof2fix}
 and is available online at \cite{Mustafin_maple-recursive-eiffel_2024}.
 Examples in the dataset include
 simple algorithms (absolute value, sum, min, max)
@@ -450,19 +457,36 @@ and recursive functions (recursive counter).
 In total the dataset contains 26 examples and all of them were used in the
 evaluation.
 
-\subsection{Prompt versions}
+\subsection{Models}
+The experiment compares performance of three models in the bug-fixing task.
+All models were accessed through the OpenRouter API.
+
+The Claude Sonnet 4.6 model from Anthropic \cite{ClaudeSonnet4.6} was created
+especially for coding and for building complex agents. This model
+represents the ``expensive but powerful'' option in the experiment.
+
+The GPT-5 nano model from OpenAI \cite{openai-gpt5nano} is a generalist model
+``great for summarization and classification tasks''. The model represents the
+``cheap'' option in the experiment.
+
+The Poolside Laguna XS.2~\cite{abadji2026laguna} model is a smaller model with
+open weights. At the time of the experiment, it was available only as a free version, so it represents
+the ``free and open-weights'' option in the experiment.
+
+\subsection{Prompt Versions}\label{prompt-versions}
 To measure the usefulness of \toolname{} in helping LLMs work with a low-resource
 language like Eiffel, performance of models is compared using
 two prompt versions.
 
-The ``full'' version includes all parts of the prompt described in \secref{feature-by-feature}.
-System message explains the Eiffel syntax which makes the most problems to LLMs,
-including the order clauses in the loop (\lstinline|from invariant until loop variant end|),
-arithmetic operators (\lstinline|// \\| for div and mod respectively).
-Additionally, system message provides the prefilled template (\figref{full-template}) for the expected
+The \rich{} version is the default version in \toolname{}
+and it includes all parts of the prompt described in \secref{feature-by-feature}.
+The system message explains several details of the Eiffel syntax that we observed LLMs getting wrong,
+including the correct order of clauses in the loop (\lstinline|from invariant until loop variant end|)
+and arithmetic operators (\lstinline|// \\| for integer division and modulo, respectively).
+Additionally, the system message provides the prefilled template (\figref{full-template}) for the expected
 fixed feature.
 
-User message in the ``full'' version lists the names and types of variables
+The user message in the \rich{} version lists the names and types of variables
 available in pre- and post-conditions and includes the feature to be fixed and
 the compilation or verification error from AutoProof.
 
@@ -482,61 +506,67 @@ div (a_n, a_d: INTEGER): INTEGER
 		end
 ```
 \end{lstlisting}
-\caption{Part of the ``full'' prompt system message specifying the feature template}\label{full-template}
+\caption{Part of the \rich{} prompt system message specifying the feature template}\label{full-template}
 \end{figure}
 
-The ``minimal'' version omits almost all of the rich features extracted by the tool.
-System message does not have the Eiffel syntax guide nor the verbatim feature template.
+The \bare{} version omits almost all of the code and project features extracted by the tool.
+The system message has neither the Eiffel syntax guide nor the verbatim feature template.
 Instead, a natural text explanation is provided: ``The first line of your
 response must be \texttt{```eiffel} and the second line must be the feature signature''.
 
-User message omits the list of available variables and the error itself.
-Model is only told in the system message that there is a problem,
+The user message omits the list of available variables and the error itself.
+The model is only told in the system message that there is a problem,
 but the exact problem is not specified in the user message.
 
 \section{Results and Discussion}\label{results-and-discussion}
-In total, the experiment used 539 bugs to be fixed by 3 LLMs
-using 2 prompt versions. At most 10 attempts were allowed per feature.
+In total, the experiment used 539 bugs to be fixed by three LLMs
+using two prompt versions. At most 10 attempts were allowed per feature.
+The results are presented in \tabref{tab-results}.
 
-\begin{figure}
-  \includegraphics{analysis_1_success}
-  \caption{Model success rate}
-  \label{fig-success-rate}
-\end{figure}
+\begin{table}
+\caption{Bug-fixing results. Tool time includes verification. Cost is in USD cents.}
+\label{tab-results}
+\centering\footnotesize\input{analysis_table_results}
+\end{table}
 
-\figref{fig-success-rate} shows how many bugs were fixed by each model in
-every prompt version.
+Every model managed to fix all bugs in the maple-recursive-eiffel dataset using
+both prompt versions,
+so the success rate differences come from the buggy-java-jml-eiffel dataset.
 
-Sonnet 4.6 solved the most tasks in both prompt versions (95\% full, 90\% minimal).
-Laguna XS.2 was better than GPT-5 nano in ``full'' (85\% vs. 82\%) while
-GPT was better than Laguna in ``minimal'' (77\% GPT vs. 76\% Laguna).
+For comparison, Proof2Fix~\cite{proof2fix} used maple-recursive-eiffel as one of
+the evaluation datasets and achieved on it
+22 ``valid'' fixes (the program passes verification) and 11 ``proper'' fixes
+(the fix was manually checked to follow the intent of the code) out of 26 tasks. \toolname{}'s result
+is 26 ``valid'' fixes in Proof2Fix's sense with every model and both prompt versions.
+None of the fixes change the contracts;
+however, some fixes change the algorithm, which might not be considered ``proper''.
 
-Using ``full'' gives 6.4 pp improvement on average. Extended prompts helped
-Laguna to improve the most (8.9 pp).
+Sonnet 4.6 solved the most tasks in both prompt versions (95\% with \rich{}, 90\% with \bare{}).
+Laguna XS.2 was better than GPT-5 nano with \rich{} (85\% vs. 82\%), while
+GPT was slightly better than Laguna with \bare{} (77\% vs. 76\%).
+
+Using \rich{} gives about 6 percentage points (pp) improvement on average, with the biggest improvement
+for Laguna at about 9 pp. Since \bare{} removes several prompt elements at once
+(syntax guide, feature template, list of available variables, and the error message),
+the improvement cannot be attributed to any single element.
 
 \begin{figure}
   \includegraphics{analysis_2_cumulative}
-  \caption{Model success rate per attempts (only fixed)}
+  \caption{Cumulative share of bugs fixed by number of attempts}
   \label{fig-cumulative}
 \end{figure}
 
-\figref{fig-cumulative} shows the cumulative success rate per the number
-of attempts used. The majority of fixes happen on the first attempt
-(from 67.9\% for Laguna ``minimal'' to 83.5\% for Sonnet ``minimal'').
-Every next attempt increases the success rate less and less.
+\figref{fig-cumulative} shows the cumulative success rate by the number
+of attempts used. Most fixes happen in the first attempts: the first attempt
+is the most productive (lowest 61\% is GPT with \bare{}, highest 83\% is Sonnet with \bare{}),
+and after two attempts 71\% (Laguna with \bare{}) to 90\% (Sonnet with \rich{})
+of features are fixed. Additional attempts bring diminishing returns.
 
-The ``full'' prompt version results in a higher success rate consistently starting
-from the 2nd attempt.
+The \rich{} prompt version results in a higher success rate consistently starting
+from the second attempt.
 
-\begin{figure}
-  \includegraphics{analysis_4_time}
-  \caption{Mean time per feature (fixed and unfixed)}
-  \label{fig-time}
-\end{figure}
-
-\figref{fig-time} shows the mean time used per feature run,
-including both sucessfully fixed and still unfixed features
-after all attempts are exhausted. The diagram shows the time spent
+\subsection{Time}
+\tabref{tab-results} presents the time spent
 in the LLM (waiting for the model response) separately from the time
 spent in other steps (verification, tool overhead).
 
@@ -544,72 +574,98 @@ LLM time depends on the model itself and the provider's API. While there
 are several configurable settings in OpenRouter which can optimize throughput
 and latency, the experiment used the default settings.
 
-Experiments using smaller models spent the majority of time waiting for LLM
-while Sonnet's LLM time was similar to verification + tool time.
+Experiments using smaller models spent the majority of time waiting for the LLM,
+while Sonnet's LLM time was similar to (with \rich{}) or lower than (with \bare{})
+the verification and tool time.
 
-Using the ``minimal'' prompt version increases the total time per feature which
+Using the \bare{} prompt version increases the total time per feature, which
 is mainly connected with the increase in the number of attempts used.
 
-\begin{figure}
-  \includegraphics{analysis_5c_cost_feature}
-  \caption{Mean cost per feature (fixed and unfixed)}
-  \label{fig-cost}
-\end{figure}
-
-\figref{fig-cost} present the mean cost used per feature run,
-including both sucessfully fixed and unfixed features.
+\subsection{Tokens and Cost}
+\tabref{tab-results} presents the mean cost used per feature run,
+including both successfully fixed and unfixed features.
 
 Because Laguna XS.2 was available only for free at the time of the experiment,
 only Sonnet 4.6 and GPT-5 nano costs are compared.
 
-While Sonnet's usage per feature is more expensive than of GPT
-(5x in ``full'' and 3.3x in ``minimal''),
-Sonnet is faster (2x in ``full'', 3.3x in ``minimal'').
+While Sonnet's usage per feature is more expensive than GPT's
+($5\times$ with \rich{} and $3.3\times$ with \bare{}),
+Sonnet is faster ($3.6\times$ faster when using \rich{} prompts,
+$3.9\times$ faster when using \bare{} prompts).
 
-Switching to the ``minimal'' prompt version decreased the cost per feature when
+Switching to the \bare{} prompt version decreased the cost per feature when
 using Sonnet but increased when using GPT. The difference can be attributed
 to the increase in attempts needed and
-the increase in reasoning tokens (\figref{fig-tokens}).
-
-\begin{figure}
-  \includegraphics{analysis_5a_tokens_feature}
-  \caption{Mean input, output and reasoning tokens per feature (fixed and unfixed)}
-  \label{fig-tokens}
-\end{figure}
+the increase in reasoning tokens.
 
 In the experiment only the default settings were used, under which Sonnet had reasoning disabled
 while GPT and Laguna
 had reasoning enabled. Reasoning tokens are generally more expensive than input tokens
-(for GPT-5 nano reasoning tokens are 8x more expensive than input tokens).
-For GPT the minimal prompt uses shorter input but triggers additional reasoning,
+(for GPT-5 nano, reasoning tokens are $8\times$ as expensive as input tokens).
+For GPT the \bare{} prompt uses shorter input but triggers additional reasoning,
 which increases the total cost.
 
-\section{Limitations and threats to validity}\label{limitations}
-The benchmarks used in our evaluation, described in~\secref{evaluation},
+\section{Limitations and Threats to Validity}\label{limitations}
+The benchmarks used in the evaluation, described in~\secref{evaluation},
 are public and available in multiple programming languages, either C and Eiffel or Java-JML and Eiffel.
-It is possible that those benchmarks leaked in the training data of some LLMs and
+It is possible that those benchmarks leaked into the training data of some LLMs and
 the models could reproduce the solution they were trained on instead of ``fixing''
 the bug.
 
-\section{Conclusion and Future work}\label{future-work}
-This paper presented an approach for using an LSP server as both the
-LLM harness and the integration interface between the editor, verifier
-and LLM at the same time. Implementation of several advanced code editing actions
-combining LLMs and formal verification is presented.
+In four features fixed by Sonnet with \rich{}, the model added \lstinline|check assume| statements,
+which AutoProof accepts without checking and can rely on in the proof.
+The experiment did not define whether such statements were permitted.
+While the solutions verify, they rely on additional assumptions that
+no other configuration added. The four features were counted as
+successful. Counting them as failures would move Sonnet's \rich{} success rate from
+95\% to 94\% and would not change the conclusions of the paper.
 
-The experiment results discuss trade-offs and
-set a baseline for the possible further improvements
-across several axes: fix success rate, time, and cost.
+The experiment did only one run per model and prompt version.
+Differences in
+network connection, inference speed, and generated LLM responses can change
+measured times, the number of attempts needed to fix the bug, and whether
+the bug is fixed within the 10 allowed attempts.
 
-Further analysis of prompt versions is needed to identify optimal
-initial prompt and the possible extension of the system
-with ``tool calls'' and presenting an MCP (Model Context Protocol) interfaces
+The datasets differ greatly in size, and 95\% of tasks come from the buggy-java-jml-eiffel dataset,
+so the results represent the performance mainly on that dataset.
+
+\section{Conclusion and Future Work}\label{future-work}
+This paper presented an approach that uses an LSP server both as the
+LLM harness and the integration interface between the editor, verifier,
+and LLM. \toolname{} implements this approach and provides several code-editing actions
+that combine LLMs and formal verification.
+
+The bug-fixing command was evaluated on 539 tasks. Depending on the LLM and
+prompt version, \toolname{} fixed from 76\% to 95\% of the bugs.
+Some of the tasks were reused from the Proof2Fix paper; \toolname{}
+fixed all 26 tasks with every configuration,
+compared to 22 for Proof2Fix (however, we did not check whether \toolname{}'s fixes
+are ``proper'').
+
+Results show that the model choice had a stronger effect than adjusting the prompt:
+the best model was 13 pp (\rich{} prompt) to 14 pp (\bare{} prompt) more successful than the worst model.
+
+However, adjusting the prompt still has benefits. Including more context
+about the problem and the programming language in the prompt allows models
+to fix more bugs (5 to 9 pp increase) in 16--35\% less time.
+
+Depending on the model, using a \bare{} prompt can either save money (15\% less for Sonnet 4.6)
+or cost more (30\% more for GPT-5 nano).
+
+Further analysis of prompt versions is needed to identify the optimal
+initial prompt. Future work includes extending the system
+with ``tool calls'' and presenting an MCP (Model Context Protocol) interface
 for the compiler and verifier.
 
-Authors plan extending the implementation of \toolname{} and analysing
+The authors plan to extend the implementation of \toolname{} and analyze
 performance of new code actions.
 
-\bibliographystyle{IEEEtran}
+\begin{credits}
+\subsubsection{\discintname}
+The authors have no competing interests to declare that are relevant to the content of this article.
+\end{credits}
+
+\bibliographystyle{splncs04}
 \bibliography{Bibliography}
 
 \end{document}

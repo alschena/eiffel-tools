@@ -1,103 +1,173 @@
-%An example is shown at \figref{dataflow-model-based-contracts}.
+% Data-flow diagram of "Add model-based contracts", in the style of dataflow-fixbody.tex.
+% Checked against add_routine_specification.rs, generators.rs (more_routine_specifications),
+% prompt/feature_prompt.rs (model_based_contracts), fix.rs:
+%  - user message = the feature source with holes <ADD_*_CLAUSES> and comment lines on top
+%    (task, model of the class/arguments, available identifiers)
+%  - one request for several responses (n = 50 in the code; providers may return fewer);
+%    every parsable response contributes its clauses
+%  - all clauses are merged, then filtered: duplicates / clauses already present, unknown
+%    top-level identifiers, calls with a wrong number of arguments
+%  - the remaining clauses are appended to the pre/postcondition blocks by one LSP edit;
+%    an empty block (here: no precondition) inserts nothing
+% The example is the same feature as in the fix-body figure: the edited file here is the
+% input example.e there (the postcondition comes from the header comment).
+% Layout: left skewer: example.e, prompt, example.e (edited);
+% right column: LLM response, clauses (starting level with the prompt).
+%
+% No scaling: the picture is drawn at its final size, all text is 7pt (\scriptsize),
+% Springer's minimum is 6pt. Width budget (\linewidth = 12.2cm):
+% prompt 5.0cm + gap 1.95cm + right column 4.6cm, plus 2 x 2 x 4pt inner sep = 12.11cm.
 
 \begin{figure}
-    \begin{tikzpicture}[every node/.style={fill=white, font=\sffamily, scale=0.8, text width=5.5cm}]
-        \node (start) [code, label=below:Initial feature] {
-            \begin{lstlisting}
-min (x, y: INTEGER): INTEGER
-    -- Header comment
-    require
-        True
+    \centering
+    % listings in this figure: no extra space around them, everything at 7pt
+    \lstset{aboveskip=0pt, belowskip=0pt,
+        basicstyle=\linespread{0.9}\scriptsize,
+        identifierstyle=\color[HTML]{000000}\scriptsize\ttfamily,
+        commentstyle=\color[HTML]{F10000}\scriptsize\ttfamily,
+        keywordstyle={\color[HTML]{222277}\scriptsize\bfseries\ttfamily},
+        keywordstyle=[2]{\color[HTML]{2233CC}\scriptsize\ttfamily},
+        keywordstyle=[3]{\color[HTML]{222277}\scriptsize\bfseries\ttfamily}}
+    % removed clauses: the same listing style, all in grey
+    \lstdefinestyle{removed}{
+        basicstyle=\linespread{0.9}\scriptsize\color{gray},
+        identifierstyle=\color{gray}\scriptsize\ttfamily,
+        keywordstyle=\color{gray}\scriptsize\bfseries\ttfamily,
+        keywordstyle=[2]{\color{gray}\scriptsize\ttfamily},
+        commentstyle=\color{gray}\scriptsize\ttfamily,
+    }
+    \def\removednote#1{\par\hspace*{0.5cm}{\itshape removed: #1}\par\smallskip}
+    % header strip: title, then a rule across the whole box (box inner sep is 4pt)
+    \def\boxhead#1{{\bfseries #1}\par\nointerlineskip\vspace{3pt}%
+        \noindent\makebox[\linewidth][c]{\rule{\dimexpr\linewidth+8pt\relax}{0.4pt}}\par\nointerlineskip\vspace{3pt}}
+    \begin{tikzpicture}[
+        every node/.style={font=\sffamily\scriptsize},
+        box/.style={code, text width=4.6cm, inner sep=4pt, align=left, font=\sffamily\scriptsize,
+                    execute at begin node={\hyphenpenalty=10000\exhyphenpenalty=10000}},
+        flow/.style={->, thick},
+        note/.style={font=\sffamily\scriptsize},
+    ]
+        % skewer axis S = centre of the 5.0cm prompt box; right column starts at R
+        \coordinate (S) at (2.64,0);
+        \coordinate (R) at (7.23,0);
+
+        % Left skewer: example.e ------------------------------------------------------------
+        \node (init) [box, anchor=north] at (S) {\boxhead{example.e}
+\begin{lstlisting}[xleftmargin=0.1cm]
+class EXAMPLE
+feature
+  min (x, y: INTEGER): INTEGER
+      -- Smaller of x and y.
     do
-        Result := x
-    ensure
-        True
+      Result := x
     end
+end
 \end{lstlisting}
         };
 
-        \node (prompt) [code, right = of start, yshift=-100pt, label=below:Generated prompt] {
-            \begin{lstlisting}
--- <task>
--- <model current class>
--- <model argument classes>
--- <precondition available ids>
--- <postcondition available ids>
+        \coordinate (row1) at ([yshift=-15mm]init.south);
+
+        % Left skewer: prompt ---------------------------------------------------------------
+        \node (prompt) [box, text width=5.0cm, anchor=north] at (row1 -| S) {\boxhead{Prompt}
+\llmrole{System:} You are a coding assistant, expert in the Eiffel programming
+language and in formal methods. [\dots\unkern] You will receive a prompt in Eiffel
+code with holes of the form <ADD\_*>. Write only model-based contracts [\dots\unkern]
+Respond with the same code, substituting the holes with valid Eiffel code.\par\smallskip
+\llmrole{User:}\par\smallskip
+\begin{lstlisting}[xleftmargin=0.1cm]
+-- Write the model based contracts
+-- of the following feature. [...]
+-- Top level identifiers available
+-- in the preconditions: Current:
+-- EXAMPLE, x: INTEGER, y: INTEGER.
+-- [...]
 min (x, y: INTEGER): INTEGER
-    -- Header comment
-    require
-        True
-        <ADD NEW PRECONDITIONS>
-    do
-        Result := x
-    ensure
-        True
-        <ADD NEW POSTCONDITIONS>
-    end
+    -- Smaller of x and y.
+  require
+    <ADD_PRECONDITION_CLAUSES>
+  do
+    Result := x
+  ensure
+    <ADD_POSTCONDITION_CLAUSES>
+  end
 \end{lstlisting}
         };
-        \draw[->, thick] (start) -- (prompt);
 
-        \node (llm-candidate) [code, left = of prompt, yshift=-115pt, label=below:Generated llm-candidate] {
-            \begin{lstlisting}
+        % Right column: LLM response, clauses ----------------------------------------------------
+        \node (cand) [box, anchor=north west] at (row1 -| R) {\boxhead{LLM response (one of several)}
+\begin{lstlisting}[xleftmargin=0.1cm]
 min (x, y: INTEGER): INTEGER
-    -- Header comment
-    require
-        True
-        llm-candidate-pre1
-        llm-candidate-pre2
+    -- Smaller of x and y.
+  require
+    valid: is_valid (x)
+  do
+    Result := x
+  ensure
+    res: (Result = x or Result = y)
+      and Result <= x and Result <= y
+  end
+\end{lstlisting}
+        };
+
+        \node (clauses) [box, anchor=north west] at ([yshift=-12mm]cand.south -| R)
+            {\boxhead{Clauses from all responses}
+Precondition clauses:\par\smallskip
+\begin{lstlisting}[style=removed, xleftmargin=0.1cm]
+valid: is_valid (x)
+\end{lstlisting}
+\removednote{unknown feature \texttt{is\_valid}}
+[\dots\unkern]\par\medskip
+Postcondition clauses:\par\smallskip
+\begin{lstlisting}[xleftmargin=0.1cm]
+res: (Result = x or Result = y)
+  and Result <= x and Result <= y
+\end{lstlisting}
+\smallskip
+\begin{lstlisting}[style=removed, xleftmargin=0.1cm]
+res: (Result = x or Result = y)
+  and Result <= x and Result <= y
+\end{lstlisting}
+\removednote{duplicate}
+[\dots\unkern]
+        };
+
+        % Left skewer: result below the prompt --------------------------------------------------
+        \node (after) [box, anchor=north] at ([yshift=-15mm]prompt.south -| S)
+            {\boxhead{example.e (edited)}
+\begin{lstlisting}[xleftmargin=0.1cm]
+class EXAMPLE
+feature
+  min (x, y: INTEGER): INTEGER
+      -- Smaller of x and y.
     do
-        Result := x
+      Result := x
     ensure
-        True
-        llm-candidate-post1
-        llm-candidate-post2
+      res: (Result = x or Result = y)
+        and Result <= x and Result <= y
     end
+end
 \end{lstlisting}
         };
-        \draw[->, thick] (prompt) -- (llm-candidate);
 
-        \node (extracted-contracts) [code, right = of llm-candidate,
-        yshift=-100pt, label=below:Extracted contracts] {
-            \begin{lstlisting}[language=]
-new-preconditions:
-  llm-candidate-pre1
-  llm-candidate-pre2
+        % Arrows ------------------------------------------------------------------------
+        % Arrow captions are operations performed by the tool: right of vertical arrows,
+        % above horizontal ones. Captions in the right column are wrapped narrow enough
+        % not to stick out past the right edge.
+        \draw[flow] (init.south) -- (prompt.north)
+            node[midway, right, note, align=left]
+                {construct prompt with holes\\for contracts and available\\identifiers};
 
-new-postconditions:
-  llm-candidate-post1
-  llm-candidate-post2
-\end{lstlisting}
-        };
-        \draw[->, thick] (llm-candidate) -- (extracted-contracts);
+        \draw[flow] (prompt.east |- cand.west) -- (cand.west)
+            node[midway, above, note, align=center] {query LLM for\\several responses};
 
-        \node (filtered-contracts) [code, left = of extracted-contracts, yshift=-60pt, label=below:Filtered contracts] {
-            \begin{lstlisting}[language=]
-new-preconditions:
-  llm-candidate-pre1
+        \draw[flow] (cand.south) -- (clauses.north)
+            node[midway, right, note, align=left]
+                {collect clauses\\of all responses,\\filter them};
 
-new-postconditions:
-  llm-candidate-post2
-\end{lstlisting}
-        };
-        \draw[->, thick] (extracted-contracts) -- (filtered-contracts);
-
-        \node (initial-feature-after-edits) [code, right = of filtered-contracts, yshift=-100pt,label=below:Feature after edits] {
-            \begin{lstlisting}
-min (x, y: INTEGER): INTEGER
-    -- Header comment
-    require
-        True
-    do
-        Result := x
-    ensure
-        True
-        res: (Result = x or Result = y)
-            and Result <= x and Result <= y
-    end
-\end{lstlisting}
-        };
-        \draw[->, thick] (filtered-contracts) -- (initial-feature-after-edits);
+        % caption right of the vertical part, wrapped narrow enough to stay inside the right edge
+        \draw[flow] (clauses.south) |- (after.east)
+            node[pos=0.25, right, note, align=left]
+                {append remaining\\contracts into the\\feature (LSP edit)};
     \end{tikzpicture}
-    \caption{Dataflow of a feature in the add model-based contracts command}\label{dataflow-model-based-contracts}
+    \caption{Dataflow of the add model-based contracts command}\label{dataflow-model-based-contracts}
 \end{figure}
